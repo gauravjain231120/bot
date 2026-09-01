@@ -402,6 +402,33 @@ a {
   }
 }
 
+.stock-line {
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-top: 2px;
+}
+.stock-line.ok {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.stock-line.low {
+  color: #b45309;
+}
+:root[data-theme='dark'] .stock-line.low {
+  color: #fbbf24;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .stock-line.low {
+    color: #fbbf24;
+  }
+}
+.stock-line.out {
+  color: var(--bad);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 .sku-tag {
   display: inline-block;
   background: var(--accent-soft);

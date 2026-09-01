@@ -3,6 +3,7 @@ import { getDb } from '../../../lib/db';
 import { isAuthed } from '../../../lib/adminAuth';
 import { fetchOpenOrders, fetchOrderItems, pickImageUrl } from '../../../lib/myntra';
 import { fetchUnshippedOrders, pickAmazonImage, amazonOrderDateMs, amazonShipByDateMs, extractVariant } from '../../../lib/amazon';
+import { lookupStock } from '../../../lib/stock';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,13 +35,19 @@ async function loadMyntraOrders(db) {
         quantity: order.quantity,
         orderDateMs: order.orderDate,
         shipByMs: order.packByTime || null,
-        items: items.map((item) => ({
-          sku: item.sellerSkuCode || item.skuCode,
-          name: item.productDisplayName,
-          size: item.size,
-          color: item.color,
-          image: pickImageUrl(item),
-        })),
+        items: await Promise.all(
+          items.map(async (item) => {
+            const sku = item.sellerSkuCode || item.skuCode;
+            return {
+              sku,
+              name: item.productDisplayName,
+              size: item.size,
+              color: item.color,
+              image: pickImageUrl(item),
+              stock: await lookupStock(sku),
+            };
+          })
+        ),
       };
     })
   );
@@ -61,23 +68,28 @@ async function loadAmazonOrders(db) {
     return { orders: [], error: `Amazon: failed to load orders${status ? ` (HTTP ${status})` : ''}` };
   }
 
-  const mapped = orders.map((order) => ({
-    source: 'amazon',
-    orderId: order.amazonOrderId,
-    quantity: (order.orderItems || []).reduce((sum, item) => sum + (item.quantityOrdered || 1), 0),
-    orderDateMs: amazonOrderDateMs(order),
-    shipByMs: amazonShipByDateMs(order),
-    items: (order.orderItems || []).map((item) => {
-      const { size, color } = extractVariant(item);
-      return {
-        sku: item.sellerSku,
-        name: item.productName || item.extendedTitle,
-        size,
-        color,
-        image: pickAmazonImage(item),
-      };
-    }),
-  }));
+  const mapped = await Promise.all(
+    orders.map(async (order) => ({
+      source: 'amazon',
+      orderId: order.amazonOrderId,
+      quantity: (order.orderItems || []).reduce((sum, item) => sum + (item.quantityOrdered || 1), 0),
+      orderDateMs: amazonOrderDateMs(order),
+      shipByMs: amazonShipByDateMs(order),
+      items: await Promise.all(
+        (order.orderItems || []).map(async (item) => {
+          const { size, color } = extractVariant(item);
+          return {
+            sku: item.sellerSku,
+            name: item.productName || item.extendedTitle,
+            size,
+            color,
+            image: pickAmazonImage(item),
+            stock: await lookupStock(item.sellerSku),
+          };
+        })
+      ),
+    }))
+  );
 
   return { orders: mapped, error: null };
 }

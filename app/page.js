@@ -366,6 +366,11 @@ export default function AdminPage() {
                         {item.color ? ` · ${item.color}` : ''}
                       </div>
                       {item.sku && <span className="sku-tag">{item.sku}</span>}
+                      {item.stock && (
+                        <div className={`stock-line ${item.stock.level}`}>
+                          {item.stock.level === 'out' ? 'OUT OF STOCK' : `Stock: ${item.stock.label}`}
+                        </div>
+                      )}
                       {order.shipByMs && (
                         <div className="order-card-meta">Ship by {new Date(order.shipByMs).toLocaleDateString()}</div>
                       )}
