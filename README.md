@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Myntra Order Alert Bot
 
-## Getting Started
+Admin app that polls Myntra M-Direct for new orders and alerts on Telegram (with product image + SKU).
 
-First, run the development server:
+## How it works
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Myntra's M-Direct seller portal has no official API, so this replays the internal JSON API
+  (`partnersapi.myntrainfo.com`) that the portal's own frontend calls, using a session captured
+  from a logged-in browser (bot detection on that API blocks automated login, so login itself
+  stays manual — only the polling is automated).
+- `/api/check-orders?secret=...` is the endpoint an external scheduler hits on a timer. It fetches
+  currently open orders, diffs against a MongoDB-tracked set of already-seen order IDs, and sends
+  a Telegram message (with image + SKU) for each genuinely new one.
+- The `/` admin page (password-gated) is where you paste a fresh session whenever the old one
+  expires, and see basic status (last check, open order count, last error).
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+1. `cp .env.example .env.local` and fill in the values (Telegram bot token/chat ID, a MongoDB
+   Atlas connection string, an admin password, and a `CRON_SECRET` you'll also use in the
+   scheduler URL).
+2. `npm install && npm run dev`, then open `http://localhost:3000` and log in with your admin
+   password.
+3. To capture a session: in your own logged-in Chrome, DevTools → Network → right-click a request
+   to `partnersapi.myntrainfo.com/api/mdirect/orders/...` → Copy → Copy as cURL, then paste it into
+   the admin page's "Refresh session" box.
+4. Point an external scheduler (e.g. cron-job.org, every 1–5 minutes) at
+   `https://<your-deployment>/api/check-orders?secret=<CRON_SECRET>`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Notes
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- This uses an unofficial, reverse-engineered internal API — it can break if Myntra changes their
+  frontend, and may not be sanctioned by their ToS. Treat it as a best-effort tool.
+- When the session expires, `/api/check-orders` starts returning 401s, the admin page's status
+  shows the error, and you get one Telegram heads-up — just paste a fresh session.
