@@ -10,16 +10,29 @@ export default function AdminPage() {
   const [curlText, setCurlText] = useState('');
   const [saveMsg, setSaveMsg] = useState('');
   const [checking, setChecking] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   async function loadStatus() {
-    const res = await fetch('/api/status');
-    if (res.status === 401) {
-      setAuthed(false);
-      return;
+    try {
+      const res = await fetch('/api/status');
+      if (res.status === 401) {
+        setAuthed(false);
+        return;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setLoadError(data.error || `Status check failed (HTTP ${res.status})`);
+        setAuthed(true);
+        return;
+      }
+      const data = await res.json();
+      setStatus(data);
+      setLoadError('');
+      setAuthed(true);
+    } catch (err) {
+      setLoadError(`Could not reach the server: ${err.message}`);
+      setAuthed(true);
     }
-    const data = await res.json();
-    setStatus(data);
-    setAuthed(true);
   }
 
   useEffect(() => {
@@ -50,9 +63,9 @@ export default function AdminPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ curl: curlText }),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setSaveMsg(`Error: ${data.error}`);
+      setSaveMsg(`Error: ${data.error || `HTTP ${res.status}`}`);
       return;
     }
     setSaveMsg(`Saved ${data.headerCount} headers.`);
@@ -63,10 +76,10 @@ export default function AdminPage() {
   async function handleCheckNow() {
     setChecking(true);
     const res = await fetch('/api/admin/check-now', { method: 'POST' });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     setChecking(false);
     if (!res.ok) {
-      alert(`Check failed: ${data.error}`);
+      alert(`Check failed: ${data.error || `HTTP ${res.status}`}`);
       return;
     }
     alert(`Checked: ${data.openCount} open orders, ${data.newCount} new.`);
@@ -107,6 +120,7 @@ export default function AdminPage() {
 
       <section className="card">
         <h2>Status</h2>
+        {loadError && <p className="error">Could not load status: {loadError}</p>}
         <p>
           Session captured:{' '}
           {status?.sessionCapturedAt ? new Date(status.sessionCapturedAt).toLocaleString() : 'never'}
