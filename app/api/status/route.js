@@ -11,8 +11,9 @@ export async function GET() {
   }
 
   const db = await getDb();
-  const [sessionDoc, statusDoc] = await Promise.all([
+  const [sessionDoc, amazonSessionDoc, statusDoc] = await Promise.all([
     db.collection('settings').findOne({ _id: 'session' }),
+    db.collection('settings').findOne({ _id: 'session_amazon' }),
     db.collection('settings').findOne({ _id: 'status' }),
   ]);
 
@@ -25,5 +26,9 @@ export async function GET() {
     cancelledCount: statusDoc?.cancelledCount ?? null,
     lastCancelError: statusDoc?.lastCancelError ?? null,
     sessionCapturedAt: sessionDoc?.capturedAt ?? null,
+    amazonLastCheck: statusDoc?.amazonLastCheck ?? null,
+    amazonOpenCount: statusDoc?.amazonOpenCount ?? null,
+    amazonLastError: statusDoc?.amazonLastError ?? null,
+    amazonSessionCapturedAt: amazonSessionDoc?.capturedAt ?? null,
   });
 }

@@ -88,6 +88,8 @@ export default function AdminPage() {
   const [ordersError, setOrdersError] = useState('');
   const [curlText, setCurlText] = useState('');
   const [saveMsg, setSaveMsg] = useState('');
+  const [amazonCurlText, setAmazonCurlText] = useState('');
+  const [amazonSaveMsg, setAmazonSaveMsg] = useState('');
   const [checking, setChecking] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [theme, setTheme] = useState(null);
@@ -147,7 +149,7 @@ export default function AdminPage() {
         return;
       }
       setOrders(data.orders || []);
-      setOrdersError('');
+      setOrdersError(data.error || '');
     } catch (err) {
       setOrdersError(err.message);
     }
@@ -183,21 +185,20 @@ export default function AdminPage() {
     loadStatus();
   }
 
-  async function handleSaveSession(e) {
-    e.preventDefault();
-    setSaveMsg('Saving...');
+  async function saveSession({ curl, marketplace, setText, setMsg }) {
+    setMsg('Saving...');
     const res = await fetch('/api/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ curl: curlText }),
+      body: JSON.stringify({ curl, marketplace }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setSaveMsg(`Error: ${data.error || `HTTP ${res.status}`}`);
+      setMsg(`Error: ${data.error || `HTTP ${res.status}`}`);
       return;
     }
-    setSaveMsg(`Saved ${data.headerCount} headers.`);
-    setCurlText('');
+    setMsg(`Saved ${data.headerCount} headers.`);
+    setText('');
     loadStatus();
     loadOrders();
   }
@@ -208,7 +209,7 @@ export default function AdminPage() {
     const data = await res.json().catch(() => ({}));
     setChecking(false);
     if (!res.ok) {
-      alert(`Check failed: ${data.error || `HTTP ${res.status}`}`);
+      alert(`Check failed — Myntra: ${data.error || 'ok'}, Amazon: ${data.amazonError || 'ok'}`);
       return;
     }
     loadStatus();
@@ -241,7 +242,7 @@ export default function AdminPage() {
     return (
       <main className="center-wrap">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h1>Myntra Order Alerts</h1>
+          <h1>Order Alerts</h1>
           {theme && (
             <button type="button" className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
               {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
@@ -269,7 +270,7 @@ export default function AdminPage() {
   return (
     <main className="wrap">
       <div className="topbar">
-        <h1>Myntra Order Alerts</h1>
+        <h1>Order Alerts</h1>
         <div className="topbar-controls">
           <span className={`pill ${running ? 'live' : 'stopped'}`}>
             <span className="pill-dot" />
@@ -292,28 +293,37 @@ export default function AdminPage() {
       </div>
 
       {loadError && <div className="banner bad">Could not load status: {loadError}</div>}
-      {status?.lastError && <div className="banner bad">New-order check error: {status.lastError}</div>}
+      {status?.lastError && <div className="banner bad">Myntra check error: {status.lastError}</div>}
       {status?.lastCancelError && (
-        <div className="banner bad">Cancellation check error: {status.lastCancelError}</div>
+        <div className="banner bad">Myntra cancellation check error: {status.lastCancelError}</div>
       )}
+      {status?.amazonLastError && <div className="banner bad">Amazon check error: {status.amazonLastError}</div>}
 
       <div className="stat-grid">
         <div className="stat-card">
-          <div className="stat-label">Open orders</div>
+          <div className="stat-label">Myntra open orders</div>
           <div className="stat-value">{status?.openCount ?? '—'}</div>
           <div className="stat-sub">checked {timeAgo(status?.lastCheck)}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Recently cancelled</div>
+          <div className="stat-label">Myntra recently cancelled</div>
           <div className="stat-value">{status?.cancelledCount ?? '—'}</div>
           <div className="stat-sub">last 15 seen · checked {timeAgo(status?.lastCancelCheck)}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Session</div>
-          <div className="stat-value" style={{ fontSize: '1rem' }}>
-            {status?.sessionCapturedAt ? 'Active' : 'Not set'}
+          <div className="stat-label">Amazon open orders</div>
+          <div className="stat-value">{status?.amazonOpenCount ?? '—'}</div>
+          <div className="stat-sub">checked {timeAgo(status?.amazonLastCheck)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Sessions</div>
+          <div className="stat-value" style={{ fontSize: '0.95rem' }}>
+            M: {status?.sessionCapturedAt ? 'Active' : 'Not set'} · A: {status?.amazonSessionCapturedAt ? 'Active' : 'Not set'}
           </div>
-          <div className="stat-sub">captured {timeAgo(status?.sessionCapturedAt)}</div>
+          <div className="stat-sub">
+            {status?.sessionCapturedAt ? timeAgo(status.sessionCapturedAt) : '—'} /{' '}
+            {status?.amazonSessionCapturedAt ? timeAgo(status.amazonSessionCapturedAt) : '—'}
+          </div>
         </div>
       </div>
 
@@ -322,7 +332,7 @@ export default function AdminPage() {
         <span className="muted">{orders ? `${orders.length} order${orders.length === 1 ? '' : 's'}` : ''}</span>
       </div>
 
-      {ordersError && <div className="banner bad">Could not load orders: {ordersError}</div>}
+      {ordersError && <div className="banner bad">{ordersError}</div>}
 
       {orders === null && !ordersError && (
         <div className="order-grid">
@@ -341,7 +351,7 @@ export default function AdminPage() {
           {orders.flatMap((order) =>
             order.items.length > 0
               ? order.items.map((item, i) => (
-                  <div className="order-card" key={`${order.orderId}-${i}`}>
+                  <div className="order-card" key={`${order.source}-${order.orderId}-${i}`}>
                     {item.image ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img className="order-card-image" src={item.image} alt={item.name || 'Product'} />
@@ -349,6 +359,7 @@ export default function AdminPage() {
                       <div className="order-card-image" />
                     )}
                     <div className="order-card-body">
+                      <span className={`source-tag ${order.source}`}>{order.source === 'amazon' ? 'Amazon' : 'Myntra'}</span>
                       <div className="order-card-name">{item.name || 'Unnamed product'}</div>
                       <div className="order-card-meta">
                         {item.size ? `Size ${item.size}` : ''}
@@ -357,19 +368,20 @@ export default function AdminPage() {
                       {item.sku && <span className="sku-tag">{item.sku}</span>}
                       <div className="order-card-footer">
                         <span>#{order.orderId}</span>
-                        <span>{order.orderDate ? new Date(order.orderDate).toLocaleDateString() : ''}</span>
+                        <span>{order.orderDateMs ? new Date(order.orderDateMs).toLocaleDateString() : ''}</span>
                       </div>
                     </div>
                   </div>
                 ))
               : [
-                  <div className="order-card" key={order.orderId}>
+                  <div className="order-card" key={`${order.source}-${order.orderId}`}>
                     <div className="order-card-image" />
                     <div className="order-card-body">
+                      <span className={`source-tag ${order.source}`}>{order.source === 'amazon' ? 'Amazon' : 'Myntra'}</span>
                       <div className="order-card-name">Order #{order.orderId}</div>
                       <div className="order-card-meta">Qty {order.quantity ?? '?'}</div>
                       <div className="order-card-footer">
-                        <span>{order.orderDate ? new Date(order.orderDate).toLocaleString() : ''}</span>
+                        <span>{order.orderDateMs ? new Date(order.orderDateMs).toLocaleString() : ''}</span>
                       </div>
                     </div>
                   </div>,
@@ -382,18 +394,47 @@ export default function AdminPage() {
         <summary>Refresh Myntra session</summary>
         <p>
           DevTools → Network → right-click a partnersapi.myntrainfo.com/api/mdirect/orders request →
-          Copy → Copy as cURL. Paste the whole thing below.
+          Copy → Copy as cURL (or just copy the Headers panel). Paste the whole thing below.
         </p>
-        <form onSubmit={handleSaveSession}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveSession({ curl: curlText, marketplace: 'myntra', setText: setCurlText, setMsg: setSaveMsg });
+          }}
+        >
           <textarea
             rows={6}
             value={curlText}
             onChange={(e) => setCurlText(e.target.value)}
             placeholder="curl --url 'https://partnersapi.myntrainfo.com/...' -H '...' -b '...' ..."
           />
-          <button type="submit">Save session</button>
+          <button type="submit">Save Myntra session</button>
         </form>
         {saveMsg && <p>{saveMsg}</p>}
+      </details>
+
+      <details className="card">
+        <summary>Refresh Amazon session</summary>
+        <p>
+          On sellercentral.amazon.in → DevTools → Network → right-click a request to
+          orders-api/search or orders-api/countOrders → Copy → Copy as cURL (or copy the Headers
+          panel). Paste the whole thing below.
+        </p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveSession({ curl: amazonCurlText, marketplace: 'amazon', setText: setAmazonCurlText, setMsg: setAmazonSaveMsg });
+          }}
+        >
+          <textarea
+            rows={6}
+            value={amazonCurlText}
+            onChange={(e) => setAmazonCurlText(e.target.value)}
+            placeholder="curl --url 'https://sellercentral.amazon.in/orders-api/search?...' -H '...' -b '...' ..."
+          />
+          <button type="submit">Save Amazon session</button>
+        </form>
+        {amazonSaveMsg && <p>{amazonSaveMsg}</p>}
       </details>
     </main>
   );

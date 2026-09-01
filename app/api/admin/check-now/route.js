@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { runCheckOrders } from '../../../../lib/checkOrders';
+import { runCheckAmazonOrders } from '../../../../lib/checkAmazonOrders';
 import { isAuthed } from '../../../../lib/adminAuth';
 
 export const runtime = 'nodejs';
@@ -10,10 +11,25 @@ export async function POST() {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
+  let result = null;
+  let error = null;
   try {
-    const result = await runCheckOrders();
-    return NextResponse.json(result);
+    result = await runCheckOrders();
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    error = err.message;
   }
+
+  let amazonResult = null;
+  let amazonError = null;
+  try {
+    amazonResult = await runCheckAmazonOrders();
+  } catch (err) {
+    amazonError = err.message;
+  }
+
+  if (error && amazonError) {
+    return NextResponse.json({ error, amazonError }, { status: 500 });
+  }
+
+  return NextResponse.json({ result, error, amazonResult, amazonError });
 }

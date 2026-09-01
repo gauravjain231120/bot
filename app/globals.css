@@ -374,6 +374,34 @@ a {
   color: var(--text-dim);
 }
 
+.source-tag {
+  display: inline-block;
+  align-self: flex-start;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 2px;
+}
+.source-tag.myntra {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.source-tag.amazon {
+  background: rgba(255, 153, 0, 0.16);
+  color: #cc7a00;
+}
+:root[data-theme='dark'] .source-tag.amazon {
+  color: #ffb84d;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .source-tag.amazon {
+    color: #ffb84d;
+  }
+}
+
 .sku-tag {
   display: inline-block;
   background: var(--accent-soft);

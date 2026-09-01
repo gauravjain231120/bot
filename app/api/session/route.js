@@ -10,25 +10,29 @@ export async function POST(request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  const { curl } = await request.json();
+  const { curl, marketplace } = await request.json();
   if (!curl) {
     return NextResponse.json({ error: 'missing curl text' }, { status: 400 });
   }
 
   const headers = parseCurl(curl);
   if (!headers.cookie) {
-    return NextResponse.json({ error: 'No "cookie" header found — make sure you used Copy as cURL.' }, { status: 400 });
+    return NextResponse.json({ error: 'No "cookie" header found — make sure you copied the full request headers.' }, { status: 400 });
   }
+
+  const isAmazon = marketplace === 'amazon';
+  const sessionId = isAmazon ? 'session_amazon' : 'session';
+  const expiredFlag = isAmazon ? 'amazonSessionExpiredAlertSent' : 'sessionExpiredAlertSent';
 
   const db = await getDb();
   await db.collection('settings').updateOne(
-    { _id: 'session' },
+    { _id: sessionId },
     { $set: { headers, capturedAt: new Date().toISOString() } },
     { upsert: true }
   );
   await db.collection('settings').updateOne(
     { _id: 'status' },
-    { $set: { sessionExpiredAlertSent: false } },
+    { $set: { [expiredFlag]: false } },
     { upsert: true }
   );
 

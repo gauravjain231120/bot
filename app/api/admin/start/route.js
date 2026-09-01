@@ -3,6 +3,7 @@ import { getDb } from '../../../../lib/db';
 import { setRunning } from '../../../../lib/monitorState';
 import { isAuthed } from '../../../../lib/adminAuth';
 import { runCheckOrders } from '../../../../lib/checkOrders';
+import { runCheckAmazonOrders } from '../../../../lib/checkAmazonOrders';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,7 +16,7 @@ export async function POST() {
   const db = await getDb();
   await setRunning(db, true);
 
-  // Run an immediate check instead of waiting for the next scheduled tick, so
+  // Run immediate checks instead of waiting for the next scheduled tick, so
   // Start feels instant and catches up on anything that arrived while stopped.
   let checkResult = null;
   let checkError = null;
@@ -25,5 +26,13 @@ export async function POST() {
     checkError = err.message;
   }
 
-  return NextResponse.json({ running: true, checkResult, checkError });
+  let amazonCheckResult = null;
+  let amazonCheckError = null;
+  try {
+    amazonCheckResult = await runCheckAmazonOrders();
+  } catch (err) {
+    amazonCheckError = err.message;
+  }
+
+  return NextResponse.json({ running: true, checkResult, checkError, amazonCheckResult, amazonCheckError });
 }
