@@ -304,9 +304,9 @@ export default function AdminPage() {
           <div className="stat-sub">checked {timeAgo(status?.lastCheck)}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Cancelled (tracked)</div>
+          <div className="stat-label">Recently cancelled</div>
           <div className="stat-value">{status?.cancelledCount ?? '—'}</div>
-          <div className="stat-sub">checked {timeAgo(status?.lastCancelCheck)}</div>
+          <div className="stat-sub">last 15 seen · checked {timeAgo(status?.lastCancelCheck)}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Session</div>
