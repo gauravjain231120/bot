@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { isAuthed } from '../../../lib/adminAuth';
 import { fetchOpenOrders, fetchOrderItems, pickImageUrl } from '../../../lib/myntra';
-import { fetchUnshippedOrders, pickAmazonImage, amazonOrderDateMs, amazonShipByDateMs } from '../../../lib/amazon';
+import { fetchUnshippedOrders, pickAmazonImage, amazonOrderDateMs, amazonShipByDateMs, extractVariant } from '../../../lib/amazon';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -67,13 +67,16 @@ async function loadAmazonOrders(db) {
     quantity: (order.orderItems || []).reduce((sum, item) => sum + (item.quantityOrdered || 1), 0),
     orderDateMs: amazonOrderDateMs(order),
     shipByMs: amazonShipByDateMs(order),
-    items: (order.orderItems || []).map((item) => ({
-      sku: item.sellerSku,
-      name: item.productName || item.extendedTitle,
-      size: null,
-      color: null,
-      image: pickAmazonImage(item),
-    })),
+    items: (order.orderItems || []).map((item) => {
+      const { size, color } = extractVariant(item);
+      return {
+        sku: item.sellerSku,
+        name: item.productName || item.extendedTitle,
+        size,
+        color,
+        image: pickAmazonImage(item),
+      };
+    }),
   }));
 
   return { orders: mapped, error: null };
