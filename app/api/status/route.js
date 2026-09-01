@@ -1,0 +1,25 @@
+import { NextResponse } from 'next/server';
+import { getDb } from '../../../lib/db';
+import { isAuthed } from '../../../lib/adminAuth';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  if (!(await isAuthed())) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  const db = await getDb();
+  const [sessionDoc, statusDoc] = await Promise.all([
+    db.collection('settings').findOne({ _id: 'session' }),
+    db.collection('settings').findOne({ _id: 'status' }),
+  ]);
+
+  return NextResponse.json({
+    lastCheck: statusDoc?.lastCheck ?? null,
+    openCount: statusDoc?.openCount ?? null,
+    lastError: statusDoc?.lastError ?? null,
+    sessionCapturedAt: sessionDoc?.capturedAt ?? null,
+  });
+}

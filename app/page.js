@@ -1,69 +1,141 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+'use client';
 
-export default function Home() {
-  return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>
-            To get started, edit the{" "}
-            <code className={styles.code}>page.js</code> file.
-          </h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+import { useEffect, useState } from 'react';
+
+export default function AdminPage() {
+  const [authed, setAuthed] = useState(null); // null = loading
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [status, setStatus] = useState(null);
+  const [curlText, setCurlText] = useState('');
+  const [saveMsg, setSaveMsg] = useState('');
+  const [checking, setChecking] = useState(false);
+
+  async function loadStatus() {
+    const res = await fetch('/api/status');
+    if (res.status === 401) {
+      setAuthed(false);
+      return;
+    }
+    const data = await res.json();
+    setStatus(data);
+    setAuthed(true);
+  }
+
+  useEffect(() => {
+    loadStatus();
+  }, []);
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    setLoginError('');
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    if (!res.ok) {
+      setLoginError('Wrong password');
+      return;
+    }
+    setPassword('');
+    loadStatus();
+  }
+
+  async function handleSaveSession(e) {
+    e.preventDefault();
+    setSaveMsg('Saving...');
+    const res = await fetch('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ curl: curlText }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setSaveMsg(`Error: ${data.error}`);
+      return;
+    }
+    setSaveMsg(`Saved ${data.headerCount} headers.`);
+    setCurlText('');
+    loadStatus();
+  }
+
+  async function handleCheckNow() {
+    setChecking(true);
+    const res = await fetch('/api/admin/check-now', { method: 'POST' });
+    const data = await res.json();
+    setChecking(false);
+    if (!res.ok) {
+      alert(`Check failed: ${data.error}`);
+      return;
+    }
+    alert(`Checked: ${data.openCount} open orders, ${data.newCount} new.`);
+    loadStatus();
+  }
+
+  if (authed === null) {
+    return (
+      <main className="wrap">
+        <p>Loading...</p>
       </main>
-    </div>
+    );
+  }
+
+  if (!authed) {
+    return (
+      <main className="wrap">
+        <h1>Myntra Order Alerts</h1>
+        <form onSubmit={handleLogin} className="card">
+          <label htmlFor="password">Password</label>
+          <input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoFocus
+          />
+          <button type="submit">Log in</button>
+          {loginError && <p className="error">{loginError}</p>}
+        </form>
+      </main>
+    );
+  }
+
+  return (
+    <main className="wrap">
+      <h1>Myntra Order Alerts</h1>
+
+      <section className="card">
+        <h2>Status</h2>
+        <p>
+          Session captured:{' '}
+          {status?.sessionCapturedAt ? new Date(status.sessionCapturedAt).toLocaleString() : 'never'}
+        </p>
+        <p>Last check: {status?.lastCheck ? new Date(status.lastCheck).toLocaleString() : 'never'}</p>
+        <p>Currently open orders: {status?.openCount ?? '—'}</p>
+        {status?.lastError && <p className="error">Last error: {status.lastError}</p>}
+        <button onClick={handleCheckNow} disabled={checking}>
+          {checking ? 'Checking...' : 'Check now'}
+        </button>
+      </section>
+
+      <section className="card">
+        <h2>Refresh session</h2>
+        <p>
+          DevTools → Network → right-click a partnersapi.myntrainfo.com/api/mdirect/orders request →
+          Copy → Copy as cURL. Paste the whole thing below.
+        </p>
+        <form onSubmit={handleSaveSession}>
+          <textarea
+            rows={6}
+            value={curlText}
+            onChange={(e) => setCurlText(e.target.value)}
+            placeholder="curl 'https://partnersapi.myntrainfo.com/...' -H '...' ..."
+          />
+          <button type="submit">Save session</button>
+        </form>
+        {saveMsg && <p>{saveMsg}</p>}
+      </section>
+    </main>
   );
 }
