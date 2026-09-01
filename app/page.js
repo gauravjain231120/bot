@@ -380,6 +380,7 @@ export default function AdminPage() {
                         {item.color ? ` · ${item.color}` : ''}
                       </div>
                       {item.sku && <span className="sku-tag">{item.sku}</span>}
+                      {item.qty > 1 && <span className="sku-tag qty-tag">×{item.qty}</span>}
                       {item.stock && (
                         <div className={`stock-line ${item.stock.level}`}>
                           {item.stock.level === 'out' ? 'OUT OF STOCK' : `Stock: ${item.stock.label}`}

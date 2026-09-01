@@ -439,6 +439,12 @@ a {
   font-weight: 600;
 }
 
+.sku-tag.qty-tag {
+  background: var(--surface-2);
+  color: var(--text);
+  margin-left: 6px;
+}
+
 .empty-state {
   text-align: center;
   padding: 40px 20px;

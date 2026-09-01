@@ -2,7 +2,14 @@ import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { isAuthed } from '../../../lib/adminAuth';
 import { fetchOpenOrders, fetchOrderItems, pickImageUrl } from '../../../lib/myntra';
-import { fetchUnshippedOrders, pickAmazonImage, amazonOrderDateMs, amazonShipByDateMs, extractVariant } from '../../../lib/amazon';
+import {
+  fetchUnshippedOrders,
+  pickAmazonImage,
+  amazonOrderDateMs,
+  amazonShipByDateMs,
+  extractVariant,
+  groupAmazonItemsBySku,
+} from '../../../lib/amazon';
 import { lookupStock } from '../../../lib/stock';
 import { myntraShipByDateMs } from '../../../lib/dates';
 
@@ -44,6 +51,7 @@ async function loadMyntraOrders(db) {
               name: item.productDisplayName,
               size: item.size,
               color: item.color,
+              qty: item.qty,
               image: pickImageUrl(item),
               stock: await lookupStock(sku),
             };
@@ -70,26 +78,30 @@ async function loadAmazonOrders(db) {
   }
 
   const mapped = await Promise.all(
-    orders.map(async (order) => ({
-      source: 'amazon',
-      orderId: order.amazonOrderId,
-      quantity: (order.orderItems || []).reduce((sum, item) => sum + (item.quantityOrdered || 1), 0),
-      orderDateMs: amazonOrderDateMs(order),
-      shipByMs: amazonShipByDateMs(order),
-      items: await Promise.all(
-        (order.orderItems || []).map(async (item) => {
-          const { size, color } = extractVariant(item);
-          return {
-            sku: item.sellerSku,
-            name: item.productName || item.extendedTitle,
-            size,
-            color,
-            image: pickAmazonImage(item),
-            stock: await lookupStock(item.sellerSku),
-          };
-        })
-      ),
-    }))
+    orders.map(async (order) => {
+      const items = groupAmazonItemsBySku(order.orderItems);
+      return {
+        source: 'amazon',
+        orderId: order.amazonOrderId,
+        quantity: items.reduce((sum, item) => sum + (item.qty || 1), 0),
+        orderDateMs: amazonOrderDateMs(order),
+        shipByMs: amazonShipByDateMs(order),
+        items: await Promise.all(
+          items.map(async (item) => {
+            const { size, color } = extractVariant(item);
+            return {
+              sku: item.sellerSku,
+              name: item.productName || item.extendedTitle,
+              size,
+              color,
+              qty: item.qty,
+              image: pickAmazonImage(item),
+              stock: await lookupStock(item.sellerSku),
+            };
+          })
+        ),
+      };
+    })
   );
 
   return { orders: mapped, error: null };
