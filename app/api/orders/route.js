@@ -4,6 +4,7 @@ import { isAuthed } from '../../../lib/adminAuth';
 import { fetchOpenOrders, fetchOrderItems, pickImageUrl } from '../../../lib/myntra';
 import { fetchUnshippedOrders, pickAmazonImage, amazonOrderDateMs, amazonShipByDateMs, extractVariant } from '../../../lib/amazon';
 import { lookupStock } from '../../../lib/stock';
+import { myntraShipByDateMs } from '../../../lib/dates';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,7 +35,7 @@ async function loadMyntraOrders(db) {
         orderId: order.orderId,
         quantity: order.quantity,
         orderDateMs: order.orderDate,
-        shipByMs: order.packByTime || null,
+        shipByMs: myntraShipByDateMs(order.orderDate),
         items: await Promise.all(
           items.map(async (item) => {
             const sku = item.sellerSkuCode || item.skuCode;
