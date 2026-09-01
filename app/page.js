@@ -16,6 +16,68 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
+function SunIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  );
+}
+
+function RefreshIcon({ spinning }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={spinning ? { animation: 'spin 0.8s linear infinite' } : undefined}
+    >
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
+    </svg>
+  );
+}
+
+function SkeletonOrderCard() {
+  return (
+    <div className="skeleton-card">
+      <div className="order-card-image skeleton" />
+      <div className="skeleton-line skeleton" />
+      <div className="skeleton-line short skeleton" />
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [authed, setAuthed] = useState(null); // null = loading
   const [password, setPassword] = useState('');
@@ -28,6 +90,29 @@ export default function AdminPage() {
   const [saveMsg, setSaveMsg] = useState('');
   const [checking, setChecking] = useState(false);
   const [toggling, setToggling] = useState(false);
+  const [theme, setTheme] = useState(null);
+
+  useEffect(() => {
+    let initial = 'light';
+    try {
+      initial = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    } catch {
+      // localStorage/matchMedia unavailable — fall back to light
+    }
+    setTheme(initial);
+    document.documentElement.setAttribute('data-theme', initial);
+  }, []);
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    document.documentElement.setAttribute('data-theme', next);
+    try {
+      localStorage.setItem('theme', next);
+    } catch {
+      // ignore
+    }
+  }
 
   const loadStatus = useCallback(async () => {
     try {
@@ -155,7 +240,14 @@ export default function AdminPage() {
   if (!authed) {
     return (
       <main className="center-wrap">
-        <h1 style={{ marginBottom: 20 }}>Myntra Order Alerts</h1>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h1>Myntra Order Alerts</h1>
+          {theme && (
+            <button type="button" className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
+              {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+            </button>
+          )}
+        </div>
         <form onSubmit={handleLogin} className="card">
           <label htmlFor="password">Password</label>
           <input
@@ -183,16 +275,19 @@ export default function AdminPage() {
             <span className="pill-dot" />
             {running ? 'Live' : 'Stopped'}
           </span>
-          <button
-            className={running ? 'danger' : ''}
-            onClick={handleToggle}
-            disabled={toggling}
-          >
+          <button className={running ? 'danger' : ''} onClick={handleToggle} disabled={toggling}>
+            {running ? <StopIcon /> : <PlayIcon />}
             {toggling ? 'Working...' : running ? 'Stop' : 'Start'}
           </button>
           <button className="secondary" onClick={handleCheckNow} disabled={checking}>
+            <RefreshIcon spinning={checking} />
             {checking ? 'Checking...' : 'Check now'}
           </button>
+          {theme && (
+            <button type="button" className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
+              {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+            </button>
+          )}
         </div>
       </div>
 
@@ -229,7 +324,13 @@ export default function AdminPage() {
 
       {ordersError && <div className="banner bad">Could not load orders: {ordersError}</div>}
 
-      {orders === null && !ordersError && <p style={{ color: 'var(--text-dim)' }}>Loading orders...</p>}
+      {orders === null && !ordersError && (
+        <div className="order-grid">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonOrderCard key={i} />
+          ))}
+        </div>
+      )}
 
       {orders && orders.length === 0 && !ordersError && (
         <div className="card empty-state">No open orders right now.</div>

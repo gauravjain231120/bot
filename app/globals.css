@@ -17,7 +17,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #0b0b10;
     --surface: #16161d;
     --surface-2: #1d1d26;
@@ -33,15 +33,39 @@
     --bad-soft: rgba(248, 113, 113, 0.14);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
   }
-  html {
+  :root:not([data-theme='light']) {
     color-scheme: dark;
   }
+}
+
+/* Explicit toggle (via the sun/moon button) wins over system preference. */
+:root[data-theme='dark'] {
+  --bg: #0b0b10;
+  --surface: #16161d;
+  --surface-2: #1d1d26;
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #f1f1f4;
+  --text-dim: #9797a6;
+  --accent: #818cf8;
+  --accent-hover: #a5b4fc;
+  --accent-soft: rgba(129, 140, 248, 0.14);
+  --good: #4ade80;
+  --good-soft: rgba(74, 222, 128, 0.14);
+  --bad: #f87171;
+  --bad-soft: rgba(248, 113, 113, 0.14);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
   padding: 0;
   margin: 0;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 html {
@@ -84,24 +108,54 @@ a {
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 28px;
+  margin: -40px -20px 28px;
+  padding: 20px;
   flex-wrap: wrap;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
 }
 
 .topbar h1 {
   font-size: 1.3rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--text), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .topbar-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+}
+
+/* ---------- icon button (theme toggle) ---------- */
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+.icon-btn:not(:disabled):hover {
+  background: var(--border);
+  transform: rotate(-12deg);
 }
 
 /* ---------- pills / badges ---------- */
@@ -131,6 +185,16 @@ a {
 .pill.live .pill-dot {
   background: var(--good);
   box-shadow: 0 0 0 3px var(--good-soft);
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    box-shadow: 0 0 0 3px var(--good-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 6px var(--good-soft);
+  }
 }
 
 .pill.stopped {
@@ -186,6 +250,11 @@ a {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 16px 18px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
 }
 
 .stat-label {
@@ -258,6 +327,12 @@ a {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.order-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 2px 4px rgba(16, 16, 30, 0.06), 0 16px 32px rgba(16, 16, 30, 0.1);
 }
 
 .order-card-image {
@@ -316,6 +391,54 @@ a {
   font-size: 0.88rem;
 }
 
+/* ---------- skeleton loaders ---------- */
+
+.skeleton {
+  background: linear-gradient(100deg, var(--surface-2) 30%, var(--border) 50%, var(--surface-2) 70%);
+  background-size: 250% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -50% 0;
+  }
+}
+
+.skeleton-card {
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.skeleton-card .order-card-image {
+  background: none;
+}
+
+.skeleton-line {
+  height: 10px;
+  border-radius: 5px;
+  margin: 12px 14px 0;
+}
+.skeleton-line.short {
+  width: 50%;
+  margin-bottom: 14px;
+}
+
 /* ---------- form controls ---------- */
 
 label {
@@ -345,6 +468,9 @@ textarea:focus {
 /* ---------- buttons ---------- */
 
 button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font: inherit;
   font-weight: 600;
   padding: 9px 16px;
@@ -353,7 +479,11 @@ button {
   background: var(--accent);
   color: #fff;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+button:not(:disabled):active {
+  transform: scale(0.97);
 }
 
 button:disabled {
