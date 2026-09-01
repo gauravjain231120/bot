@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { isAuthed } from '../../../lib/adminAuth';
 import { fetchOpenOrders, fetchOrderItems, pickImageUrl } from '../../../lib/myntra';
-import { fetchUnshippedOrders, pickAmazonImage, amazonOrderDateMs } from '../../../lib/amazon';
+import { fetchUnshippedOrders, pickAmazonImage, amazonOrderDateMs, amazonShipByDateMs } from '../../../lib/amazon';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,6 +33,7 @@ async function loadMyntraOrders(db) {
         orderId: order.orderId,
         quantity: order.quantity,
         orderDateMs: order.orderDate,
+        shipByMs: order.packByTime || null,
         items: items.map((item) => ({
           sku: item.sellerSkuCode || item.skuCode,
           name: item.productDisplayName,
@@ -65,6 +66,7 @@ async function loadAmazonOrders(db) {
     orderId: order.amazonOrderId,
     quantity: (order.orderItems || []).reduce((sum, item) => sum + (item.quantityOrdered || 1), 0),
     orderDateMs: amazonOrderDateMs(order),
+    shipByMs: amazonShipByDateMs(order),
     items: (order.orderItems || []).map((item) => ({
       sku: item.sellerSku,
       name: item.productName || item.extendedTitle,

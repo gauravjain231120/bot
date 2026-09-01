@@ -366,6 +366,9 @@ export default function AdminPage() {
                         {item.color ? ` · ${item.color}` : ''}
                       </div>
                       {item.sku && <span className="sku-tag">{item.sku}</span>}
+                      {order.shipByMs && (
+                        <div className="order-card-meta">Ship by {new Date(order.shipByMs).toLocaleDateString()}</div>
+                      )}
                       <div className="order-card-footer">
                         <span>#{order.orderId}</span>
                         <span>{order.orderDateMs ? new Date(order.orderDateMs).toLocaleDateString() : ''}</span>
@@ -380,6 +383,9 @@ export default function AdminPage() {
                       <span className={`source-tag ${order.source}`}>{order.source === 'amazon' ? 'Amazon' : 'Myntra'}</span>
                       <div className="order-card-name">Order #{order.orderId}</div>
                       <div className="order-card-meta">Qty {order.quantity ?? '?'}</div>
+                      {order.shipByMs && (
+                        <div className="order-card-meta">Ship by {new Date(order.shipByMs).toLocaleDateString()}</div>
+                      )}
                       <div className="order-card-footer">
                         <span>{order.orderDateMs ? new Date(order.orderDateMs).toLocaleString() : ''}</span>
                       </div>
