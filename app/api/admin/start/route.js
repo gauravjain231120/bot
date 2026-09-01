@@ -1,0 +1,29 @@
+import { NextResponse } from 'next/server';
+import { getDb } from '../../../../lib/db';
+import { setRunning } from '../../../../lib/monitorState';
+import { isAuthed } from '../../../../lib/adminAuth';
+import { runCheckOrders } from '../../../../lib/checkOrders';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function POST() {
+  if (!(await isAuthed())) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  const db = await getDb();
+  await setRunning(db, true);
+
+  // Run an immediate check instead of waiting for the next scheduled tick, so
+  // Start feels instant and catches up on anything that arrived while stopped.
+  let checkResult = null;
+  let checkError = null;
+  try {
+    checkResult = await runCheckOrders();
+  } catch (err) {
+    checkError = err.message;
+  }
+
+  return NextResponse.json({ running: true, checkResult, checkError });
+}

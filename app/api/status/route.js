@@ -17,9 +17,13 @@ export async function GET() {
   ]);
 
   return NextResponse.json({
+    running: Boolean(statusDoc && statusDoc.running),
     lastCheck: statusDoc?.lastCheck ?? null,
     openCount: statusDoc?.openCount ?? null,
     lastError: statusDoc?.lastError ?? null,
+    lastCancelCheck: statusDoc?.lastCancelCheck ?? null,
+    cancelledCount: statusDoc?.cancelledCount ?? null,
+    lastCancelError: statusDoc?.lastCancelError ?? null,
     sessionCapturedAt: sessionDoc?.capturedAt ?? null,
   });
 }
