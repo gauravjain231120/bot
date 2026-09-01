@@ -93,6 +93,7 @@ export default function AdminPage() {
   const [checking, setChecking] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [theme, setTheme] = useState(null);
+  const [fSource, setFSource] = useState('all');
 
   useEffect(() => {
     let initial = 'light';
@@ -266,6 +267,10 @@ export default function AdminPage() {
   }
 
   const running = Boolean(status?.running);
+  const now = Date.now();
+  const visibleOrders = (orders || []).filter(
+    (o) => (fSource === 'all' || o.source === fSource) && !(o.shipByMs && o.shipByMs < now)
+  );
 
   return (
     <main className="wrap">
@@ -329,7 +334,16 @@ export default function AdminPage() {
 
       <div className="section-title">
         <h2>Open orders</h2>
-        <span className="muted">{orders ? `${orders.length} order${orders.length === 1 ? '' : 's'}` : ''}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <select value={fSource} onChange={(e) => setFSource(e.target.value)} aria-label="Filter by platform">
+            <option value="all">All platforms</option>
+            <option value="myntra">Myntra</option>
+            <option value="amazon">Amazon</option>
+          </select>
+          <span className="muted">
+            {orders ? `${visibleOrders.length} order${visibleOrders.length === 1 ? '' : 's'}` : ''}
+          </span>
+        </div>
       </div>
 
       {ordersError && <div className="banner bad">{ordersError}</div>}
@@ -342,13 +356,13 @@ export default function AdminPage() {
         </div>
       )}
 
-      {orders && orders.length === 0 && !ordersError && (
+      {orders && visibleOrders.length === 0 && !ordersError && (
         <div className="card empty-state">No open orders right now.</div>
       )}
 
-      {orders && orders.length > 0 && (
+      {orders && visibleOrders.length > 0 && (
         <div className="order-grid">
-          {orders.flatMap((order) =>
+          {visibleOrders.flatMap((order) =>
             order.items.length > 0
               ? order.items.map((item, i) => (
                   <div className="order-card" key={`${order.source}-${order.orderId}-${i}`}>

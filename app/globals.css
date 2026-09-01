@@ -520,6 +520,21 @@ textarea:focus {
   outline-offset: 1px;
 }
 
+select {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ---------- buttons ---------- */
 
 button {
