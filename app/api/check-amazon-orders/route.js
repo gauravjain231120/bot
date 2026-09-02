@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { getRunning } from '../../../lib/monitorState';
 import { runCheckAmazonOrders } from '../../../lib/checkAmazonOrders';
+import { checkStoppedWatchdog } from '../../../lib/watchdog';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,6 +16,7 @@ export async function GET(request) {
 
   const db = await getDb();
   if (!(await getRunning(db))) {
+    await checkStoppedWatchdog(db);
     return NextResponse.json({ skipped: true, reason: 'stopped' });
   }
 

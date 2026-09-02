@@ -15,6 +15,12 @@ export async function POST() {
 
   const db = await getDb();
   await setRunning(db, true);
+  // Clear the "stopped too long" watchdog's clock so it starts fresh next
+  // time this stops, instead of comparing against a stale stoppedAt.
+  await db.collection('settings').updateOne(
+    { _id: 'status' },
+    { $unset: { stoppedAt: '', stoppedAlertSent: '' } }
+  );
 
   // Run immediate checks instead of waiting for the next scheduled tick, so
   // Start feels instant and catches up on anything that arrived while stopped.
