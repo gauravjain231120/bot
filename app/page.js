@@ -16,6 +16,19 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
+function formatDuration(ms) {
+  if (ms == null) return null;
+  const totalMin = Math.round(ms / 60000);
+  const days = Math.floor(totalMin / 1440);
+  const hours = Math.floor((totalMin % 1440) / 60);
+  const mins = totalMin % 60;
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (mins || parts.length === 0) parts.push(`${mins}m`);
+  return parts.join(' ');
+}
+
 function SunIcon() {
   return (
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -94,6 +107,7 @@ export default function AdminPage() {
   const [toggling, setToggling] = useState(false);
   const [theme, setTheme] = useState(null);
   const [fSource, setFSource] = useState('all');
+  const [sessionHistory, setSessionHistory] = useState(null);
 
   useEffect(() => {
     let initial = 'light';
@@ -160,15 +174,27 @@ export default function AdminPage() {
     loadStatus();
   }, [loadStatus]);
 
+  const loadSessionHistory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/session-history');
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setSessionHistory(data.history || []);
+    } catch {
+      // Non-critical — the rest of the dashboard still works without it.
+    }
+  }, []);
+
   useEffect(() => {
     if (authed !== true) return;
     loadOrders();
+    loadSessionHistory();
     const interval = setInterval(() => {
       loadStatus();
       loadOrders();
+      loadSessionHistory();
     }, REFRESH_MS);
     return () => clearInterval(interval);
-  }, [authed, loadStatus, loadOrders]);
+  }, [authed, loadStatus, loadOrders, loadSessionHistory]);
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -202,6 +228,7 @@ export default function AdminPage() {
     setText('');
     loadStatus();
     loadOrders();
+    loadSessionHistory();
   }
 
   async function handleCheckNow() {
@@ -271,6 +298,16 @@ export default function AdminPage() {
   const visibleOrders = (orders || []).filter(
     (o) => (fSource === 'all' || o.source === fSource) && !(o.shipByMs && o.shipByMs < now)
   );
+
+  // Group session-history entries by calendar day (browser-local, i.e. IST for
+  // this seller) so the history reads as one section per date.
+  const historyGroups = [];
+  for (const entry of sessionHistory || []) {
+    const dateKey = new Date(entry.capturedAt).toLocaleDateString();
+    const last = historyGroups[historyGroups.length - 1];
+    if (last && last.dateKey === dateKey) last.entries.push(entry);
+    else historyGroups.push({ dateKey, entries: [entry] });
+  }
 
   return (
     <main className="wrap">
@@ -441,6 +478,37 @@ export default function AdminPage() {
           })}
         </div>
       )}
+
+      <details className="card">
+        <summary>Session history</summary>
+        {historyGroups.length === 0 ? (
+          <p className="muted">No sessions recorded yet — this starts tracking from your next paste.</p>
+        ) : (
+          historyGroups.map((g) => (
+            <div className="history-day" key={g.dateKey}>
+              <div className="history-date">{g.dateKey}</div>
+              {g.entries.map((entry) => (
+                <div className="history-row" key={entry._id}>
+                  <span className={`source-tag ${entry.marketplace}`}>
+                    {entry.marketplace === 'amazon' ? 'Amazon' : 'Myntra'}
+                  </span>
+                  <span>{new Date(entry.capturedAt).toLocaleTimeString()}</span>
+                  <span className="muted">→</span>
+                  {entry.expiredAt ? (
+                    <>
+                      <span>{new Date(entry.expiredAt).toLocaleTimeString()}</span>
+                      <span className="sku-tag">{formatDuration(entry.durationMs)}</span>
+                      {entry.endedBy === 'replaced' && <span className="muted">(replaced)</span>}
+                    </>
+                  ) : (
+                    <span className="history-active">Still active</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))
+        )}
+      </details>
 
       <details className="card">
         <summary>Refresh Myntra session</summary>

@@ -312,6 +312,43 @@ a {
   color: var(--text-dim);
 }
 
+.muted {
+  color: var(--text-dim);
+}
+
+.history-day {
+  margin-top: 12px;
+}
+.history-day:first-of-type {
+  margin-top: 8px;
+}
+
+.history-date {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  font-size: 0.85rem;
+}
+.history-row + .history-row {
+  border-top: 1px solid var(--border);
+}
+
+.history-active {
+  color: var(--good);
+  font-weight: 700;
+}
+
 .order-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));

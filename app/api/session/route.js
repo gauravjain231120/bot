@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { parseCurl } from '../../../lib/curl';
 import { isAuthed } from '../../../lib/adminAuth';
+import { recordSessionCaptured } from '../../../lib/sessionHistory';
 
 export const runtime = 'nodejs';
 
@@ -35,6 +36,7 @@ export async function POST(request) {
     { $set: { [expiredFlag]: false } },
     { upsert: true }
   );
+  await recordSessionCaptured(isAmazon ? 'amazon' : 'myntra');
 
   return NextResponse.json({ ok: true, headerCount: Object.keys(headers).length });
 }
