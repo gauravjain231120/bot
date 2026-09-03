@@ -30,5 +30,8 @@ export async function GET() {
     amazonOpenCount: statusDoc?.amazonOpenCount ?? null,
     amazonLastError: statusDoc?.amazonLastError ?? null,
     amazonSessionCapturedAt: amazonSessionDoc?.capturedAt ?? null,
+    amazonLastCancelCheck: statusDoc?.amazonLastCancelCheck ?? null,
+    amazonCancelledCount: statusDoc?.amazonCancelledCount ?? null,
+    amazonLastCancelError: statusDoc?.amazonLastCancelError ?? null,
   });
 }

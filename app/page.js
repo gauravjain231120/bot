@@ -340,6 +340,9 @@ export default function AdminPage() {
         <div className="banner bad">Myntra cancellation check error: {status.lastCancelError}</div>
       )}
       {status?.amazonLastError && <div className="banner bad">Amazon check error: {status.amazonLastError}</div>}
+      {status?.amazonLastCancelError && (
+        <div className="banner bad">Amazon cancellation check error: {status.amazonLastCancelError}</div>
+      )}
 
       <div className="stat-grid">
         <div className="stat-card">
@@ -356,6 +359,11 @@ export default function AdminPage() {
           <div className="stat-label">Amazon open orders</div>
           <div className="stat-value">{status?.amazonOpenCount ?? '—'}</div>
           <div className="stat-sub">checked {timeAgo(status?.amazonLastCheck)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Amazon recently cancelled</div>
+          <div className="stat-value">{status?.amazonCancelledCount ?? '—'}</div>
+          <div className="stat-sub">last 15 seen · checked {timeAgo(status?.amazonLastCancelCheck)}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Sessions</div>
