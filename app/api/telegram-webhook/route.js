@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { replyToChat, sendTelegramMessage } from '../../../lib/telegram';
-import { fetchQueueSummary, formatShipList, formatMakeList } from '../../../lib/telegramCommands';
+import { fetchQueueSummary, formatShipList, formatMakeList, formatPlatformList } from '../../../lib/telegramCommands';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +11,10 @@ const COMMAND_LIST =
   '/shipall — same, sent to everyone\n' +
   '/make — out-of-stock items (just you)\n' +
   '/makeall — same, sent to everyone\n' +
+  '/myntra — Myntra queue only (just you)\n' +
+  '/myntraall — same, sent to everyone\n' +
+  '/amazon — Amazon queue only (just you)\n' +
+  '/amazonall — same, sent to everyone\n' +
   '/command — this list';
 
 // Telegram calls this on every incoming message. Always ack quickly with 200
@@ -51,6 +55,18 @@ export async function POST(request) {
     } else if (text.startsWith('/make')) {
       const summary = await fetchQueueSummary();
       await replyToChat(chatId, formatMakeList(summary));
+    } else if (text.startsWith('/myntraall')) {
+      const summary = await fetchQueueSummary();
+      await sendTelegramMessage(formatPlatformList(summary, 'MYNTRA', 'Myntra'));
+    } else if (text.startsWith('/myntra')) {
+      const summary = await fetchQueueSummary();
+      await replyToChat(chatId, formatPlatformList(summary, 'MYNTRA', 'Myntra'));
+    } else if (text.startsWith('/amazonall')) {
+      const summary = await fetchQueueSummary();
+      await sendTelegramMessage(formatPlatformList(summary, 'AMAZON', 'Amazon'));
+    } else if (text.startsWith('/amazon')) {
+      const summary = await fetchQueueSummary();
+      await replyToChat(chatId, formatPlatformList(summary, 'AMAZON', 'Amazon'));
     } else if (text.startsWith('/command')) {
       await replyToChat(chatId, COMMAND_LIST);
     } else if (text.startsWith('/')) {
