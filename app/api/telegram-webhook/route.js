@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { replyToChat } from '../../../lib/telegram';
+import { replyToChat, sendTelegramMessage } from '../../../lib/telegram';
 import { fetchQueueSummary, formatShipList, formatMakeList } from '../../../lib/telegramCommands';
 
 export const runtime = 'nodejs';
@@ -31,11 +31,16 @@ export async function POST(request) {
     if (text.startsWith('/ship')) {
       const summary = await fetchQueueSummary();
       await replyToChat(chatId, formatShipList(summary));
+    } else if (text.startsWith('/makeall')) {
+      // Broadcasts to everyone (same recipients as order alerts) — checked
+      // before /make since it's the more specific match.
+      const summary = await fetchQueueSummary();
+      await sendTelegramMessage(formatMakeList(summary));
     } else if (text.startsWith('/make')) {
       const summary = await fetchQueueSummary();
       await replyToChat(chatId, formatMakeList(summary));
     } else if (text.startsWith('/')) {
-      await replyToChat(chatId, 'Unknown command. Try /ship (full queue) or /make (out of stock).');
+      await replyToChat(chatId, 'Unknown command. Try /ship, /make (just you), or /makeall (everyone).');
     }
   } catch (err) {
     console.error('telegram-webhook command failed:', err.message);
