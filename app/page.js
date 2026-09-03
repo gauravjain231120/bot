@@ -46,6 +46,33 @@ function MoonIcon() {
   );
 }
 
+function BellIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v5M12 16h.01" />
+    </svg>
+  );
+}
+
 function PlayIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -260,35 +287,54 @@ export default function AdminPage() {
 
   if (authed === null) {
     return (
-      <main className="center-wrap">
-        <p>Loading...</p>
+      <main className="auth-page">
+        <p className="muted">Loading…</p>
       </main>
     );
   }
 
   if (!authed) {
     return (
-      <main className="center-wrap">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h1>Order Alerts</h1>
-          {theme && (
-            <button type="button" className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
-              {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+      <main className="auth-page">
+        <div className="auth-shell">
+          <div className="auth-header">
+            <div className="auth-brand">
+              <span className="auth-logo">
+                <BellIcon />
+              </span>
+              <h1>Order Alerts</h1>
+            </div>
+            {theme && (
+              <button type="button" className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
+                {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+              </button>
+            )}
+          </div>
+          <form onSubmit={handleLogin} className="auth-card">
+            <p className="auth-subtitle">Sign in to view live orders and manage sessions.</p>
+            <label htmlFor="password">Password</label>
+            <div className="input-with-icon">
+              <LockIcon />
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                autoFocus
+              />
+            </div>
+            <button type="submit" className="auth-submit">
+              Log in
             </button>
-          )}
+            {loginError && (
+              <p className="auth-error">
+                <AlertIcon />
+                {loginError}
+              </p>
+            )}
+          </form>
         </div>
-        <form onSubmit={handleLogin} className="card">
-          <label htmlFor="password">Password</label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoFocus
-          />
-          <button type="submit">Log in</button>
-          {loginError && <p className="error">{loginError}</p>}
-        </form>
       </main>
     );
   }
