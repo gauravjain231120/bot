@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import { replyToChat, sendTelegramMessage } from '../../../lib/telegram';
-import { fetchQueueSummary, formatShipList, formatMakeList, formatPlatformList } from '../../../lib/telegramCommands';
+import {
+  fetchQueueSummary,
+  formatShipList,
+  formatMakeList,
+  formatPlatformList,
+  formatPlatformLeftList,
+} from '../../../lib/telegramCommands';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,8 +19,12 @@ const COMMAND_LIST =
   '/makeall — same, sent to everyone\n' +
   '/myntra — Myntra queue only (just you)\n' +
   '/myntraall — same, sent to everyone\n' +
+  '/myntraleft — Myntra items not yet packed (just you)\n' +
+  '/myntraleftall — same, sent to everyone\n' +
   '/amazon — Amazon queue only (just you)\n' +
   '/amazonall — same, sent to everyone\n' +
+  '/amazonleft — Amazon items not yet packed (just you)\n' +
+  '/amazonleftall — same, sent to everyone\n' +
   '/command — this list';
 
 // Telegram calls this on every incoming message. Always ack quickly with 200
@@ -55,12 +65,27 @@ export async function POST(request) {
     } else if (text.startsWith('/make')) {
       const summary = await fetchQueueSummary();
       await replyToChat(chatId, formatMakeList(summary));
+    } else if (text.startsWith('/myntraleftall')) {
+      // Most specific /myntra* variant — must be checked before /myntraall
+      // and /myntra, since both of those are also true prefixes of this text.
+      const summary = await fetchQueueSummary();
+      await sendTelegramMessage(formatPlatformLeftList(summary, 'MYNTRA', 'Myntra'));
+    } else if (text.startsWith('/myntraleft')) {
+      const summary = await fetchQueueSummary();
+      await replyToChat(chatId, formatPlatformLeftList(summary, 'MYNTRA', 'Myntra'));
     } else if (text.startsWith('/myntraall')) {
       const summary = await fetchQueueSummary();
       await sendTelegramMessage(formatPlatformList(summary, 'MYNTRA', 'Myntra'));
     } else if (text.startsWith('/myntra')) {
       const summary = await fetchQueueSummary();
       await replyToChat(chatId, formatPlatformList(summary, 'MYNTRA', 'Myntra'));
+    } else if (text.startsWith('/amazonleftall')) {
+      // Same ordering rule as /myntraleftall above.
+      const summary = await fetchQueueSummary();
+      await sendTelegramMessage(formatPlatformLeftList(summary, 'AMAZON', 'Amazon'));
+    } else if (text.startsWith('/amazonleft')) {
+      const summary = await fetchQueueSummary();
+      await replyToChat(chatId, formatPlatformLeftList(summary, 'AMAZON', 'Amazon'));
     } else if (text.startsWith('/amazonall')) {
       const summary = await fetchQueueSummary();
       await sendTelegramMessage(formatPlatformList(summary, 'AMAZON', 'Amazon'));
