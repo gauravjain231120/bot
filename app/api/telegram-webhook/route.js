@@ -6,26 +6,42 @@ import {
   formatMakeList,
   formatPlatformList,
   formatPlatformLeftList,
+  parseShortDate,
 } from '../../../lib/telegramCommands';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const COMMAND_LIST =
-  '<b>Commands</b>\n\n' +
-  '/ship — Ready to Ship queue (just you)\n' +
-  '/shipall — same, sent to everyone\n' +
+  '<b>Commands</b>\n' +
+  '(add a date like "5aug" or "10dec" to any queue command to filter it)\n\n' +
+  '/ship [date] — Ready to Ship queue (just you)\n' +
+  '/shipall [date] — same, sent to everyone\n' +
   '/make — out-of-stock items (just you)\n' +
   '/makeall — same, sent to everyone\n' +
-  '/myntra — Myntra queue only (just you)\n' +
-  '/myntraall — same, sent to everyone\n' +
-  '/myntraleft — Myntra items not yet packed (just you)\n' +
-  '/myntraleftall — same, sent to everyone\n' +
-  '/amazon — Amazon queue only (just you)\n' +
-  '/amazonall — same, sent to everyone\n' +
-  '/amazonleft — Amazon items not yet packed (just you)\n' +
-  '/amazonleftall — same, sent to everyone\n' +
+  '/myntra [date] — Myntra queue only (just you)\n' +
+  '/myntraall [date] — same, sent to everyone\n' +
+  '/myntraleft [date] — Myntra items not yet packed (just you)\n' +
+  '/myntraleftall [date] — same, sent to everyone\n' +
+  '/amazon [date] — Amazon queue only (just you)\n' +
+  '/amazonall [date] — same, sent to everyone\n' +
+  '/amazonleft [date] — Amazon items not yet packed (just you)\n' +
+  '/amazonleftall [date] — same, sent to everyone\n' +
   '/command — this list';
+
+// Every command below that can take a trailing date argument.
+const DATE_CAPABLE = new Set([
+  '/ship',
+  '/shipall',
+  '/myntra',
+  '/myntraall',
+  '/amazon',
+  '/amazonall',
+  '/myntraleft',
+  '/myntraleftall',
+  '/amazonleft',
+  '/amazonleftall',
+]);
 
 // Telegram calls this on every incoming message. Always ack quickly with 200
 // (even for rejected/unrecognized messages) — a non-200 or slow response
@@ -39,7 +55,7 @@ export async function POST(request) {
   const update = await request.json().catch(() => ({}));
   const message = update.message;
   const chatId = message && message.chat && String(message.chat.id);
-  const text = (message && message.text) || '';
+  const text = ((message && message.text) || '').trim();
 
   // Command access is scoped to a single chat for now — everyone else's
   // messages (including the other alert recipients) are silently ignored,
@@ -49,53 +65,93 @@ export async function POST(request) {
     return NextResponse.json({ ok: true });
   }
 
+  // Split "/ship 5aug" into command "/ship" and the rest as a date argument —
+  // splitting on whitespace up front avoids the old startsWith-prefix chain,
+  // where e.g. "/myntraleft" also matched as a prefix of checking "/myntra".
+  const [rawCommand, ...rest] = text.split(/\s+/);
+  const command = (rawCommand || '').toLowerCase();
+  const dateArg = rest.join(' ');
+
   try {
-    if (text.startsWith('/shipall')) {
-      // Broadcasts to everyone (same recipients as order alerts) — checked
-      // before /ship since it's the more specific match.
-      const summary = await fetchQueueSummary();
-      await sendTelegramMessage(formatShipList(summary));
-    } else if (text.startsWith('/ship')) {
-      const summary = await fetchQueueSummary();
-      await replyToChat(chatId, formatShipList(summary));
-    } else if (text.startsWith('/makeall')) {
-      // Same idea — checked before /make since it's the more specific match.
-      const summary = await fetchQueueSummary();
-      await sendTelegramMessage(formatMakeList(summary));
-    } else if (text.startsWith('/make')) {
-      const summary = await fetchQueueSummary();
-      await replyToChat(chatId, formatMakeList(summary));
-    } else if (text.startsWith('/myntraleftall')) {
-      // Most specific /myntra* variant — must be checked before /myntraall
-      // and /myntra, since both of those are also true prefixes of this text.
-      const summary = await fetchQueueSummary();
-      await sendTelegramMessage(formatPlatformLeftList(summary, 'MYNTRA', 'Myntra'));
-    } else if (text.startsWith('/myntraleft')) {
-      const summary = await fetchQueueSummary();
-      await replyToChat(chatId, formatPlatformLeftList(summary, 'MYNTRA', 'Myntra'));
-    } else if (text.startsWith('/myntraall')) {
-      const summary = await fetchQueueSummary();
-      await sendTelegramMessage(formatPlatformList(summary, 'MYNTRA', 'Myntra'));
-    } else if (text.startsWith('/myntra')) {
-      const summary = await fetchQueueSummary();
-      await replyToChat(chatId, formatPlatformList(summary, 'MYNTRA', 'Myntra'));
-    } else if (text.startsWith('/amazonleftall')) {
-      // Same ordering rule as /myntraleftall above.
-      const summary = await fetchQueueSummary();
-      await sendTelegramMessage(formatPlatformLeftList(summary, 'AMAZON', 'Amazon'));
-    } else if (text.startsWith('/amazonleft')) {
-      const summary = await fetchQueueSummary();
-      await replyToChat(chatId, formatPlatformLeftList(summary, 'AMAZON', 'Amazon'));
-    } else if (text.startsWith('/amazonall')) {
-      const summary = await fetchQueueSummary();
-      await sendTelegramMessage(formatPlatformList(summary, 'AMAZON', 'Amazon'));
-    } else if (text.startsWith('/amazon')) {
-      const summary = await fetchQueueSummary();
-      await replyToChat(chatId, formatPlatformList(summary, 'AMAZON', 'Amazon'));
-    } else if (text.startsWith('/command')) {
-      await replyToChat(chatId, COMMAND_LIST);
-    } else if (text.startsWith('/')) {
-      await replyToChat(chatId, `Unknown command.\n\n${COMMAND_LIST}`);
+    let dateFilter = null;
+    if (DATE_CAPABLE.has(command) && dateArg) {
+      dateFilter = parseShortDate(dateArg);
+      if (!dateFilter) {
+        await replyToChat(chatId, `Couldn't understand the date "${dateArg}". Try formats like 5aug, 6aug, 8nov, 10dec.`);
+        return NextResponse.json({ ok: true });
+      }
+    }
+
+    switch (command) {
+      case '/shipall': {
+        const summary = await fetchQueueSummary();
+        await sendTelegramMessage(formatShipList(summary, dateFilter));
+        break;
+      }
+      case '/ship': {
+        const summary = await fetchQueueSummary();
+        await replyToChat(chatId, formatShipList(summary, dateFilter));
+        break;
+      }
+      case '/myntraleftall': {
+        const summary = await fetchQueueSummary();
+        await sendTelegramMessage(formatPlatformLeftList(summary, 'MYNTRA', 'Myntra', dateFilter));
+        break;
+      }
+      case '/myntraleft': {
+        const summary = await fetchQueueSummary();
+        await replyToChat(chatId, formatPlatformLeftList(summary, 'MYNTRA', 'Myntra', dateFilter));
+        break;
+      }
+      case '/myntraall': {
+        const summary = await fetchQueueSummary();
+        await sendTelegramMessage(formatPlatformList(summary, 'MYNTRA', 'Myntra', dateFilter));
+        break;
+      }
+      case '/myntra': {
+        const summary = await fetchQueueSummary();
+        await replyToChat(chatId, formatPlatformList(summary, 'MYNTRA', 'Myntra', dateFilter));
+        break;
+      }
+      case '/amazonleftall': {
+        const summary = await fetchQueueSummary();
+        await sendTelegramMessage(formatPlatformLeftList(summary, 'AMAZON', 'Amazon', dateFilter));
+        break;
+      }
+      case '/amazonleft': {
+        const summary = await fetchQueueSummary();
+        await replyToChat(chatId, formatPlatformLeftList(summary, 'AMAZON', 'Amazon', dateFilter));
+        break;
+      }
+      case '/amazonall': {
+        const summary = await fetchQueueSummary();
+        await sendTelegramMessage(formatPlatformList(summary, 'AMAZON', 'Amazon', dateFilter));
+        break;
+      }
+      case '/amazon': {
+        const summary = await fetchQueueSummary();
+        await replyToChat(chatId, formatPlatformList(summary, 'AMAZON', 'Amazon', dateFilter));
+        break;
+      }
+      case '/makeall': {
+        const summary = await fetchQueueSummary();
+        await sendTelegramMessage(formatMakeList(summary));
+        break;
+      }
+      case '/make': {
+        const summary = await fetchQueueSummary();
+        await replyToChat(chatId, formatMakeList(summary));
+        break;
+      }
+      case '/command': {
+        await replyToChat(chatId, COMMAND_LIST);
+        break;
+      }
+      default: {
+        if (command.startsWith('/')) {
+          await replyToChat(chatId, `Unknown command.\n\n${COMMAND_LIST}`);
+        }
+      }
     }
   } catch (err) {
     console.error('telegram-webhook command failed:', err.message);
