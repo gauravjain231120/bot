@@ -18,7 +18,16 @@ export async function POST(request) {
 
   const headers = parseCurl(curl);
   if (!headers.cookie) {
-    return NextResponse.json({ error: 'No "cookie" header found — make sure you copied the full request headers.' }, { status: 400 });
+    return NextResponse.json(
+      {
+        error:
+          'No "cookie" header found. This usually means the request came from Chrome\'s cache ' +
+          '("Provisional headers are shown" in DevTools never includes cookies). Fix: in Network tab, ' +
+          'check "Disable cache", then hard-refresh (Cmd+Shift+R) BEFORE copying — this forces a real ' +
+          'network request with the real headers instead of a cached one.',
+      },
+      { status: 400 }
+    );
   }
 
   const isAmazon = marketplace === 'amazon';
