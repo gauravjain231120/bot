@@ -3,6 +3,8 @@ import { getDb } from '../../../lib/db';
 import { parseCurl } from '../../../lib/curl';
 import { isAuthed } from '../../../lib/adminAuth';
 import { recordSessionCaptured } from '../../../lib/sessionHistory';
+import { replyToChat } from '../../../lib/telegram';
+import { formatIST } from '../../../lib/dates';
 
 export const runtime = 'nodejs';
 
@@ -46,6 +48,15 @@ export async function POST(request) {
     { upsert: true }
   );
   await recordSessionCaptured(isAmazon ? 'amazon' : 'myntra');
+
+  // Mirrors the session-expired alert: goes ONLY to the primary chat, not the
+  // broadcast list — this is a "you just did something" confirmation for
+  // whoever pasted the session, not order-alert-style news for everyone.
+  const label = isAmazon ? 'Amazon' : 'Myntra';
+  await replyToChat(
+    process.env.TELEGRAM_COMMAND_CHAT_ID,
+    `✅ <b>${label} session activated</b>\n${formatIST(Date.now())}`
+  ).catch((err) => console.error('session-activated alert failed:', err.message));
 
   return NextResponse.json({ ok: true, headerCount: Object.keys(headers).length });
 }
