@@ -3,25 +3,94 @@
   <head>
     <meta charset="utf-8" />
     <style>
-      body { font: 13px -apple-system, sans-serif; width: 260px; margin: 0; padding: 14px; color: #222; }
-      h1 { font-size: 14px; margin: 0 0 10px; }
-      button { width: 100%; padding: 8px; cursor: pointer; }
-      .row { display: flex; gap: 6px; margin-top: 6px; }
-      .row button { width: auto; flex: 1; }
-      #status { margin-top: 10px; font-size: 12px; color: #555; white-space: pre-wrap; }
-      a { font-size: 11px; color: #777; }
+      :root {
+        --brand: #9c4458;
+        --brand-dark: #82384a;
+        --bg: #fafafa;
+        --card: #ffffff;
+        --border: #e8e6e7;
+        --text: #1a1a1a;
+        --muted: #7a7a7a;
+        --good: #16a34a;
+        --bad: #dc2626;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font: 13px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        width: 280px;
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--text);
+      }
+      h1 { font-size: 15px; font-weight: 600; margin: 0 0 2px; }
+      .subtitle { font-size: 11px; color: var(--muted); margin-bottom: 14px; }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 10px;
+      }
+      .countdown-label {
+        font-size: 10px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .countdown {
+        font-size: 21px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        margin-top: 2px;
+        color: var(--brand-dark);
+      }
+      .countdown.stopped { color: var(--muted); font-size: 15px; }
+      .rows { display: flex; flex-direction: column; gap: 8px; }
+      .row-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+      .dot.ok { background: var(--good); }
+      .dot.bad { background: var(--bad); }
+      .dot.unknown { background: #d1d5db; }
+      .row-item .name { text-transform: capitalize; font-weight: 600; width: 54px; flex-shrink: 0; }
+      .row-item .detail { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      button {
+        width: 100%;
+        padding: 9px;
+        border: none;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+        font-family: inherit;
+      }
+      button:active { opacity: 0.75; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .btn-primary { background: var(--brand); color: white; }
+      .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); margin-top: 8px; }
+      footer { text-align: center; margin-top: 12px; }
+      footer a { font-size: 11px; color: var(--muted); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
     </style>
   </head>
   <body>
     <h1>Session Sync</h1>
-    <button id="sync">Sync now</button>
-    <div class="row">
-      <button id="stop">Stop auto-sync</button>
-      <button id="start">Start auto-sync</button>
+    <div class="subtitle">Myntra &amp; Amazon, kept fresh automatically</div>
+
+    <div class="card">
+      <div class="countdown-label" id="countdownLabel">Next auto-sync in</div>
+      <div class="countdown" id="countdown">—</div>
     </div>
-    <div id="status">Checking last sync…</div>
-    <div id="nextSync" style="margin-top: 6px; color: #888;"></div>
-    <p><a href="#" id="openOptions">Setup / change app URL</a></p>
+
+    <div class="card">
+      <div class="rows" id="rows"></div>
+    </div>
+
+    <button class="btn-primary" id="sync">Sync now</button>
+    <button class="btn-secondary" id="toggle">Stop auto-sync</button>
+
+    <footer><a href="#" id="openOptions">Setup / change app URL</a></footer>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -4,27 +4,73 @@
     <meta charset="utf-8" />
     <title>Order Alert Session Sync — Setup</title>
     <style>
-      body { font: 14px -apple-system, sans-serif; max-width: 420px; margin: 24px; color: #222; }
-      h1 { font-size: 16px; }
-      label { display: block; margin-top: 14px; font-size: 12px; color: #555; }
-      input { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; font: 13px monospace; }
-      button { margin-top: 16px; padding: 8px 16px; cursor: pointer; }
-      #status { margin-top: 12px; font-size: 12px; }
+      :root {
+        --brand: #9c4458;
+        --bg: #fafafa;
+        --card: #ffffff;
+        --border: #e8e6e7;
+        --text: #1a1a1a;
+        --muted: #7a7a7a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        max-width: 440px;
+        margin: 40px auto;
+        padding: 0 20px;
+        background: var(--bg);
+        color: var(--text);
+      }
+      h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+      p.lead { color: var(--muted); font-size: 13px; margin-top: 0; }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+      }
+      label { display: block; margin-top: 16px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      label:first-of-type { margin-top: 0; }
+      input {
+        width: 100%;
+        padding: 9px 10px;
+        margin-top: 5px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font: 13px ui-monospace, monospace;
+        background: var(--bg);
+        color: var(--text);
+      }
+      input:focus { outline: none; border-color: var(--brand); }
+      button {
+        margin-top: 18px;
+        padding: 9px 20px;
+        border: none;
+        border-radius: 8px;
+        background: var(--brand);
+        color: white;
+        font: 13px/1 -apple-system, sans-serif;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:active { opacity: 0.8; }
+      #status { margin-top: 12px; font-size: 12px; color: var(--muted); }
     </style>
   </head>
   <body>
-    <h1>Order Alert Session Sync — Setup</h1>
-    <p>Enter your order-alert app's URL and the sync secret (the <code>EXTENSION_SYNC_SECRET</code> environment variable set on that app). This will sync both Myntra and Amazon Seller Central sessions, reading whichever you're logged into in this browser.</p>
+    <h1>Session Sync — Setup</h1>
+    <p class="lead">Enter your order-alert app's URL and its <code>EXTENSION_SYNC_SECRET</code>. Syncs both Myntra and Amazon Seller Central, reading whichever you're logged into in this browser.</p>
 
-    <label>App URL
+    <div class="card">
+      <label for="appUrl">App URL</label>
       <input id="appUrl" placeholder="https://your-app.vercel.app" />
-    </label>
-    <label>Sync secret
-      <input id="syncSecret" type="password" placeholder="the EXTENSION_SYNC_SECRET value" />
-    </label>
 
-    <button id="save">Save</button>
-    <div id="status"></div>
+      <label for="syncSecret">Sync secret</label>
+      <input id="syncSecret" type="password" placeholder="the EXTENSION_SYNC_SECRET value" />
+
+      <button id="save">Save</button>
+      <div id="status"></div>
+    </div>
 
     <script src="options.js"></script>
   </body>
