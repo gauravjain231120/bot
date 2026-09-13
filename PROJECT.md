@@ -26,8 +26,25 @@ stock-manager's database).
 Neither Myntra M-Direct nor this Amazon Seller Central account tier expose a public seller API
 for order events. Both integrations work by **replaying the same internal JSON request the
 platform's own seller-portal frontend makes**, using a session captured from a real logged-in
-browser (bot-detection on both platforms blocks automated login, so capturing/refreshing the
-session is the one manual step — everything after that is automatic).
+browser.
+
+**Automated login is blocked, confirmed by actually testing it** (not just assumed): driving a
+real headless/headed browser (Playwright) through Myntra's login form failed immediately with
+`net::ERR_HTTP2_PROTOCOL_ERROR` on the very first request to `accounts.myntra.com`, which carries
+Akamai bot-management cookies (`bm_sz`, `ak_bmsc`, `_abck`) — Myntra's anti-bot layer disrupting
+the connection right at the login gate. That gate is *not* pursued further (matching real
+bot-detection is the kind of thing this project won't try to defeat), so **logging in stays a
+manual, human action, done in a real browser, forever.**
+
+What *is* now automated: getting the resulting session into this app, which used to be the
+recurring manual step (§7, §18) and no longer has to be. The orders API itself turned out to be
+far less guarded than the login page — proof of that is this whole app already working via plain
+cookie replay with zero browser/JS involvement — so a small **browser extension**
+(`browser-extension/`, §18) reads the session cookies straight out of Chrome's cookie jar
+(including the HttpOnly ones DevTools needs a manual copy for) of an already-logged-in session,
+and posts them to this app on a timer. No password, no login automation, no bot-detection
+involved in that step at all — it only ever reads cookies that already exist because a human
+logged in normally.
 
 - Myntra: `partnersapi.myntrainfo.com/api/mdirect/orders/...`
 - Amazon: `sellercentral.amazon.in/orders-api/search`
@@ -70,6 +87,7 @@ configured to hit the three `/api/check-*` endpoints directly.
 | `WAREHOUSE_ID` | Myntra warehouse ID used in its API URLs (default `89623` if unset) |
 | `ADMIN_PASSWORD` | Password for the dashboard login; also the literal value stored in the `admin_auth` cookie |
 | `CRON_SECRET` | Shared secret cron-job.org must pass as `?secret=` on every check endpoint |
+| `EXTENSION_SYNC_SECRET` | Shared secret the browser extension sends as `x-sync-secret` on `POST /api/session/sync` (§18) |
 | `MONGODB_URI` | This app's own MongoDB Atlas connection string |
 | `MONGODB_DB` | This app's own DB name (defaults to `myntra_alerts`) |
 | `STOCK_MONGODB_URI` | **Read-only** connection to stock-manager's MongoDB, for live stock lookups |
@@ -80,7 +98,9 @@ configured to hit the three `/api/check-*` endpoints directly.
 
 Everything lives in one `settings` collection (by `_id`) plus a few small tracking collections:
 
-- `settings/_id:'session'` — `{ headers, capturedAt }` — Myntra session (parsed request headers)
+- `settings/_id:'session'` — `{ headers, capturedAt, source }` — Myntra session (parsed request
+  headers); `source` is `'manual'` (admin-page paste) or `'extension'` (§18) — display-only, both
+  are read identically by every check
 - `settings/_id:'session_amazon'` — same shape, for Amazon
 - `settings/_id:'status'` — one shared status doc:
   - `running` (bool) — the Start/Stop switch. **This is the master gate**: every cron tick
@@ -130,7 +150,14 @@ Password-gated (cookie `admin_auth`, set by `/api/login`, compared directly agai
   panel dump; `lib/curl.js` parses either format into a headers object (handles both `-H
   'cookie: ...'` and `-b '...'` cookie styles, and both `-H` cURL flags and the two-line
   header-dump format). Strips `content-length`/`accept-encoding`/`connection` since those are
-  meaningless when replayed from a server.
+  meaningless when replayed from a server. Both this route (`app/api/session/route.js`) and the
+  extension's sync route (`app/api/session/sync/route.js`, §18) call the same
+  `lib/sessionStore.js`'s `saveSession()` to actually write it — same DB write, same
+  "✅ session activated" confirmation either way, just a different capture method (and a
+  different auth check: admin cookie here, a shared secret there). That confirmation is sent
+  **silently** (`disable_notification`) on purpose, since with the extension running it's a
+  routine every-few-hours all-clear, not something worth a buzz — unlike session-*expired*, which
+  stays noisy.
 - **Platform filter** / **theme toggle** / **hide past-ship-by orders** — pure display, no
   server effect.
 
@@ -244,6 +271,15 @@ iterations worth knowing about, because the reasoning matters if it needs to cha
   seen as "already tracked" and get dropped instead of merged, undercounting the Ready to Ship
   queue. Root-fixed by grouping items by SKU (§8) *before* anything else sees them, rather than
   patching the idempotency check further.
+- **Missing-session alert gap (open, unresolved)**: `runCheckOrders()` throws a plain
+  `'No session saved yet'` error *before* the try/catch that sends the session-expired Telegram
+  alert, if `settings/_id:'session'` doesn't exist at all (found by deliberately deleting it to
+  test the extension's recovery). A session that **expires** (a real 401/403 from Myntra) alerts
+  correctly; a session that's **entirely missing** currently fails silently — logged as
+  `lastError` on the dashboard, no Telegram ping. In practice this is a narrow window (the
+  extension re-syncing, or a real expiry, are far more common than the session vanishing
+  outright), but it's a real gap worth closing — wrap the missing-session throw in the same alert
+  path 401/403 uses.
 - **Amazon 8-orders detection gap (open, unresolved)**: at one point 8 real "Waiting for pick-up"
   Amazon orders were completely invisible to `fetchUnshippedOrders()` across every combination of
   `orderStatus` (`pending`/`unshipped`) × `program` (`easyship`/`selfship`) tried. Those 8 were
@@ -268,6 +304,7 @@ lib/
   checkOrders.js           orchestrates one Myntra poll cycle (fetch → diff → alert → queue)
   checkAmazonOrders.js     same, for Amazon
   checkCancellations.js    orchestrates the Myntra-cancellations poll cycle
+  sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
 app/
   page.js                  the dashboard (login form + admin UI + order grid)
   globals.css              all dashboard styling, theme (light/dark) CSS variables
@@ -278,8 +315,10 @@ app/
     admin/start|stop|check-now/route.js   dashboard action endpoints (§7)
     login/route.js                sets the admin_auth cookie
     session/route.js              saves a freshly-pasted Myntra/Amazon session
+    session/sync/route.js         same save, from the browser extension instead of a paste (§18)
     status/route.js               feeds the dashboard's status panel
     orders/route.js               feeds the dashboard's order grid (live-fetches both marketplaces + stock, doesn't read seenOrders — this is a live view, not the alert pipeline)
+browser-extension/         Manifest V3 Chrome extension — auto-syncs the session (§18); not part of the Vercel deploy, lives in the user's Chrome
 ```
 
 ## 14. "Does this work when the site/laptop is closed?" — yes, in full
@@ -328,6 +367,10 @@ This has come up repeatedly during testing/debugging. The **only safe procedure*
    `vercel ls bot --meta githubCommitSha=$(git rev-parse HEAD)` until it shows "Ready".
 5. Spot-check the live behavior (curl an endpoint, or watch the next real alert) before
    considering the change done.
+6. **`browser-extension/` is not part of this build/deploy at all** — it's loaded unpacked
+   directly into Chrome (`chrome://extensions` → Developer mode → Load unpacked). Pushing to git
+   does nothing for it; whoever's running it needs to click the reload icon (⟳) on the
+   extension's card after a `browser-extension/` change lands.
 
 ## 17. Stack
 
@@ -335,3 +378,48 @@ Next.js 16 (App Router, Node runtime route handlers), React 19, native `mongodb`
 (no ORM), `axios` for all outbound HTTP, deployed on Vercel. No test suite — verification is
 always "run the real function against real data locally, then check the live behavior after
 deploy."
+
+## 18. Automatic session sync (`browser-extension/`)
+
+Why this exists at all, and why it's built this way, is covered in §2 — short version: automated
+*login* is blocked by Myntra's bot-detection (confirmed by testing, not assumed), but the orders
+API itself accepts plain cookie replay just fine, so instead of automating login, a browser
+extension automates *harvesting a session from a browser that's already logged in normally*.
+
+**How it works:**
+- A Manifest V3 Chrome extension (`background.js`, a service worker) uses the `cookies`
+  permission to read Myntra (`*.myntrainfo.com`) and Amazon (`*.amazon.in`) cookies straight out
+  of Chrome's cookie jar — critically, this can read **HttpOnly** cookies (`erp.at`, `erp.rt`,
+  `session`), which a normal page script/bookmarklet cannot (verified via DevTools → Application →
+  Cookies → HttpOnly column before building this — don't skip that check if extending this to
+  another marketplace).
+- It POSTs `{ marketplace, headers: { cookie, ...a few static headers, user-agent } }` to
+  `POST /api/session/sync` with `x-sync-secret: EXTENSION_SYNC_SECRET`, which calls the same
+  `lib/sessionStore.js#saveSession()` the admin page's manual paste uses (§7).
+- `chrome.alarms` fires this every `SYNC_PERIOD_MINUTES` (currently 240 = 4h — Myntra's access
+  token is ~3h but the *effective* session (via `session`/`erp.rt`) has been observed lasting up
+  to ~24h in practice, so 4h is comfortable headroom either way).
+- **Gotcha already hit and fixed**: naively recreating the alarm on every `chrome.runtime.
+  onStartup` resets its countdown to full each time — meaning if the session died while Chrome
+  was closed, reopening it wouldn't actually fix anything for up to another full period. Fixed by
+  (a) only recreating the alarm if it's missing or its period changed in code, and (b) firing an
+  immediate sync separately on every startup, so reopening Chrome always catches up right away.
+- **Stop/Start** (popup buttons) toggles `chrome.storage.local.autoSyncEnabled` and
+  clears/recreates the alarm — lets you pause the timer without uninstalling. The manual
+  "Sync now" button always works regardless of this flag.
+- The popup shows a live countdown to the next sync (recomputed from the alarm's
+  `scheduledTime` every second while open, not a decrementing counter, so it can't drift) and a
+  colored status dot per marketplace from the last sync result (`chrome.storage.local.lastResult`).
+
+**Multi-device**: each install runs fully independently — its own alarm, its own schedule, no
+coordination. Running it on 2+ devices is a deliberate, supported way to get redundancy (whichever
+syncs most recently just becomes the current session; no conflict). Stopping/removing it on one
+device doesn't affect any other.
+
+**What it can't do**: refresh a session if you're actually logged out of Myntra/Amazon in that
+browser (nothing to read — it errors clearly rather than sending garbage) — that still needs one
+real, manual login, same as day one. It also can't be triggered remotely (e.g. from a Telegram
+command) — the server has no channel to reach into a specific browser's cookie jar; only the
+browser can push cookies out, nothing can pull them in from outside.
+
+Full end-user setup steps live in `browser-extension/README.md`, not duplicated here.
