@@ -6,7 +6,7 @@
 // normally in this browser; it never logs in or touches a password.
 
 const SYNC_ALARM = 'session-sync';
-const SYNC_PERIOD_MINUTES = 120; // every 2 hours — Myntra's access token lives ~3h
+const SYNC_PERIOD_MINUTES = 240; // every 4 hours
 
 const MARKETPLACES = [
   {
@@ -86,7 +86,12 @@ async function syncNow() {
 // Chrome always catches up right away instead of waiting.
 async function ensureAlarm() {
   const existing = await chrome.alarms.get(SYNC_ALARM);
-  if (!existing) chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+  // Recreate if missing, or if SYNC_PERIOD_MINUTES was changed in code since the
+  // alarm was last set — otherwise leave it alone so startup never resets the
+  // countdown of an already-correct, already-running alarm.
+  if (!existing || existing.periodInMinutes !== SYNC_PERIOD_MINUTES) {
+    chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+  }
 }
 
 chrome.runtime.onInstalled.addListener(() => {

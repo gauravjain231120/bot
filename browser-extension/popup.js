@@ -1,4 +1,11 @@
 const statusEl = document.getElementById('status');
+const nextSyncEl = document.getElementById('nextSync');
+
+async function renderNextSync() {
+  const alarm = await chrome.alarms.get('session-sync');
+  nextSyncEl.textContent = alarm ? `Next auto-sync: ${new Date(alarm.scheduledTime).toLocaleString()}` : 'Next auto-sync: not scheduled yet';
+}
+renderNextSync();
 
 function render(lastResult) {
   if (!lastResult || !lastResult.results) {
