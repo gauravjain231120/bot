@@ -78,11 +78,24 @@ async function syncNow() {
   return results;
 }
 
+// Re-creating the alarm unconditionally on every startup would reset its
+// 2-hour countdown back to full every time Chrome (re)opens — meaning if the
+// session died while the browser was closed, reopening it wouldn't fix
+// anything until ANOTHER 2 hours passed. Only create it if it doesn't already
+// exist, and separately fire an immediate sync on every startup so reopening
+// Chrome always catches up right away instead of waiting.
+async function ensureAlarm() {
+  const existing = await chrome.alarms.get(SYNC_ALARM);
+  if (!existing) chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+  ensureAlarm();
+  syncNow();
 });
 chrome.runtime.onStartup.addListener(() => {
-  chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+  ensureAlarm();
+  syncNow();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
