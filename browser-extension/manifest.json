@@ -1,17 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Myntra Session Sync",
+  "name": "Order Alert Session Sync",
   "version": "1.0",
-  "description": "Reads your already-logged-in Myntra M-Direct session and sends it to the order-alert app automatically, so nobody has to paste one by hand.",
+  "description": "Reads your already-logged-in Myntra and Amazon Seller Central sessions and sends them to the order-alert app automatically, so nobody has to paste one by hand.",
   "permissions": ["cookies", "storage", "alarms"],
-  "host_permissions": ["*://*.myntrainfo.com/*", "*://myntrainfo.com/*"],
+  "host_permissions": ["*://*.myntrainfo.com/*", "*://myntrainfo.com/*", "*://*.amazon.in/*", "*://amazon.in/*"],
   "optional_host_permissions": ["https://*/*"],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Myntra Session Sync"
+    "default_title": "Order Alert Session Sync"
   },
   "options_page": "options.html"
 }
