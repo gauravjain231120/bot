@@ -88,11 +88,18 @@ async function isEnabled() {
 }
 
 // Re-creating the alarm unconditionally on every startup would reset its
-// countdown back to full every time Chrome (re)opens — meaning if the session
-// died while the browser was closed, reopening it wouldn't fix anything until
-// a full period passed again. Only create it if it doesn't already exist (or
-// its period changed in code), and separately fire an immediate sync on every
-// startup so reopening Chrome always catches up right away instead of waiting.
+// countdown back to full every time Chrome (re)opens, even if the countdown
+// hadn't finished yet — wiping out the time already elapsed for no reason.
+// Only create it if it doesn't already exist (or its period changed in code);
+// otherwise leave the existing one completely alone.
+//
+// chrome.alarms persists its real scheduled time across a full browser
+// restart on its own — Chrome fires it shortly after startup if that time
+// already passed while closed (session was overdue → syncs right away), or
+// simply keeps waiting until that original time if it hadn't (countdown
+// continues exactly where it left off, uninterrupted by the restart). So
+// onStartup must NOT force a sync itself, or it would fire early and cut a
+// still-running countdown short.
 async function ensureAlarm() {
   if (!(await isEnabled())) return;
   const existing = await chrome.alarms.get(SYNC_ALARM);
@@ -112,13 +119,16 @@ async function stopAutoSync() {
   await chrome.alarms.clear(SYNC_ALARM);
 }
 
+// Fresh install: no prior countdown exists yet, so sync right away instead of
+// making the very first sync wait a full period.
 chrome.runtime.onInstalled.addListener(() => {
   ensureAlarm();
   isEnabled().then((on) => on && syncNow());
 });
+// Browser restart: only make sure the alarm still exists — never force a sync
+// here (see the comment on ensureAlarm above for why).
 chrome.runtime.onStartup.addListener(() => {
   ensureAlarm();
-  isEnabled().then((on) => on && syncNow());
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {

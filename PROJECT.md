@@ -402,8 +402,13 @@ extension automates *harvesting a session from a browser that's already logged i
 - **Gotcha already hit and fixed**: naively recreating the alarm on every `chrome.runtime.
   onStartup` resets its countdown to full each time — meaning if the session died while Chrome
   was closed, reopening it wouldn't actually fix anything for up to another full period. Fixed by
-  (a) only recreating the alarm if it's missing or its period changed in code, and (b) firing an
-  immediate sync separately on every startup, so reopening Chrome always catches up right away.
+  only recreating the alarm if it's missing or its period changed in code, and letting
+  `chrome.alarms`' own native persistence handle the rest: a restart fires the alarm right away
+  if its scheduled time already passed while Chrome was closed (session was overdue → syncs
+  immediately), or simply keeps counting down to its original time if it hadn't (an
+  in-progress countdown survives a restart untouched). `onStartup` deliberately does **not**
+  force a sync itself — doing so would cut a still-valid countdown short instead of letting it
+  finish.
 - **Stop/Start** (popup buttons) toggles `chrome.storage.local.autoSyncEnabled` and
   clears/recreates the alarm — lets you pause the timer without uninstalling. The manual
   "Sync now" button always works regardless of this flag.

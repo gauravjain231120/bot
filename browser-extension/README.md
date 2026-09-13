@@ -31,8 +31,10 @@ long as Chrome is running — no further clicks needed.
 - **Stop auto-sync** / **Start auto-sync** pauses/resumes the timer without uninstalling anything
   — useful if you want to temporarily stop it without losing the setup. Starting again also
   syncs immediately.
-- Reopening Chrome after being fully closed triggers an immediate sync on its own (it doesn't
-  wait for the timer to catch up).
+- Closing and reopening Chrome doesn't reset the countdown. If the timer's due time already
+  passed while Chrome was closed, it syncs right away when you reopen. If it hadn't, the
+  countdown just keeps going from where it left off — reopening Chrome doesn't force an early
+  sync.
 
 ## Multiple devices
 
