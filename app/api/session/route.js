@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '../../../lib/db';
 import { parseCurl } from '../../../lib/curl';
 import { isAuthed } from '../../../lib/adminAuth';
-import { recordSessionCaptured } from '../../../lib/sessionHistory';
-import { replyToChat } from '../../../lib/telegram';
-import { formatIST } from '../../../lib/dates';
+import { saveSession } from '../../../lib/sessionStore';
 
 export const runtime = 'nodejs';
 
@@ -32,31 +29,6 @@ export async function POST(request) {
     );
   }
 
-  const isAmazon = marketplace === 'amazon';
-  const sessionId = isAmazon ? 'session_amazon' : 'session';
-  const expiredFlag = isAmazon ? 'amazonSessionExpiredAlertSent' : 'sessionExpiredAlertSent';
-
-  const db = await getDb();
-  await db.collection('settings').updateOne(
-    { _id: sessionId },
-    { $set: { headers, capturedAt: new Date().toISOString() } },
-    { upsert: true }
-  );
-  await db.collection('settings').updateOne(
-    { _id: 'status' },
-    { $set: { [expiredFlag]: false } },
-    { upsert: true }
-  );
-  await recordSessionCaptured(isAmazon ? 'amazon' : 'myntra');
-
-  // Mirrors the session-expired alert: goes ONLY to the primary chat, not the
-  // broadcast list — this is a "you just did something" confirmation for
-  // whoever pasted the session, not order-alert-style news for everyone.
-  const label = isAmazon ? 'Amazon' : 'Myntra';
-  await replyToChat(
-    process.env.TELEGRAM_COMMAND_CHAT_ID,
-    `✅ <b>${label} session activated</b>\n${formatIST(Date.now())}`
-  ).catch((err) => console.error('session-activated alert failed:', err.message));
-
-  return NextResponse.json({ ok: true, headerCount: Object.keys(headers).length });
+  const result = await saveSession({ marketplace, headers, source: 'manual' });
+  return NextResponse.json({ ok: true, ...result });
 }
