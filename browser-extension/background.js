@@ -78,39 +78,66 @@ async function syncNow() {
   return results;
 }
 
+// Whether auto-sync (the alarm) should be running — the "Sync now" button in
+// the popup always works regardless of this, since that's an explicit action;
+// this only governs the unattended timer. Defaults to on for anyone who never
+// touches the new Stop/Start button.
+async function isEnabled() {
+  const { autoSyncEnabled } = await chrome.storage.local.get(['autoSyncEnabled']);
+  return autoSyncEnabled !== false;
+}
+
 // Re-creating the alarm unconditionally on every startup would reset its
-// 2-hour countdown back to full every time Chrome (re)opens — meaning if the
-// session died while the browser was closed, reopening it wouldn't fix
-// anything until ANOTHER 2 hours passed. Only create it if it doesn't already
-// exist, and separately fire an immediate sync on every startup so reopening
-// Chrome always catches up right away instead of waiting.
+// countdown back to full every time Chrome (re)opens — meaning if the session
+// died while the browser was closed, reopening it wouldn't fix anything until
+// a full period passed again. Only create it if it doesn't already exist (or
+// its period changed in code), and separately fire an immediate sync on every
+// startup so reopening Chrome always catches up right away instead of waiting.
 async function ensureAlarm() {
+  if (!(await isEnabled())) return;
   const existing = await chrome.alarms.get(SYNC_ALARM);
-  // Recreate if missing, or if SYNC_PERIOD_MINUTES was changed in code since the
-  // alarm was last set — otherwise leave it alone so startup never resets the
-  // countdown of an already-correct, already-running alarm.
   if (!existing || existing.periodInMinutes !== SYNC_PERIOD_MINUTES) {
     chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
   }
 }
 
+async function startAutoSync() {
+  await chrome.storage.local.set({ autoSyncEnabled: true });
+  chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+  return syncNow();
+}
+
+async function stopAutoSync() {
+  await chrome.storage.local.set({ autoSyncEnabled: false });
+  await chrome.alarms.clear(SYNC_ALARM);
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   ensureAlarm();
-  syncNow();
+  isEnabled().then((on) => on && syncNow());
 });
 chrome.runtime.onStartup.addListener(() => {
   ensureAlarm();
-  syncNow();
+  isEnabled().then((on) => on && syncNow());
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === SYNC_ALARM) syncNow();
 });
 
-// Lets the popup trigger an immediate sync and read the result back.
+// Lets the popup trigger an immediate sync, or toggle auto-sync, and read the
+// result back.
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message === 'sync-now') {
     syncNow().then(sendResponse);
     return true; // keep the message channel open for the async response
+  }
+  if (message === 'stop-auto-sync') {
+    stopAutoSync().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (message === 'start-auto-sync') {
+    startAutoSync().then((results) => sendResponse({ ok: true, results }));
+    return true;
   }
 });
