@@ -50,11 +50,24 @@ async function renderAutoSyncState() {
 
   if (!on) {
     countdownLabelEl.textContent = 'Auto-sync is stopped';
+    countdownEl.classList.remove('retrying');
     nextSyncAt = null;
     clearInterval(countdownTimer);
     tickCountdown();
     return;
   }
+  // A pending retry alarm means the last unattended sync failed (e.g. no
+  // internet at the time) — show that countdown instead of the regular one,
+  // since it's the one that'll actually fire next.
+  const retryAlarm = await chrome.alarms.get('session-sync-retry');
+  if (retryAlarm) {
+    countdownLabelEl.textContent = 'Sync failed — retrying in';
+    countdownEl.classList.add('retrying');
+    nextSyncAt = retryAlarm.scheduledTime;
+    startCountdownTimer();
+    return;
+  }
+  countdownEl.classList.remove('retrying');
   countdownLabelEl.textContent = 'Next auto-sync in';
   const alarm = await chrome.alarms.get('session-sync');
   nextSyncAt = alarm ? alarm.scheduledTime : null;

@@ -6,7 +6,13 @@
 // normally in this browser; it never logs in or touches a password.
 
 const SYNC_ALARM = 'session-sync';
+const SYNC_RETRY_ALARM = 'session-sync-retry';
 const SYNC_PERIOD_MINUTES = 240; // every 4 hours
+
+// Backoff for retrying a failed *unattended* sync (e.g. the alarm fired while
+// offline): 1m, 2m, 4m, 8m, then holds at 15m until it succeeds — instead of
+// leaving the extension stuck waiting out the rest of the 4-hour period.
+const RETRY_DELAYS_MINUTES = [1, 2, 4, 8, 15];
 
 const MARKETPLACES = [
   {
@@ -108,22 +114,61 @@ async function ensureAlarm() {
   }
 }
 
+// How many unattended syncs in a row have failed — drives the backoff delay
+// in scheduleRetry(). Lives in storage since the service worker gets killed
+// and restarted between alarms and can't keep this in memory.
+async function getRetryCount() {
+  const { retryCount } = await chrome.storage.local.get(['retryCount']);
+  return retryCount || 0;
+}
+
+async function scheduleRetry() {
+  const count = await getRetryCount();
+  const delayInMinutes = RETRY_DELAYS_MINUTES[Math.min(count, RETRY_DELAYS_MINUTES.length - 1)];
+  await chrome.storage.local.set({ retryCount: count + 1 });
+  chrome.alarms.create(SYNC_RETRY_ALARM, { delayInMinutes });
+}
+
+async function clearRetry() {
+  await chrome.alarms.clear(SYNC_RETRY_ALARM);
+  await chrome.storage.local.set({ retryCount: 0 });
+}
+
+// Runs a sync triggered by the timer (the periodic alarm or a backoff retry)
+// rather than an explicit "Sync now" click. On failure this arms a short
+// backoff retry so a sync that missed its slot (no internet at the time,
+// a transient network error, etc.) catches up on its own instead of sitting
+// stuck until the next full 4-hour period. "Not configured" is excluded —
+// that needs the user to open the options page, not more retries.
+async function runAutoSync() {
+  const results = await syncNow();
+  const isUnconfigured = results.length === 1 && results[0].marketplace === 'all';
+  const failed = results.some((r) => !r.ok);
+  if (failed && !isUnconfigured && (await isEnabled())) {
+    await scheduleRetry();
+  } else {
+    await clearRetry();
+  }
+  return results;
+}
+
 async function startAutoSync() {
   await chrome.storage.local.set({ autoSyncEnabled: true });
   chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
-  return syncNow();
+  return runAutoSync();
 }
 
 async function stopAutoSync() {
   await chrome.storage.local.set({ autoSyncEnabled: false });
   await chrome.alarms.clear(SYNC_ALARM);
+  await clearRetry();
 }
 
 // Fresh install: no prior countdown exists yet, so sync right away instead of
 // making the very first sync wait a full period.
 chrome.runtime.onInstalled.addListener(() => {
   ensureAlarm();
-  isEnabled().then((on) => on && syncNow());
+  isEnabled().then((on) => on && runAutoSync());
 });
 // Browser restart: only make sure the alarm still exists — never force a sync
 // here (see the comment on ensureAlarm above for why).
@@ -132,7 +177,17 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === SYNC_ALARM) syncNow();
+  if (alarm.name === SYNC_ALARM || alarm.name === SYNC_RETRY_ALARM) runAutoSync();
+});
+
+// If the service worker happens to be alive when connectivity comes back,
+// jump the queue instead of waiting out the rest of the backoff delay. Only
+// fires when a retry is actually pending, so a healthy cycle never gets an
+// extra sync just because the network blipped.
+self.addEventListener('online', () => {
+  chrome.alarms.get(SYNC_RETRY_ALARM).then((alarm) => {
+    if (alarm) runAutoSync();
+  });
 });
 
 // Lets the popup trigger an immediate sync, or toggle auto-sync, and read the
