@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { saveSession } from '../../../../lib/sessionStore';
+import { getDb } from '../../../../lib/db';
 
 export const runtime = 'nodejs';
 
@@ -24,12 +25,27 @@ export async function POST(request) {
     return NextResponse.json({ error: 'missing headers' }, { status: 400 });
   }
 
+  const marketplace = body.marketplace === 'amazon' ? 'amazon' : 'myntra';
+
   try {
-    const result = await saveSession({
-      marketplace: body.marketplace === 'amazon' ? 'amazon' : 'myntra',
-      headers: body.headers,
-      source: 'extension',
-    });
+    const result = await saveSession({ marketplace, headers: body.headers, source: 'extension' });
+
+    // Accepting the cookies here only proves you're logged into the SITE in
+    // this browser, not that the session actually works against the real
+    // API — Amazon in particular sets cookies even when logged out, so a
+    // stale/expired session would otherwise "sync" successfully every time.
+    // The ~1-minute order poller is what actually calls the real API and
+    // already records the outcome in `settings.status`; surface THAT as this
+    // sync's result instead of a blind "ok", so an expired session shows up
+    // as a failure here too, not just as a Telegram alert nobody in the
+    // extension popup ever sees.
+    const db = await getDb();
+    const statusDoc = await db.collection('settings').findOne({ _id: 'status' });
+    const lastError = marketplace === 'amazon' ? statusDoc?.amazonLastError : statusDoc?.lastError;
+    if (lastError) {
+      return NextResponse.json({ error: lastError }, { status: 401 });
+    }
+
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 400 });

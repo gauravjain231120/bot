@@ -213,11 +213,23 @@ self.addEventListener('online', () => {
 // result back.
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message === 'sync-now') {
-    // An explicit click that happens to succeed while a retry was pending
-    // (e.g. you noticed the badge and fixed your connection) counts as
-    // recovery too — no reason to make it wait for the backoff alarm as well.
     syncNow().then(async (results) => {
-      if (results.every((r) => r.ok)) await clearRetry();
+      if (results.every((r) => r.ok)) {
+        // An explicit click that happens to succeed while a retry was pending
+        // (e.g. you noticed the badge and fixed your connection) counts as
+        // recovery too — no reason to make it wait for the backoff alarm too.
+        await clearRetry();
+        // A sync just happened, successfully — the unattended timer's whole
+        // job is done for now, so push its next run a full period out from
+        // this moment instead of leaving the old countdown to fire again
+        // shortly after (chrome.alarms.create with the same name replaces
+        // the existing alarm and reschedules it from now). Only touches the
+        // timer if auto-sync is actually on; a manual click while it's
+        // stopped shouldn't quietly turn it back on.
+        if (await isEnabled()) {
+          chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+        }
+      }
       await updateBadge();
       sendResponse(results);
     });
