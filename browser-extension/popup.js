@@ -42,6 +42,9 @@ function startCountdownTimer() {
   countdownTimer = setInterval(tickCountdown, 1000);
 }
 
+// This banner always tracks the main periodic alarm only — retries are now
+// per-marketplace (see render() below), so a failure shows inline on that
+// marketplace's own row instead of hijacking this shared countdown.
 async function renderAutoSyncState() {
   const { autoSyncEnabled } = await chrome.storage.local.get(['autoSyncEnabled']);
   const on = autoSyncEnabled !== false;
@@ -50,31 +53,18 @@ async function renderAutoSyncState() {
 
   if (!on) {
     countdownLabelEl.textContent = 'Auto-sync is stopped';
-    countdownEl.classList.remove('retrying');
     nextSyncAt = null;
     clearInterval(countdownTimer);
     tickCountdown();
     return;
   }
-  // A pending retry alarm means the last unattended sync failed (e.g. no
-  // internet at the time) — show that countdown instead of the regular one,
-  // since it's the one that'll actually fire next.
-  const retryAlarm = await chrome.alarms.get('session-sync-retry');
-  if (retryAlarm) {
-    countdownLabelEl.textContent = 'Sync failed — retrying in';
-    countdownEl.classList.add('retrying');
-    nextSyncAt = retryAlarm.scheduledTime;
-    startCountdownTimer();
-    return;
-  }
-  countdownEl.classList.remove('retrying');
   countdownLabelEl.textContent = 'Next auto-sync in';
   const alarm = await chrome.alarms.get('session-sync');
   nextSyncAt = alarm ? alarm.scheduledTime : null;
   startCountdownTimer();
 }
 
-function render(lastResult) {
+async function render(lastResult) {
   const byMarket = {};
   if (lastResult && lastResult.results) {
     for (const r of lastResult.results) byMarket[r.marketplace] = { ...r, at: lastResult.at };
@@ -84,7 +74,18 @@ function render(lastResult) {
   for (const name of ['myntra', 'amazon']) {
     const r = byMarket[name];
     const dotClass = !r ? 'unknown' : r.ok ? 'ok' : 'bad';
-    const detail = !r ? 'No sync yet' : r.ok ? `Synced ${formatTime(new Date(r.at))}` : r.error;
+    let detail = !r ? 'No sync yet' : r.ok ? `Synced ${formatTime(new Date(r.at))}` : r.error;
+
+    // A failure with its own retry pending gets that spelled out right here,
+    // since retries are per-marketplace now — Myntra and Amazon can each be
+    // on a completely different backoff schedule.
+    if (r && !r.ok) {
+      const retryAlarm = await chrome.alarms.get(`session-sync-retry-${name}`);
+      if (retryAlarm) {
+        const mins = Math.max(1, Math.round((retryAlarm.scheduledTime - Date.now()) / 60000));
+        detail = `${r.error} — retrying in ${mins}m`;
+      }
+    }
 
     const row = document.createElement('div');
     row.className = 'row-item';
@@ -97,7 +98,7 @@ function render(lastResult) {
     nameEl.textContent = name;
 
     const detailEl = document.createElement('span');
-    detailEl.className = 'detail';
+    detailEl.className = r && !r.ok ? 'detail bad' : 'detail';
     detailEl.title = detail;
     detailEl.textContent = detail;
 

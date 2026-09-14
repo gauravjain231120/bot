@@ -6,7 +6,10 @@
 // normally in this browser; it never logs in or touches a password.
 
 const SYNC_ALARM = 'session-sync';
-const SYNC_RETRY_ALARM = 'session-sync-retry';
+// One retry alarm PER marketplace (e.g. "session-sync-retry-amazon") so a
+// broken Amazon session retries on its own schedule without also re-syncing
+// a perfectly healthy Myntra session (and vice versa).
+const RETRY_ALARM_PREFIX = 'session-sync-retry-';
 const SYNC_PERIOD_MINUTES = 240; // every 4 hours
 
 // Backoff for retrying a failed *unattended* sync (e.g. the alarm fired while
@@ -35,14 +38,29 @@ const MARKETPLACES = [
     },
   },
 ];
+const MARKETPLACE_NAMES = MARKETPLACES.map((m) => m.marketplace);
+
+function retryAlarmName(marketplace) {
+  return `${RETRY_ALARM_PREFIX}${marketplace}`;
+}
 
 async function getConfig() {
   const { appUrl, syncSecret } = await chrome.storage.local.get(['appUrl', 'syncSecret']);
   return { appUrl: (appUrl || '').replace(/\/+$/, ''), syncSecret: syncSecret || '' };
 }
 
-async function setLastResult(results) {
-  await chrome.storage.local.set({ lastResult: { results, at: new Date().toISOString() } });
+// Merges freshly-synced results into whatever's already stored rather than
+// replacing the whole thing — a targeted retry only re-syncs ONE marketplace,
+// and must not blank out the other's last-known (still valid) status.
+async function mergeLastResult(newResults) {
+  const { lastResult } = await chrome.storage.local.get(['lastResult']);
+  const existing = (lastResult && lastResult.results) || [];
+  const merged = newResults.length === 1 && newResults[0].marketplace === 'all'
+    ? newResults
+    : MARKETPLACE_NAMES.map(
+        (name) => newResults.find((r) => r.marketplace === name) || existing.find((r) => r.marketplace === name)
+      ).filter(Boolean);
+  await chrome.storage.local.set({ lastResult: { results: merged, at: new Date().toISOString() } });
 }
 
 async function buildHeaders({ cookieDomain, staticHeaders }) {
@@ -71,17 +89,23 @@ async function syncOne(entry, appUrl, syncSecret) {
   }
 }
 
-async function syncNow() {
+// Syncs only the given marketplace names (defaults to all of them).
+async function syncSome(names = MARKETPLACE_NAMES) {
   const { appUrl, syncSecret } = await getConfig();
   if (!appUrl || !syncSecret) {
     const results = [{ marketplace: 'all', ok: false, error: 'Not configured yet — open the extension options.' }];
-    await setLastResult(results);
+    await mergeLastResult(results);
     return results;
   }
 
-  const results = await Promise.all(MARKETPLACES.map((entry) => syncOne(entry, appUrl, syncSecret)));
-  await setLastResult(results);
+  const entries = MARKETPLACES.filter((m) => names.includes(m.marketplace));
+  const results = await Promise.all(entries.map((entry) => syncOne(entry, appUrl, syncSecret)));
+  await mergeLastResult(results);
   return results;
+}
+
+async function syncNow() {
+  return syncSome(MARKETPLACE_NAMES);
 }
 
 // Whether auto-sync (the alarm) should be running — the "Sync now" button in
@@ -114,33 +138,50 @@ async function ensureAlarm() {
   }
 }
 
-// How many unattended syncs in a row have failed — drives the backoff delay
-// in scheduleRetry(). Lives in storage since the service worker gets killed
-// and restarted between alarms and can't keep this in memory.
-async function getRetryCount() {
-  const { retryCount } = await chrome.storage.local.get(['retryCount']);
-  return retryCount || 0;
+// How many unattended syncs in a row have failed for THIS marketplace —
+// drives its own backoff delay in scheduleRetry(). Lives in storage since the
+// service worker gets killed and restarted between alarms and can't keep
+// this in memory.
+async function getRetryCount(marketplace) {
+  const key = `retryCount_${marketplace}`;
+  const stored = await chrome.storage.local.get([key]);
+  return stored[key] || 0;
 }
 
-async function scheduleRetry() {
-  const count = await getRetryCount();
+async function scheduleRetry(marketplace) {
+  const count = await getRetryCount(marketplace);
   const delayInMinutes = RETRY_DELAYS_MINUTES[Math.min(count, RETRY_DELAYS_MINUTES.length - 1)];
-  await chrome.storage.local.set({ retryCount: count + 1 });
-  chrome.alarms.create(SYNC_RETRY_ALARM, { delayInMinutes });
+  await chrome.storage.local.set({ [`retryCount_${marketplace}`]: count + 1 });
+  chrome.alarms.create(retryAlarmName(marketplace), { delayInMinutes });
 }
 
-async function clearRetry() {
-  await chrome.alarms.clear(SYNC_RETRY_ALARM);
-  await chrome.storage.local.set({ retryCount: 0 });
+async function clearRetry(marketplace) {
+  await chrome.alarms.clear(retryAlarmName(marketplace));
+  await chrome.storage.local.set({ [`retryCount_${marketplace}`]: 0 });
 }
 
-// Red "!" on the toolbar icon while a retry is pending, so a failure is
-// visible without opening the popup. Badge state is drawn by Chrome itself
-// and survives the service worker going to sleep, so this only needs to run
-// whenever the retry alarm is armed or cleared, not on any kind of timer.
+async function pendingRetries() {
+  const alarms = await chrome.alarms.getAll();
+  return alarms.filter((a) => a.name.startsWith(RETRY_ALARM_PREFIX));
+}
+
+// Shared by runAutoSync and the manual "Sync now" handler: each marketplace
+// that succeeded (or that shouldn't retry because auto-sync is off) has its
+// retry cleared; each that's still failing arms its own backoff.
+async function updateRetriesFor(results, enabled) {
+  for (const r of results) {
+    if (r.ok || !enabled) await clearRetry(r.marketplace);
+    else await scheduleRetry(r.marketplace);
+  }
+}
+
+// Red "!" on the toolbar icon while ANY marketplace has a retry pending, so a
+// failure is visible without opening the popup. Badge state is drawn by
+// Chrome itself and survives the service worker going to sleep, so this only
+// needs to run whenever a retry alarm is armed or cleared, not on a timer.
 async function updateBadge() {
-  const pending = await chrome.alarms.get(SYNC_RETRY_ALARM);
-  if (pending) {
+  const pending = await pendingRetries();
+  if (pending.length > 0) {
     chrome.action.setBadgeText({ text: '!' });
     chrome.action.setBadgeBackgroundColor({ color: '#dc2626' });
   } else {
@@ -148,21 +189,27 @@ async function updateBadge() {
   }
 }
 
-// Runs a sync triggered by the timer (the periodic alarm or a backoff retry)
-// rather than an explicit "Sync now" click. On failure this arms a short
-// backoff retry so a sync that missed its slot (no internet at the time,
-// a transient network error, etc.) catches up on its own instead of sitting
-// stuck until the next full 4-hour period. "Not configured" is excluded —
-// that needs the user to open the options page, not more retries.
-async function runAutoSync() {
-  const results = await syncNow();
+// Runs a sync triggered by the timer (the periodic alarm or a per-marketplace
+// backoff retry) rather than an explicit "Sync now" click, for just the given
+// marketplace names. On failure EACH marketplace arms its own short backoff
+// retry so a sync that missed its slot (no internet at the time, a transient
+// network error, that marketplace's session being stale, etc.) catches up on
+// its own instead of sitting stuck until the next full 4-hour period — and a
+// marketplace that's already fine is never dragged along for the ride.
+// "Not configured" is excluded — that needs the user to open the options
+// page, not more retries.
+async function runAutoSync(names = MARKETPLACE_NAMES) {
+  const results = await syncSome(names);
   const isUnconfigured = results.length === 1 && results[0].marketplace === 'all';
-  const failed = results.some((r) => !r.ok);
-  if (failed && !isUnconfigured && (await isEnabled())) {
-    await scheduleRetry();
-  } else {
-    await clearRetry();
+  if (isUnconfigured) {
+    // Clear any retry already pending for these — a config problem isn't
+    // something a per-marketplace backoff can fix, and leaving one armed
+    // would just have it fire forever hitting this same branch every time.
+    for (const name of names) await clearRetry(name);
+    await updateBadge();
+    return results;
   }
+  await updateRetriesFor(results, await isEnabled());
   await updateBadge();
   return results;
 }
@@ -176,7 +223,7 @@ async function startAutoSync() {
 async function stopAutoSync() {
   await chrome.storage.local.set({ autoSyncEnabled: false });
   await chrome.alarms.clear(SYNC_ALARM);
-  await clearRetry();
+  for (const name of MARKETPLACE_NAMES) await clearRetry(name);
   await updateBadge();
 }
 
@@ -187,25 +234,30 @@ chrome.runtime.onInstalled.addListener(() => {
   isEnabled().then((on) => on && runAutoSync());
 });
 // Browser restart: only make sure the alarm still exists — never force a sync
-// here (see the comment on ensureAlarm above for why). The retry alarm (if
-// any) survives the restart on its own; just make the badge match it again,
-// since Chrome doesn't persist badge text across a full restart.
+// here (see the comment on ensureAlarm above for why). Per-marketplace retry
+// alarms (if any) survive the restart on their own; just make the badge
+// match them again, since Chrome doesn't persist badge text across a restart.
 chrome.runtime.onStartup.addListener(() => {
   ensureAlarm();
   updateBadge();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === SYNC_ALARM || alarm.name === SYNC_RETRY_ALARM) runAutoSync();
+  if (alarm.name === SYNC_ALARM) {
+    runAutoSync();
+  } else if (alarm.name.startsWith(RETRY_ALARM_PREFIX)) {
+    runAutoSync([alarm.name.slice(RETRY_ALARM_PREFIX.length)]);
+  }
 });
 
 // If the service worker happens to be alive when connectivity comes back,
-// jump the queue instead of waiting out the rest of the backoff delay. Only
-// fires when a retry is actually pending, so a healthy cycle never gets an
-// extra sync just because the network blipped.
+// jump the queue instead of waiting out the rest of the backoff delay — for
+// whichever marketplace(s) actually have a retry pending. Only fires when at
+// least one does, so a healthy cycle never gets an extra sync just because
+// the network blipped.
 self.addEventListener('online', () => {
-  chrome.alarms.get(SYNC_RETRY_ALARM).then((alarm) => {
-    if (alarm) runAutoSync();
+  pendingRetries().then((alarms) => {
+    if (alarms.length > 0) runAutoSync(alarms.map((a) => a.name.slice(RETRY_ALARM_PREFIX.length)));
   });
 });
 
@@ -214,21 +266,24 @@ self.addEventListener('online', () => {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message === 'sync-now') {
     syncNow().then(async (results) => {
-      if (results.every((r) => r.ok)) {
-        // An explicit click that happens to succeed while a retry was pending
-        // (e.g. you noticed the badge and fixed your connection) counts as
-        // recovery too — no reason to make it wait for the backoff alarm too.
-        await clearRetry();
-        // A sync just happened, successfully — the unattended timer's whole
-        // job is done for now, so push its next run a full period out from
-        // this moment instead of leaving the old countdown to fire again
-        // shortly after (chrome.alarms.create with the same name replaces
-        // the existing alarm and reschedules it from now). Only touches the
-        // timer if auto-sync is actually on; a manual click while it's
-        // stopped shouldn't quietly turn it back on.
-        if (await isEnabled()) {
-          chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
-        }
+      const isUnconfigured = results.length === 1 && results[0].marketplace === 'all';
+      if (!isUnconfigured) {
+        const enabled = await isEnabled();
+        // A marketplace that succeeds here while it had a retry pending
+        // (e.g. you noticed the badge and logged back in) counts as recovery
+        // too — no reason to make it wait for the backoff alarm as well. One
+        // that's STILL failing just re-arms its own retry, same as an
+        // unattended attempt would.
+        await updateRetriesFor(results, enabled);
+        // A manual full sync just ran regardless of the per-marketplace
+        // outcome above — push the unattended timer's next full pass a
+        // period out from now (chrome.alarms.create with the same name
+        // replaces the existing alarm and reschedules it from now). Any
+        // marketplace still failing keeps catching up on its own faster
+        // backoff instead; this only governs the OTHER, everything's-fine
+        // case. Only touches the timer if auto-sync is actually on — a
+        // manual click while it's stopped shouldn't quietly turn it back on.
+        if (enabled) chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
       }
       await updateBadge();
       sendResponse(results);
