@@ -26,9 +26,14 @@ export async function POST(request) {
   }
 
   const marketplace = body.marketplace === 'amazon' ? 'amazon' : 'myntra';
+  // 'manual' means a person clicked Sync in the popup right now, asking
+  // "does this work?" — worth a confirmation either way. Anything else
+  // (omitted, or 'auto') is the unattended timer or a backoff retry, which
+  // happens on its own with no way to know if anything changed.
+  const trigger = body.trigger === 'manual' ? 'manual' : 'auto';
 
   try {
-    const result = await saveSession({ marketplace, headers: body.headers, source: 'extension' });
+    const result = await saveSession({ marketplace, headers: body.headers, source: 'extension', trigger });
 
     // Accepting the cookies here only proves you're logged into the SITE in
     // this browser, not that the session actually works against the real

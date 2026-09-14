@@ -67,7 +67,11 @@ async function renderAutoSyncState() {
 async function render(lastResult) {
   const byMarket = {};
   if (lastResult && lastResult.results) {
-    for (const r of lastResult.results) byMarket[r.marketplace] = { ...r, at: lastResult.at };
+    // Each result already carries its OWN `at` (set the moment that specific
+    // marketplace finished) — must not be overwritten with a shared
+    // "right now" timestamp, or a Myntra-only sync would make Amazon's
+    // untouched, carried-over entry look freshly synced too.
+    for (const r of lastResult.results) byMarket[r.marketplace] = r;
   }
 
   rowsEl.textContent = '';
@@ -121,43 +125,40 @@ function setBusyUI(busy) {
   for (const btn of rowsEl.querySelectorAll('.row-sync')) btn.disabled = busy;
 }
 
+// The single source of truth for what's on screen: whatever background.js
+// last stored (it already merges per-marketplace results correctly), never
+// reconstructed by hand here — every action below just triggers a sync and
+// then calls this, rather than building its own {results, at} to render.
+function refreshUI() {
+  chrome.storage.local.get(['lastResult'], (v) => render(v.lastResult));
+  renderAutoSyncState();
+}
+
 function syncOneMarket(name, btnEl) {
   setBusyUI(true);
   btnEl.textContent = '…';
   chrome.runtime.sendMessage({ type: 'sync-now', marketplace: name }, () => {
-    // The message only returns THIS marketplace's result — re-read the
-    // merged lastResult from storage (background.js already folds a
-    // targeted sync's outcome into it without touching the other
-    // marketplace's entry) instead of rendering just the one result, which
-    // would otherwise wipe the other row back to "No sync yet".
-    chrome.storage.local.get(['lastResult'], (v) => {
-      render(v.lastResult);
-      renderAutoSyncState();
-      setBusyUI(false);
-    });
+    refreshUI();
+    setBusyUI(false);
   });
 }
 
-chrome.storage.local.get(['lastResult'], (v) => render(v.lastResult));
-renderAutoSyncState();
+refreshUI();
 
 syncBtn.addEventListener('click', () => {
   setBusyUI(true);
   syncBtn.textContent = 'Syncing…';
-  chrome.runtime.sendMessage('sync-now', (results) => {
-    render({ results, at: new Date().toISOString() });
-    renderAutoSyncState();
+  chrome.runtime.sendMessage('sync-now', () => {
+    refreshUI();
     setBusyUI(false);
     syncBtn.textContent = 'Sync now';
   });
 });
 
 toggleBtn.addEventListener('click', () => {
-  const stopping = toggleBtn.textContent === 'Stop auto-sync';
   toggleBtn.disabled = true;
-  chrome.runtime.sendMessage(stopping ? 'stop-auto-sync' : 'start-auto-sync', (res) => {
-    if (!stopping && res && res.results) render({ results: res.results, at: new Date().toISOString() });
-    renderAutoSyncState();
+  chrome.runtime.sendMessage(toggleBtn.textContent === 'Stop auto-sync' ? 'stop-auto-sync' : 'start-auto-sync', () => {
+    refreshUI();
     toggleBtn.disabled = false;
   });
 });

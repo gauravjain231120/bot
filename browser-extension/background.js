@@ -51,7 +51,11 @@ async function getConfig() {
 
 // Merges freshly-synced results into whatever's already stored rather than
 // replacing the whole thing — a targeted retry only re-syncs ONE marketplace,
-// and must not blank out the other's last-known (still valid) status.
+// and must not blank out the other's last-known (still valid) status. Each
+// result carries its OWN `at` (set the moment IT finished), never a single
+// timestamp shared across the whole batch — otherwise a Myntra-only sync
+// would make Amazon's untouched, carried-over entry look freshly synced too,
+// just because the merge happened to run "now".
 async function mergeLastResult(newResults) {
   const { lastResult } = await chrome.storage.local.get(['lastResult']);
   const existing = (lastResult && lastResult.results) || [];
@@ -60,7 +64,7 @@ async function mergeLastResult(newResults) {
     : MARKETPLACE_NAMES.map(
         (name) => newResults.find((r) => r.marketplace === name) || existing.find((r) => r.marketplace === name)
       ).filter(Boolean);
-  await chrome.storage.local.set({ lastResult: { results: merged, at: new Date().toISOString() } });
+  await chrome.storage.local.set({ lastResult: { results: merged } });
 }
 
 async function buildHeaders({ cookieDomain, staticHeaders }) {
@@ -72,40 +76,43 @@ async function buildHeaders({ cookieDomain, staticHeaders }) {
   return { cookie: cookieHeader, 'user-agent': navigator.userAgent, ...staticHeaders };
 }
 
-async function syncOne(entry, appUrl, syncSecret) {
+// `trigger` tells the server WHY this sync happened: 'manual' for a button
+// click in the popup (a human asking, right now, "does this work?" — worth a
+// Telegram confirmation either way), 'auto' for the periodic alarm or a
+// backoff retry (happens on its own, as often as once a minute while
+// retrying, with no way to know if anything actually changed — must NOT
+// trigger a confirmation or it spams exactly like before).
+async function syncOne(entry, appUrl, syncSecret, trigger) {
   try {
     const headers = await buildHeaders(entry);
     const res = await fetch(`${appUrl}/api/session/sync`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-sync-secret': syncSecret },
-      body: JSON.stringify({ marketplace: entry.marketplace, headers }),
+      body: JSON.stringify({ marketplace: entry.marketplace, headers, trigger }),
     });
     const data = await res.json().catch(() => ({}));
+    const at = new Date().toISOString();
     return res.ok
-      ? { marketplace: entry.marketplace, ok: true, headerCount: data.headerCount }
-      : { marketplace: entry.marketplace, ok: false, error: data.error || `HTTP ${res.status}` };
+      ? { marketplace: entry.marketplace, ok: true, headerCount: data.headerCount, at }
+      : { marketplace: entry.marketplace, ok: false, error: data.error || `HTTP ${res.status}`, at };
   } catch (err) {
-    return { marketplace: entry.marketplace, ok: false, error: err.message };
+    return { marketplace: entry.marketplace, ok: false, error: err.message, at: new Date().toISOString() };
   }
 }
 
 // Syncs only the given marketplace names (defaults to all of them).
-async function syncSome(names = MARKETPLACE_NAMES) {
+async function syncSome(names = MARKETPLACE_NAMES, trigger = 'auto') {
   const { appUrl, syncSecret } = await getConfig();
   if (!appUrl || !syncSecret) {
-    const results = [{ marketplace: 'all', ok: false, error: 'Not configured yet — open the extension options.' }];
+    const results = [{ marketplace: 'all', ok: false, error: 'Not configured yet — open the extension options.', at: new Date().toISOString() }];
     await mergeLastResult(results);
     return results;
   }
 
   const entries = MARKETPLACES.filter((m) => names.includes(m.marketplace));
-  const results = await Promise.all(entries.map((entry) => syncOne(entry, appUrl, syncSecret)));
+  const results = await Promise.all(entries.map((entry) => syncOne(entry, appUrl, syncSecret, trigger)));
   await mergeLastResult(results);
   return results;
-}
-
-async function syncNow() {
-  return syncSome(MARKETPLACE_NAMES);
 }
 
 // Whether auto-sync (the alarm) should be running — the "Sync now" button in
@@ -274,7 +281,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const targetMarketplace = message && typeof message === 'object' && message.type === 'sync-now' ? message.marketplace : null;
   if (isFullSync || targetMarketplace) {
     const names = targetMarketplace ? [targetMarketplace] : MARKETPLACE_NAMES;
-    syncSome(names).then(async (results) => {
+    syncSome(names, 'manual').then(async (results) => {
       const isUnconfigured = results.length === 1 && results[0].marketplace === 'all';
       if (!isUnconfigured) {
         const enabled = await isEnabled();
