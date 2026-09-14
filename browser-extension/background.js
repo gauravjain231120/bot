@@ -134,6 +134,20 @@ async function clearRetry() {
   await chrome.storage.local.set({ retryCount: 0 });
 }
 
+// Red "!" on the toolbar icon while a retry is pending, so a failure is
+// visible without opening the popup. Badge state is drawn by Chrome itself
+// and survives the service worker going to sleep, so this only needs to run
+// whenever the retry alarm is armed or cleared, not on any kind of timer.
+async function updateBadge() {
+  const pending = await chrome.alarms.get(SYNC_RETRY_ALARM);
+  if (pending) {
+    chrome.action.setBadgeText({ text: '!' });
+    chrome.action.setBadgeBackgroundColor({ color: '#dc2626' });
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
+}
+
 // Runs a sync triggered by the timer (the periodic alarm or a backoff retry)
 // rather than an explicit "Sync now" click. On failure this arms a short
 // backoff retry so a sync that missed its slot (no internet at the time,
@@ -149,6 +163,7 @@ async function runAutoSync() {
   } else {
     await clearRetry();
   }
+  await updateBadge();
   return results;
 }
 
@@ -162,6 +177,7 @@ async function stopAutoSync() {
   await chrome.storage.local.set({ autoSyncEnabled: false });
   await chrome.alarms.clear(SYNC_ALARM);
   await clearRetry();
+  await updateBadge();
 }
 
 // Fresh install: no prior countdown exists yet, so sync right away instead of
@@ -171,9 +187,12 @@ chrome.runtime.onInstalled.addListener(() => {
   isEnabled().then((on) => on && runAutoSync());
 });
 // Browser restart: only make sure the alarm still exists — never force a sync
-// here (see the comment on ensureAlarm above for why).
+// here (see the comment on ensureAlarm above for why). The retry alarm (if
+// any) survives the restart on its own; just make the badge match it again,
+// since Chrome doesn't persist badge text across a full restart.
 chrome.runtime.onStartup.addListener(() => {
   ensureAlarm();
+  updateBadge();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -194,7 +213,14 @@ self.addEventListener('online', () => {
 // result back.
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message === 'sync-now') {
-    syncNow().then(sendResponse);
+    // An explicit click that happens to succeed while a retry was pending
+    // (e.g. you noticed the badge and fixed your connection) counts as
+    // recovery too — no reason to make it wait for the backoff alarm as well.
+    syncNow().then(async (results) => {
+      if (results.every((r) => r.ok)) await clearRetry();
+      await updateBadge();
+      sendResponse(results);
+    });
     return true; // keep the message channel open for the async response
   }
   if (message === 'stop-auto-sync') {
