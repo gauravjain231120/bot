@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
-import { saveSession } from '../../../../lib/sessionStore';
+import { saveSessionHeaders, announceSessionActivated } from '../../../../lib/sessionStore';
 import { getDb } from '../../../../lib/db';
+import { fetchUnshippedOrders } from '../../../../lib/amazon';
+import { fetchOpenOrders } from '../../../../lib/myntra';
 
 export const runtime = 'nodejs';
 
@@ -26,41 +28,72 @@ export async function POST(request) {
   }
 
   const marketplace = body.marketplace === 'amazon' ? 'amazon' : 'myntra';
+  const label = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
   // 'manual' means a person clicked Sync in the popup right now, asking
-  // "does this work?" — worth a confirmation either way. Anything else
-  // (omitted, or 'auto') is the unattended timer or a backoff retry, which
-  // happens on its own with no way to know if anything changed.
+  // "does this work?". Anything else (omitted, or 'auto') is the unattended
+  // timer or a backoff retry, happening on its own with no way to know if
+  // anything changed.
   const trigger = body.trigger === 'manual' ? 'manual' : 'auto';
 
   try {
-    const result = await saveSession({ marketplace, headers: body.headers, source: 'extension', trigger });
+    const result = await saveSessionHeaders({ marketplace, headers: body.headers, source: 'extension' });
 
-    // Accepting the cookies here only proves you're logged into the SITE in
-    // this browser, not that the session actually works against the real
-    // API — Amazon in particular sets cookies even when logged out, so a
-    // stale/expired session would otherwise "sync" successfully every time.
-    // The ~1-minute order poller is what actually calls the real API and
-    // already records the outcome in `settings.status`; surface THAT as this
-    // sync's result instead of a blind "ok", so an expired session shows up
-    // as a failure here too, not just as a Telegram alert nobody in the
-    // extension popup ever sees.
-    const db = await getDb();
-    const statusDoc = await db.collection('settings').findOne({ _id: 'status' });
-    const lastError = marketplace === 'amazon' ? statusDoc?.amazonLastError : statusDoc?.lastError;
-    if (lastError) {
-      // lastError is a log line (e.g. "2026-09-14T13:08:21.119Z HTTP 403
+    let working;
+    let rawError;
+
+    if (trigger === 'manual') {
+      // A person explicitly asked "does this work right now?" — the
+      // ~1-minute poller's last recorded result can be up to a minute
+      // stale (e.g. you logged out of Amazon seconds ago and the poll just
+      // before that still said fine), which is exactly what made a manual
+      // click right after logging out still say "ok", then separately say
+      // "activated" even though the session was already broken. A manual
+      // click is rare enough (nothing like the once-a-minute unattended
+      // cadence) that it's worth a real, live probe against the actual API
+      // instead of trusting that stale status.
+      try {
+        if (marketplace === 'amazon') await fetchUnshippedOrders(body.headers);
+        else await fetchOpenOrders(body.headers);
+        working = true;
+      } catch (err) {
+        working = false;
+        const status = err.response && err.response.status;
+        rawError = `${new Date().toISOString()} HTTP ${status || ''} ${err.message}`;
+      }
+    } else {
+      // Unattended sync: piggyback on the poller's own last recorded result
+      // rather than adding an extra live API call to every retry/period.
+      const db = await getDb();
+      const statusDoc = await db.collection('settings').findOne({ _id: 'status' });
+      rawError = marketplace === 'amazon' ? statusDoc?.amazonLastError : statusDoc?.lastError;
+      working = !rawError;
+    }
+
+    if (!working) {
+      // rawError is a log line (e.g. "2026-09-14T13:08:21.119Z HTTP 403
       // Request failed with status code 403") meant for the admin page, not
       // a tiny extension popup row — it gets cut off mid-timestamp there and
       // reads as gibberish. Translate it into something short and
       // actionable; the raw line still comes along as `detail` for anyone
       // who needs it (e.g. a future debugging pass), just not shown by the
       // extension today.
-      const label = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
-      const isAuthFailure = /HTTP 401|HTTP 403/.test(lastError);
+      const isAuthFailure = /HTTP 401|HTTP 403/.test(rawError || '');
       const friendly = isAuthFailure
         ? `${label} session expired — log in to ${label} in THIS Chrome browser (being logged in elsewhere doesn't count)`
         : `${label} check failed — see the admin page for details`;
-      return NextResponse.json({ error: friendly, detail: lastError }, { status: 401 });
+      return NextResponse.json({ error: friendly, detail: rawError }, { status: 401 });
+    }
+
+    // Genuinely verified working — never announced on the basis of "cookies
+    // were accepted" alone. A manual click that turns out to actually work
+    // is worth telling you about and worth re-arming the expired-alert (so
+    // you're told again if it breaks later). The unattended timer never
+    // announces this itself — the poller's own success path already resets
+    // the alert flag when it finds things working, and re-announcing it here
+    // too on every clean auto-sync is exactly what caused the earlier spam
+    // loop of alternating activated/expired messages.
+    if (trigger === 'manual') {
+      await announceSessionActivated(marketplace);
     }
 
     return NextResponse.json({ ok: true, ...result });
