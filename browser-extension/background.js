@@ -100,6 +100,13 @@ async function syncOne(entry, appUrl, syncSecret, trigger) {
   }
 }
 
+// Marketplaces with a MANUAL sync currently in flight — see syncSome below.
+// Module-level (in-memory) is fine here: the race this guards against is two
+// events landing on the same live service-worker instance close together,
+// which is exactly when this still applies; a worker restart in between
+// means there was no real race to protect against in the first place.
+const manualInFlight = new Set();
+
 // Syncs only the given marketplace names (defaults to all of them).
 async function syncSome(names = MARKETPLACE_NAMES, trigger = 'auto') {
   const { appUrl, syncSecret } = await getConfig();
@@ -109,10 +116,30 @@ async function syncSome(names = MARKETPLACE_NAMES, trigger = 'auto') {
     return results;
   }
 
-  const entries = MARKETPLACES.filter((m) => names.includes(m.marketplace));
-  const results = await Promise.all(entries.map((entry) => syncOne(entry, appUrl, syncSecret, trigger)));
-  await mergeLastResult(results);
-  return results;
+  let entries = MARKETPLACES.filter((m) => names.includes(m.marketplace));
+  if (trigger === 'manual') {
+    for (const m of entries) manualInFlight.add(m.marketplace);
+  } else {
+    // Never let an unattended attempt race a manual one for the same
+    // marketplace. Amazon's bot detection is proven flaky — the exact same
+    // session can succeed on one request and get blocked on the next,
+    // seconds apart — so if a backoff retry alarm happens to fire at nearly
+    // the same moment as someone clicking Sync, an unlucky concurrent auto
+    // attempt could finish a moment later and silently overwrite the manual
+    // click's just-succeeded result. The manual one always wins; a skipped
+    // auto attempt just tries again on its own next scheduled pass.
+    entries = entries.filter((m) => !manualInFlight.has(m.marketplace));
+  }
+
+  try {
+    const results = await Promise.all(entries.map((entry) => syncOne(entry, appUrl, syncSecret, trigger)));
+    await mergeLastResult(results);
+    return results;
+  } finally {
+    if (trigger === 'manual') {
+      for (const m of entries) manualInFlight.delete(m.marketplace);
+    }
+  }
 }
 
 // Whether auto-sync (the alarm) should be running — the "Sync now" button in
