@@ -102,21 +102,52 @@ async function render(lastResult) {
     detailEl.title = detail;
     detailEl.textContent = detail;
 
-    row.append(dot, nameEl, detailEl);
+    // Lets you retry just this one marketplace on demand — e.g. it just
+    // failed and you fixed the login, no reason to wait for its backoff
+    // timer or re-sync the other one that's already fine.
+    const syncOneBtn = document.createElement('button');
+    syncOneBtn.className = 'row-sync';
+    syncOneBtn.textContent = '↻';
+    syncOneBtn.title = `Sync ${name} now`;
+    syncOneBtn.addEventListener('click', () => syncOneMarket(name, syncOneBtn));
+
+    row.append(dot, nameEl, detailEl, syncOneBtn);
     rowsEl.appendChild(row);
   }
+}
+
+function setBusyUI(busy) {
+  syncBtn.disabled = busy;
+  for (const btn of rowsEl.querySelectorAll('.row-sync')) btn.disabled = busy;
+}
+
+function syncOneMarket(name, btnEl) {
+  setBusyUI(true);
+  btnEl.textContent = '…';
+  chrome.runtime.sendMessage({ type: 'sync-now', marketplace: name }, () => {
+    // The message only returns THIS marketplace's result — re-read the
+    // merged lastResult from storage (background.js already folds a
+    // targeted sync's outcome into it without touching the other
+    // marketplace's entry) instead of rendering just the one result, which
+    // would otherwise wipe the other row back to "No sync yet".
+    chrome.storage.local.get(['lastResult'], (v) => {
+      render(v.lastResult);
+      renderAutoSyncState();
+      setBusyUI(false);
+    });
+  });
 }
 
 chrome.storage.local.get(['lastResult'], (v) => render(v.lastResult));
 renderAutoSyncState();
 
 syncBtn.addEventListener('click', () => {
-  syncBtn.disabled = true;
+  setBusyUI(true);
   syncBtn.textContent = 'Syncing…';
   chrome.runtime.sendMessage('sync-now', (results) => {
     render({ results, at: new Date().toISOString() });
     renderAutoSyncState();
-    syncBtn.disabled = false;
+    setBusyUI(false);
     syncBtn.textContent = 'Sync now';
   });
 });

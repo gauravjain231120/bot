@@ -55,6 +55,18 @@
       .row-item .name { text-transform: capitalize; font-weight: 600; width: 54px; flex-shrink: 0; }
       .row-item .detail { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .row-item .detail.bad { color: var(--bad); }
+      .row-item .row-sync {
+        width: auto;
+        flex-shrink: 0;
+        padding: 3px 7px;
+        font-size: 13px;
+        line-height: 1;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--muted);
+      }
+      .row-item .row-sync:hover { background: rgba(0, 0, 0, 0.05); }
       button {
         width: 100%;
         padding: 9px;

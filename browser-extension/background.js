@@ -134,7 +134,7 @@ async function ensureAlarm() {
   if (!(await isEnabled())) return;
   const existing = await chrome.alarms.get(SYNC_ALARM);
   if (!existing || existing.periodInMinutes !== SYNC_PERIOD_MINUTES) {
-    chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+    await chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
   }
 }
 
@@ -152,7 +152,11 @@ async function scheduleRetry(marketplace) {
   const count = await getRetryCount(marketplace);
   const delayInMinutes = RETRY_DELAYS_MINUTES[Math.min(count, RETRY_DELAYS_MINUTES.length - 1)];
   await chrome.storage.local.set({ [`retryCount_${marketplace}`]: count + 1 });
-  chrome.alarms.create(retryAlarmName(marketplace), { delayInMinutes });
+  // Awaited deliberately: sendResponse() (and the popup's immediate
+  // chrome.alarms.get() right after) must never fire before this alarm has
+  // actually been created, or the popup reads "no retry pending" a moment
+  // too early and shows no countdown at all for a sync that just failed.
+  await chrome.alarms.create(retryAlarmName(marketplace), { delayInMinutes });
 }
 
 async function clearRetry(marketplace) {
@@ -182,10 +186,10 @@ async function updateRetriesFor(results, enabled) {
 async function updateBadge() {
   const pending = await pendingRetries();
   if (pending.length > 0) {
-    chrome.action.setBadgeText({ text: '!' });
-    chrome.action.setBadgeBackgroundColor({ color: '#dc2626' });
+    await chrome.action.setBadgeText({ text: '!' });
+    await chrome.action.setBadgeBackgroundColor({ color: '#dc2626' });
   } else {
-    chrome.action.setBadgeText({ text: '' });
+    await chrome.action.setBadgeText({ text: '' });
   }
 }
 
@@ -216,7 +220,7 @@ async function runAutoSync(names = MARKETPLACE_NAMES) {
 
 async function startAutoSync() {
   await chrome.storage.local.set({ autoSyncEnabled: true });
-  chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+  await chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
   return runAutoSync();
 }
 
@@ -261,11 +265,16 @@ self.addEventListener('online', () => {
   });
 });
 
-// Lets the popup trigger an immediate sync, or toggle auto-sync, and read the
-// result back.
+// Lets the popup trigger an immediate sync — either the full "Sync now"
+// button (plain string message, unchanged) or a per-row "sync just this
+// marketplace" click ({ type: 'sync-now', marketplace }) — toggle auto-sync,
+// and read the result back.
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message === 'sync-now') {
-    syncNow().then(async (results) => {
+  const isFullSync = message === 'sync-now';
+  const targetMarketplace = message && typeof message === 'object' && message.type === 'sync-now' ? message.marketplace : null;
+  if (isFullSync || targetMarketplace) {
+    const names = targetMarketplace ? [targetMarketplace] : MARKETPLACE_NAMES;
+    syncSome(names).then(async (results) => {
       const isUnconfigured = results.length === 1 && results[0].marketplace === 'all';
       if (!isUnconfigured) {
         const enabled = await isEnabled();
@@ -275,15 +284,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         // that's STILL failing just re-arms its own retry, same as an
         // unattended attempt would.
         await updateRetriesFor(results, enabled);
-        // A manual full sync just ran regardless of the per-marketplace
-        // outcome above — push the unattended timer's next full pass a
-        // period out from now (chrome.alarms.create with the same name
-        // replaces the existing alarm and reschedules it from now). Any
-        // marketplace still failing keeps catching up on its own faster
-        // backoff instead; this only governs the OTHER, everything's-fine
-        // case. Only touches the timer if auto-sync is actually on — a
-        // manual click while it's stopped shouldn't quietly turn it back on.
-        if (enabled) chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+        // Only a FULL sync (both marketplaces) counts as fulfilling the
+        // unattended timer's whole job — push its next run a period out from
+        // now (chrome.alarms.create with the same name replaces the existing
+        // alarm and reschedules it). A single-marketplace click is just a
+        // targeted "try this one again right now" and shouldn't reset the
+        // other marketplace's position in the schedule. Only touches the
+        // timer if auto-sync is actually on — a manual click while it's
+        // stopped shouldn't quietly turn it back on.
+        if (isFullSync && enabled) {
+          await chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+        }
       }
       await updateBadge();
       sendResponse(results);

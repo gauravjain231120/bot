@@ -43,7 +43,19 @@ export async function POST(request) {
     const statusDoc = await db.collection('settings').findOne({ _id: 'status' });
     const lastError = marketplace === 'amazon' ? statusDoc?.amazonLastError : statusDoc?.lastError;
     if (lastError) {
-      return NextResponse.json({ error: lastError }, { status: 401 });
+      // lastError is a log line (e.g. "2026-09-14T13:08:21.119Z HTTP 403
+      // Request failed with status code 403") meant for the admin page, not
+      // a tiny extension popup row — it gets cut off mid-timestamp there and
+      // reads as gibberish. Translate it into something short and
+      // actionable; the raw line still comes along as `detail` for anyone
+      // who needs it (e.g. a future debugging pass), just not shown by the
+      // extension today.
+      const label = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
+      const isAuthFailure = /HTTP 401|HTTP 403/.test(lastError);
+      const friendly = isAuthFailure
+        ? `${label} session expired — log in to ${label} in THIS Chrome browser (being logged in elsewhere doesn't count)`
+        : `${label} check failed — see the admin page for details`;
+      return NextResponse.json({ error: friendly, detail: lastError }, { status: 401 });
     }
 
     return NextResponse.json({ ok: true, ...result });
