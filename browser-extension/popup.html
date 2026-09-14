@@ -17,7 +17,7 @@
       * { box-sizing: border-box; }
       body {
         font: 13px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        width: 280px;
+        width: 360px;
         margin: 0;
         padding: 16px;
         background: var(--bg);
@@ -46,14 +46,22 @@
         color: var(--brand-dark);
       }
       .countdown.stopped { color: var(--muted); font-size: 15px; }
-      .rows { display: flex; flex-direction: column; gap: 8px; }
-      .row-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-      .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+      .rows { display: flex; flex-direction: column; gap: 10px; }
+      /* flex-start (not center) because .detail can now wrap onto more than
+         one line for a long error message — center would look pinned to the
+         middle of the whole wrapped block instead of lining up with the
+         first line. The small top margins below nudge the dot/name/button
+         back up to sit level with that first line. */
+      .row-item { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
       .dot.ok { background: var(--good); }
       .dot.bad { background: var(--bad); }
       .dot.unknown { background: #d1d5db; }
-      .row-item .name { text-transform: capitalize; font-weight: 600; width: 54px; flex-shrink: 0; }
-      .row-item .detail { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .row-item .name { text-transform: capitalize; font-weight: 600; width: 54px; flex-shrink: 0; margin-top: 1px; }
+      /* No truncation — a long "session expired" message wraps onto as many
+         lines as it needs so the whole thing is always readable, instead of
+         being cut off with "…". */
+      .row-item .detail { color: var(--muted); flex: 1; white-space: normal; word-break: break-word; }
       .row-item .detail.bad { color: var(--bad); }
       .row-item .row-sync {
         width: auto;
