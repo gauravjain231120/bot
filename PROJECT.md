@@ -344,6 +344,18 @@ iterations worth knowing about, because the reasoning matters if it needs to cha
   `scheduled: true` only by the main `SYNC_ALARM` firing, never a backoff retry) — it deliberately
   never touches the expired-alert flag, which is what keeps a retry storm from turning it into the
   same spam loop as before.
+- **Cancelling an order that was already shipped left it stuck in Shipped (fixed 2026-09-20)**:
+  `removeCancelledLinesFromQueue()` (§12, above) only ever removes rows from Ready to Ship — if a
+  cancelled line's units were already shipped by the time the cancellation was seen, none of them
+  are found there, so nothing happened and the order sat in stock-manager's Shipped history
+  forever with its stock still deducted. `runCheckCancellations()` now treats that shortfall
+  (whatever `removeCancelledLinesFromQueue` couldn't find) as "already shipped" and calls
+  `lib/pendingQueue.js#unshipCancelledLines()`, which hits a new stock-manager endpoint,
+  `POST /api/pending/unship-cancelled { orderId, sku, qty }` — presumed RTO (the courier brings
+  the parcel back), so it restores the stock but deliberately does **not** re-add anything to
+  Ready to Ship (there's no live order left to ship it to). Whatever still can't be resolved either
+  way (not in the queue, not fully reversible in Shipped) gets a primary-chat alert to check
+  manually, same pattern as `alertQueueFailure` in `checkOrders.js`.
 
 ## 13. File map
 
@@ -362,7 +374,7 @@ lib/
   checkOrders.js           orchestrates one Myntra poll cycle (fetch → diff → alert → queue)
   checkAmazonOrders.js     same, for Amazon
   checkCancellations.js    orchestrates the Myntra-cancellations poll cycle
-  pendingQueue.js          removes cancelled orders/lines from stock-manager's Ready-to-Ship queue via its HTTP API (§12)
+  pendingQueue.js          removes cancelled orders/lines from stock-manager's queue, or un-ships them if already shipped, via its HTTP API (§12)
   sessionSyncWatchdog.js   alerts if an extension-sourced session goes stale (§12, §18)
   sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
 app/
