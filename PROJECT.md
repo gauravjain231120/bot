@@ -202,6 +202,14 @@ bearing on whether alerts fire (see §14).
 - SKUs differ by brand prefix across marketplaces for the *same* physical variant
   (`RRC-010-CO-C-RED-M` / `RR-010-CO-C-RED-M` / `R-010-CO-C-RED-M`) — the lookup strips
   everything before the first `-` and matches on the suffix via a regex anchor (`-<suffix>$`).
+- Stock is tracked per `(sku, locationCode)` in stock-manager, and only locations whose `kind` is
+  `SELLABLE` (its `locations` collection) count toward "available" — `DAMAGED`/`QUARANTINE` stock
+  is real on-hand inventory but never sellable. `getSellableLocationCodes()` in this file queries
+  and caches those codes (same lazy-cache pattern as the Mongo client), then `lookupStock()` sums
+  only `skustocks` docs whose `locationCode` is in that set — mirroring stock-manager's own
+  `getProductGroups()` filter exactly, so the alert's number matches its dashboard. A SKU with
+  matching docs but zero sellable ones (e.g. only a `DAMAGED` row) correctly shows 0 available /
+  OUT OF STOCK, not "not found" — only a total absence of matching `skustocks` docs is "not found."
 - Some product codes are **bundles** that draw stock from a *different* product's pool (e.g.
   "Halter with Palazzos" physically ships as a "Halter Neck" top). `BUNDLE_CODE_MAP` in this
   file (`{'012':'002', '013':'001'}`) mirrors stock-manager's own `BUNDLE_STOCK_PREFIX` constant
@@ -367,6 +375,14 @@ iterations worth knowing about, because the reasoning matters if it needs to cha
   Ready to Ship (there's no live order left to ship it to). Whatever still can't be resolved either
   way (not in the queue, not fully reversible in Shipped) gets a primary-chat alert to check
   manually, same pattern as `alertQueueFailure` in `checkOrders.js`.
+- **Damaged/quarantined stock counted as "available" in alerts (fixed 2026-09-20, real incident:
+  order 6026448343)**: `lookupStock()` in `lib/stock.js` summed `onHand`/`reserved` across
+  *every* `skustocks` doc matching a SKU suffix, with no filter on `locationCode`. A SKU with
+  stock split across `MAIN` (sellable) and `DAMAGED` (write-off, not sellable) had both pooled
+  together — e.g. `RRC-007-CO-C-RED-S` at `MAIN: onHand 6/reserved 1` + `DAMAGED: onHand 2/reserved 0`
+  showed as "7 available" in the Telegram alert, while stock-manager's own dashboard (which
+  correctly filters to `Location.kind === 'SELLABLE'`) showed 5. Fixed per §9 above: `lookupStock()`
+  now filters to sellable locations only, so the alert always matches the dashboard.
 
 ## 13. File map
 
