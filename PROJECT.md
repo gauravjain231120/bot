@@ -286,6 +286,64 @@ iterations worth knowing about, because the reasoning matters if it needs to cha
   added to Ready to Ship manually as a workaround. **If this happens again**: ask exactly which
   Seller Central page/tab/filter shows the missing orders, since `searchUrl()` in `lib/amazon.js`
   may need additional query params to match that view.
+- **Stock number in alerts was read before this order's own reservation landed (fixed
+  2026-09-20)**: `sendOrderAlert()` in `checkOrders.js`/`checkAmazonOrders.js` used to call
+  `lookupStock()` *before* `addToReadyToShip()`, so the "N left" shown in the Telegram alert
+  didn't yet include the very order it was alerting about — e.g. an alert reading "Low (1 left)"
+  while stock-manager's own dashboard, updated a moment later by that same order's reservation,
+  already read 0. Fixed by reserving first, then reading stock, so the number shown is the real
+  post-order figure that matches stock-manager immediately after.
+- **Unmatched SKU silently dropped the whole "Stock:" line (fixed 2026-09-20)**:
+  `formatStockLine()` in `lib/stock.js` returned `''` when `lookupStock()` found no matching SKU
+  in stock-manager (typically: the variant hadn't been added to the catalog yet) — indistinguishable
+  from a bug, since the line just vanished from the caption with no explanation. Now renders
+  `Stock: ⚠️ not found in stock manager` instead, so it's obviously "go add this product" rather
+  than "something broke."
+- **Partial cancellation on a multi-item order wiped the WHOLE order out of Ready to Ship (fixed
+  2026-09-20, real incident: order 6026100011)**: Myntra's per-order item-detail endpoint
+  (`fetchOrderItems()` in `lib/myntra.js`) returns one row per physical unit, each carrying its
+  OWN `status` (`CREATED`/`CANCELLED`) — a multi-item order can have some units cancelled while
+  others still ship. This was ignored entirely: rows were grouped by SKU regardless of status, so
+  a still-live unit could get folded into the same bucket as an already-cancelled one sharing the
+  same SKU. Two orders in this exact order (2 Red-XS units, one of which was cancelled 16s after
+  placement, plus 1 untouched White-XS unit): the **new-order alert** showed Red as `Qty: 2`
+  (only 1 was ever genuinely live), and the **cancellation alert** claimed White was cancelled too
+  even though it was never touched. Worse: `removeCancelledOrdersFromQueue()` in
+  `lib/pendingQueue.js` deleted **every** Ready-to-Ship row for the order on any cancellation
+  (it had no way to know only one line was cancelled) — this order's entire queue entry, Red *and*
+  White, was wiped, including the still-live units, releasing their reserved stock. Manually
+  re-added via `addToReadyToShip()` after the fix landed.
+  Fixed by: (1) `fetchOrderItems(orderId, headers, statuses)` now takes a `statuses` filter —
+  `checkOrders.js` passes the default `['CREATED']` (only genuinely open units), `checkCancellations.js`
+  passes `['CANCELLED']` (only what was actually just cancelled); (2) a new
+  `removeCancelledLinesFromQueue()` in `lib/pendingQueue.js` removes exactly the cancelled
+  `{orderId, sku, qty}` lines (matched by SKU suffix, same convention as `lib/stock.js`), never
+  the whole order — the old whole-order `removeCancelledOrdersFromQueue()` is kept only as a
+  fallback for the rare case where an order's item-detail fetch itself fails.
+- **Browser extension: Amazon session lasting ~12h instead of the account's normal 3-4 days
+  (mitigated 2026-09-20)**: a manually-pasted session (DevTools "Copy as cURL") carries a real
+  browser's full header set; the extension's auto-sync only ever built `cookie` + `user-agent` +
+  a couple of static headers. Amazon's fraud detection already 403s some requests on this session
+  (see `lib/amazon.js`'s `getWithRetry` comment) — replaying a bare, non-browser-shaped header set
+  ~1,400 times/day is a plausible reason sessions now die much sooner. `browser-extension/background.js`'s
+  `buildHeaders()` now adds `accept-language`, `origin`/`referer`, `sec-fetch-*`, and
+  `sec-ch-ua*` (from this browser's own `navigator.userAgentData`) for Amazon specifically —
+  Myntra untouched since its session already lasts fine. If sessions are still short after this,
+  the other lever is the *frequency* of the external cron-job.org poll hitting
+  `/api/check-amazon-orders` (currently ~1/min) — that's outside this repo, configured on
+  cron-job.org's own dashboard.
+- **No signal if the extension's 4h auto-sync silently stopped working (added 2026-09-20)**: a
+  successful scheduled sync is deliberately silent (see §18) to avoid the alternating
+  activated/expired spam loop a flag-touching announcement caused before — but that also meant a
+  *real* failure (Chrome closed, sync broken past its own retry backoff) had no signal until the
+  marketplace session eventually expired on its own, up to ~24h later. Two additions close this
+  gap without reintroducing the spam loop: `lib/sessionSyncWatchdog.js` alerts if an
+  extension-sourced session hasn't refreshed in 6+ hours (checked on every `/api/check-orders`
+  tick, regardless of the running/stopped flag), and `lib/sessionStore.js#announceScheduledSyncOk()`
+  sends a quiet, Gaurav-only heartbeat on every successful *scheduled* sync (tagged
+  `scheduled: true` only by the main `SYNC_ALARM` firing, never a backoff retry) — it deliberately
+  never touches the expired-alert flag, which is what keeps a retry storm from turning it into the
+  same spam loop as before.
 
 ## 13. File map
 
@@ -304,6 +362,8 @@ lib/
   checkOrders.js           orchestrates one Myntra poll cycle (fetch → diff → alert → queue)
   checkAmazonOrders.js     same, for Amazon
   checkCancellations.js    orchestrates the Myntra-cancellations poll cycle
+  pendingQueue.js          removes cancelled orders/lines from stock-manager's Ready-to-Ship queue via its HTTP API (§12)
+  sessionSyncWatchdog.js   alerts if an extension-sourced session goes stale (§12, §18)
   sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
 app/
   page.js                  the dashboard (login form + admin UI + order grid)
@@ -420,6 +480,24 @@ extension automates *harvesting a session from a browser that's already logged i
 coordination. Running it on 2+ devices is a deliberate, supported way to get redundancy (whichever
 syncs most recently just becomes the current session; no conflict). Stopping/removing it on one
 device doesn't affect any other.
+
+**Amazon-specific header realism (added 2026-09-20)**: unlike Myntra, Amazon's replayed session
+now gets a fuller, more browser-shaped header set — `accept-language`, `origin`/`referer`,
+`sec-fetch-site`/`sec-fetch-mode`/`sec-fetch-dest`, and `sec-ch-ua`/`sec-ch-ua-mobile`/
+`sec-ch-ua-platform` built fresh from this browser's own `navigator.userAgentData` at sync time
+(`chromeClientHints()` in `background.js`). See §12 for why: this account's Amazon session was
+lasting only ~12h (down from the usual 3-4 days) since this extension started sending a much
+barer header set than a manually-pasted session ever had.
+
+**Scheduled heartbeat (added 2026-09-20)**: the `chrome.alarms.onAlarm` handler now tells
+`runAutoSync()` whether THIS firing was the main `SYNC_ALARM` (`scheduled: true`) or a
+per-marketplace backoff retry (`scheduled: false`, the default everywhere else — installs,
+`online` reconnects, the Start button). That flag rides along in the POST body to
+`/api/session/sync`, and only `trigger: 'auto'` + `scheduled: true` + a verified-working sync
+gets `lib/sessionStore.js#announceScheduledSyncOk()`'s quiet, Gaurav-only Telegram ping — a
+backoff retry (which can fire every 1-15 minutes during a real outage) never does, which is what
+keeps this from becoming the same activated/expired spam loop a similar announcement caused
+before (§12).
 
 **What it can't do**: refresh a session if you're actually logged out of Myntra/Amazon in that
 browser (nothing to read — it errors clearly rather than sending garbage) — that still needs one

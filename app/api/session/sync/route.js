@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { saveSessionHeaders, announceSessionActivated } from '../../../../lib/sessionStore';
+import { saveSessionHeaders, announceSessionActivated, announceScheduledSyncOk } from '../../../../lib/sessionStore';
 import { getDb } from '../../../../lib/db';
 import { fetchUnshippedOrders } from '../../../../lib/amazon';
 import { fetchOpenOrders } from '../../../../lib/myntra';
@@ -88,12 +88,18 @@ export async function POST(request) {
     // were accepted" alone. A manual click that turns out to actually work
     // is worth telling you about and worth re-arming the expired-alert (so
     // you're told again if it breaks later). The unattended timer never
-    // announces this itself — the poller's own success path already resets
-    // the alert flag when it finds things working, and re-announcing it here
-    // too on every clean auto-sync is exactly what caused the earlier spam
-    // loop of alternating activated/expired messages.
+    // does THAT flag-touching announcement itself — the poller's own success
+    // path already resets the alert flag when it finds things working, and
+    // re-announcing it here too on every clean auto-sync is exactly what
+    // caused the earlier spam loop of alternating activated/expired messages.
+    //
+    // A scheduled (never retry) auto-sync still gets its own quiet, flag-free
+    // heartbeat instead — see announceScheduledSyncOk's doc comment for why
+    // that one can't reintroduce the same loop.
     if (trigger === 'manual') {
       await announceSessionActivated(marketplace);
+    } else if (body.scheduled) {
+      await announceScheduledSyncOk(marketplace);
     }
 
     return NextResponse.json({ ok: true, ...result });

@@ -35,10 +35,44 @@ const MARKETPLACES = [
     staticHeaders: {
       accept: 'application/json, text/plain, */*',
       'x-requested-with': 'XMLHttpRequest',
+      origin: 'https://sellercentral.amazon.in',
+      referer: 'https://sellercentral.amazon.in/',
+      'sec-fetch-site': 'same-origin',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-dest': 'empty',
     },
+    // Amazon's own fraud/bot detection already 403s some requests on this
+    // session (see lib/amazon.js's getWithRetry comment) — this account's
+    // Seller Central login used to last 3-4 days before this extension
+    // existed, and now lasts ~12h. A real browser tab sends client hints and
+    // accept-language on every request; cookie + user-agent + accept alone is
+    // a much more bot-shaped fingerprint to replay ~1,400 times/day from a
+    // server. browserLike below fills in the rest from this actual browser at
+    // sync time, to make the replayed request look as close to a real tab's
+    // as possible. Myntra is left alone — its session already lasts fine.
+    browserLike: true,
   },
 ];
 const MARKETPLACE_NAMES = MARKETPLACES.map((m) => m.marketplace);
+
+// Chrome's User-Agent Client Hints, read fresh from this actual browser —
+// mirrors the sec-ch-ua* headers a real tab sends alongside every fetch.
+// Guarded because userAgentData isn't guaranteed in every context; a miss
+// just means those headers get omitted, not a crash.
+function chromeClientHints() {
+  try {
+    const uad = navigator.userAgentData;
+    if (!uad) return {};
+    const hints = { 'sec-ch-ua-mobile': uad.mobile ? '?1' : '?0' };
+    if (Array.isArray(uad.brands) && uad.brands.length) {
+      hints['sec-ch-ua'] = uad.brands.map((b) => `"${b.brand}";v="${b.version}"`).join(', ');
+    }
+    if (uad.platform) hints['sec-ch-ua-platform'] = `"${uad.platform}"`;
+    return hints;
+  } catch {
+    return {};
+  }
+}
 
 function retryAlarmName(marketplace) {
   return `${RETRY_ALARM_PREFIX}${marketplace}`;
@@ -67,13 +101,19 @@ async function mergeLastResult(newResults) {
   await chrome.storage.local.set({ lastResult: { results: merged } });
 }
 
-async function buildHeaders({ cookieDomain, staticHeaders }) {
+async function buildHeaders({ cookieDomain, staticHeaders, browserLike }) {
   const cookies = await chrome.cookies.getAll({ domain: cookieDomain });
   if (cookies.length === 0) {
     throw new Error(`No cookies found for ${cookieDomain} — log in there in this browser first.`);
   }
   const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-  return { cookie: cookieHeader, 'user-agent': navigator.userAgent, ...staticHeaders };
+  const headers = { cookie: cookieHeader, 'user-agent': navigator.userAgent, ...staticHeaders };
+  if (!browserLike) return headers;
+  return {
+    ...headers,
+    'accept-language': (navigator.languages && navigator.languages.join(',')) || navigator.language || 'en-US,en;q=0.9',
+    ...chromeClientHints(),
+  };
 }
 
 // `trigger` tells the server WHY this sync happened: 'manual' for a button
@@ -81,14 +121,19 @@ async function buildHeaders({ cookieDomain, staticHeaders }) {
 // Telegram confirmation either way), 'auto' for the periodic alarm or a
 // backoff retry (happens on its own, as often as once a minute while
 // retrying, with no way to know if anything actually changed — must NOT
-// trigger a confirmation or it spams exactly like before).
-async function syncOne(entry, appUrl, syncSecret, trigger) {
+// trigger the same confirmation, or it spams exactly like before).
+//
+// `scheduled` narrows 'auto' down further, to just the main 4h SYNC_ALARM
+// firing on schedule (never a backoff retry, which can repeat every 1-15
+// minutes during an outage) — the server uses it to send a quiet, once-per-
+// period "still working" heartbeat that a retry storm can't turn into spam.
+async function syncOne(entry, appUrl, syncSecret, trigger, scheduled) {
   try {
     const headers = await buildHeaders(entry);
     const res = await fetch(`${appUrl}/api/session/sync`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-sync-secret': syncSecret },
-      body: JSON.stringify({ marketplace: entry.marketplace, headers, trigger }),
+      body: JSON.stringify({ marketplace: entry.marketplace, headers, trigger, scheduled: !!scheduled }),
     });
     const data = await res.json().catch(() => ({}));
     const at = new Date().toISOString();
@@ -108,7 +153,7 @@ async function syncOne(entry, appUrl, syncSecret, trigger) {
 const manualInFlight = new Set();
 
 // Syncs only the given marketplace names (defaults to all of them).
-async function syncSome(names = MARKETPLACE_NAMES, trigger = 'auto') {
+async function syncSome(names = MARKETPLACE_NAMES, trigger = 'auto', scheduled = false) {
   const { appUrl, syncSecret } = await getConfig();
   if (!appUrl || !syncSecret) {
     const results = [{ marketplace: 'all', ok: false, error: 'Not configured yet — open the extension options.', at: new Date().toISOString() }];
@@ -132,7 +177,7 @@ async function syncSome(names = MARKETPLACE_NAMES, trigger = 'auto') {
   }
 
   try {
-    const results = await Promise.all(entries.map((entry) => syncOne(entry, appUrl, syncSecret, trigger)));
+    const results = await Promise.all(entries.map((entry) => syncOne(entry, appUrl, syncSecret, trigger, scheduled)));
     await mergeLastResult(results);
     return results;
   } finally {
@@ -236,8 +281,8 @@ async function updateBadge() {
 // marketplace that's already fine is never dragged along for the ride.
 // "Not configured" is excluded — that needs the user to open the options
 // page, not more retries.
-async function runAutoSync(names = MARKETPLACE_NAMES) {
-  const results = await syncSome(names);
+async function runAutoSync(names = MARKETPLACE_NAMES, scheduled = false) {
+  const results = await syncSome(names, 'auto', scheduled);
   const isUnconfigured = results.length === 1 && results[0].marketplace === 'all';
   if (isUnconfigured) {
     // Clear any retry already pending for these — a config problem isn't
@@ -282,7 +327,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === SYNC_ALARM) {
-    runAutoSync();
+    runAutoSync(MARKETPLACE_NAMES, true);
   } else if (alarm.name.startsWith(RETRY_ALARM_PREFIX)) {
     runAutoSync([alarm.name.slice(RETRY_ALARM_PREFIX.length)]);
   }
