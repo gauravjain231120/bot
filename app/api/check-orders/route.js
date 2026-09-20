@@ -3,6 +3,7 @@ import { getDb } from '../../../lib/db';
 import { getRunning } from '../../../lib/monitorState';
 import { runCheckOrders } from '../../../lib/checkOrders';
 import { checkStoppedWatchdog } from '../../../lib/watchdog';
+import { checkExtensionSyncWatchdog } from '../../../lib/sessionSyncWatchdog';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,9 @@ export async function GET(request) {
   }
 
   const db = await getDb();
+  // The extension syncs on its own 4h timer, independent of whether checking
+  // is running or stopped — watch it unconditionally, same as every tick.
+  await checkExtensionSyncWatchdog(db);
   if (!(await getRunning(db))) {
     await checkStoppedWatchdog(db);
     return NextResponse.json({ skipped: true, reason: 'stopped' });
