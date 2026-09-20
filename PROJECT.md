@@ -83,7 +83,8 @@ configured to hit the three `/api/check-*` endpoints directly.
 | Variable | Purpose |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Bot used to send all alerts |
-| `TELEGRAM_CHAT_ID` | Chat/channel the alerts go to |
+| `TELEGRAM_CHAT_ID` | Comma-separated list of chat IDs that receive every broadcast alert (new orders, cancellations — both Myntra and Amazon, no per-marketplace filtering) |
+| `TELEGRAM_COMMAND_CHAT_ID` | The **admin** chat — replies to bot commands (`/ship`, `/make`, etc.) and primary-only alerts (session expiry, order-add failures) go here only, not to the full broadcast list |
 | `WAREHOUSE_ID` | Myntra warehouse ID used in its API URLs (default `89623` if unset) |
 | `ADMIN_PASSWORD` | Password for the dashboard login; also the literal value stored in the `admin_auth` cookie |
 | `CRON_SECRET` | Shared secret cron-job.org must pass as `?secret=` on every check endpoint |
@@ -93,6 +94,16 @@ configured to hit the three `/api/check-*` endpoints directly.
 | `STOCK_MONGODB_URI` | **Read-only** connection to stock-manager's MongoDB, for live stock lookups |
 | `STOCK_MANAGER_URL` | Base URL of the stock-manager deployment (defaults to `https://stock-manager-niko.vercel.app`) |
 | `STOCK_MANAGER_AUTH_TOKEN` | Sent as `Cookie: auth=<token>` on every call to stock-manager's `/api/pending*` — must equal whatever stock-manager's own login sets as that cookie's value |
+
+### Telegram recipients (current `.env.local`)
+
+| Chat ID | Name | Role |
+|---|---|---|
+| `5349388385` | Gaurav | **Admin** — set as `TELEGRAM_COMMAND_CHAT_ID`, also included in `TELEGRAM_CHAT_ID` so they get broadcasts too |
+| `8811057878` | Mukesh Bhandari | Broadcast-only |
+| `8850201003` | Alka Bhandari | Broadcast-only |
+
+**Rule:** Gaurav's chat ID is the one and only admin (`TELEGRAM_COMMAND_CHAT_ID`). Any chat ID added to `TELEGRAM_CHAT_ID` in the future is broadcast-only by default — it will receive every new-order/cancellation alert (Myntra + Amazon) but will never receive command replies or primary-only alerts unless it is explicitly also set as `TELEGRAM_COMMAND_CHAT_ID`. Do not repurpose `TELEGRAM_COMMAND_CHAT_ID` to hold multiple IDs — it must stay a single chat ID.
 
 ## 5. Data model (this app's own MongoDB — `MONGODB_DB`)
 
