@@ -70,13 +70,17 @@ export async function POST(request) {
   const chatId = message && message.chat && String(message.chat.id);
   const text = ((message && message.text) || '').trim();
 
-  // Every sender gets recorded (not just the admin) — this is how a new
+  // Every sender gets recorded (not just an Owner) — this is how a new
   // Owner/Viewer candidate shows up on the dashboard's Recipients list at
   // all, before anyone has assigned them a role. Never blocks the rest of
   // the handler — a DB hiccup here must not break existing bot commands.
+  // recordSeen() also hands back this chat's current role, so command
+  // gating below costs no extra DB round-trip.
+  let isOwner = false;
   if (chatId) {
     try {
-      const { isNew } = await recordSeen(chatId, nameFromMessage(message));
+      const { isNew, role } = await recordSeen(chatId, nameFromMessage(message));
+      isOwner = role === 'OWNER';
       if (isNew) {
         await replyToChat(chatId, WELCOME_TEXT).catch(() => {});
       }
@@ -85,13 +89,12 @@ export async function POST(request) {
     }
   }
 
-  // Command access is scoped to a single chat for now — everyone else's
-  // messages (including alert recipients added via the Recipients list) are
-  // silently ignored from here on, never revealing that this bot understands
-  // commands at all. This is a separate concern from alert roles: it only
-  // controls who can type /ship, /make, etc, not who receives alerts.
-  const allowedChatId = process.env.TELEGRAM_COMMAND_CHAT_ID;
-  if (!chatId || !allowedChatId || chatId !== allowedChatId) {
+  // Command access now follows Owner role from the Recipients list, not a
+  // fixed env var — anyone promoted to Owner can issue /ship, /make, etc,
+  // and anyone demoted loses that ability immediately, no redeploy. Everyone
+  // else's messages are silently ignored from here on, never revealing that
+  // this bot understands commands at all.
+  if (!chatId || !isOwner) {
     return NextResponse.json({ ok: true });
   }
 

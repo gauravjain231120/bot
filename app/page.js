@@ -139,6 +139,8 @@ export default function AdminPage() {
   const [recipientsError, setRecipientsError] = useState('');
   const [botUsername, setBotUsername] = useState(null);
   const [roleBusy, setRoleBusy] = useState(null); // chatId currently being updated, or null
+  const [recipientsRefreshing, setRecipientsRefreshing] = useState(false);
+  const [roleHistory, setRoleHistory] = useState(null);
 
   useEffect(() => {
     let initial = 'light';
@@ -231,19 +233,53 @@ export default function AdminPage() {
     }
   }, []);
 
+  const loadRoleHistory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/recipients/history');
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setRoleHistory(data.history || []);
+    } catch {
+      // Non-critical — the rest of the dashboard still works without it.
+    }
+  }, []);
+
   useEffect(() => {
     if (authed !== true) return;
     loadOrders();
     loadSessionHistory();
     loadRecipients();
+    loadRoleHistory();
     const interval = setInterval(() => {
       loadStatus();
       loadOrders();
       loadSessionHistory();
       loadRecipients();
+      loadRoleHistory();
     }, REFRESH_MS);
     return () => clearInterval(interval);
-  }, [authed, loadStatus, loadOrders, loadSessionHistory, loadRecipients]);
+  }, [authed, loadStatus, loadOrders, loadSessionHistory, loadRecipients, loadRoleHistory]);
+
+  // Re-pulls every recipient's current name/username straight from Telegram
+  // (not just the DB) — guarantees "Refresh" makes names verifiably
+  // Telegram-sourced right now, not just whatever was last captured.
+  async function handleRefreshRecipients() {
+    setRecipientsRefreshing(true);
+    try {
+      const res = await fetch('/api/recipients/refresh', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setRecipientsError(data.error || `HTTP ${res.status}`);
+        return;
+      }
+      setRecipients(data.recipients || []);
+      setBotUsername(data.botUsername || null);
+      setRecipientsError('');
+    } catch (err) {
+      setRecipientsError(err.message);
+    } finally {
+      setRecipientsRefreshing(false);
+    }
+  }
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -307,12 +343,22 @@ export default function AdminPage() {
     loadOrders();
   }
 
+  // A second password, separate from the dashboard login itself — role
+  // changes and removals affect who gets alerted about real orders/returns,
+  // so this is a deliberate extra confirmation on top of just being logged
+  // in. Checked again server-side regardless (never trust this prompt alone).
+  function promptRolePassword() {
+    return window.prompt('Enter the role-change password to continue:');
+  }
+
   async function handleSetRole(chatId, role) {
+    const rolePassword = promptRolePassword();
+    if (rolePassword === null) return; // cancelled
     setRoleBusy(chatId);
     const res = await fetch(`/api/recipients/${chatId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role }),
+      body: JSON.stringify({ role, password: rolePassword }),
     });
     const data = await res.json().catch(() => ({}));
     setRoleBusy(null);
@@ -321,14 +367,21 @@ export default function AdminPage() {
       return;
     }
     loadRecipients();
+    loadRoleHistory();
   }
 
   async function handleRemoveRecipient(chatId, name) {
     if (!window.confirm(`Remove ${name || chatId} from the recipients list? They'll stop receiving alerts immediately.`)) {
       return;
     }
+    const rolePassword = promptRolePassword();
+    if (rolePassword === null) return; // cancelled
     setRoleBusy(chatId);
-    const res = await fetch(`/api/recipients/${chatId}`, { method: 'DELETE' });
+    const res = await fetch(`/api/recipients/${chatId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: rolePassword }),
+    });
     const data = await res.json().catch(() => ({}));
     setRoleBusy(null);
     if (!res.ok) {
@@ -632,6 +685,13 @@ export default function AdminPage() {
           <b>Owner</b> gets every alert. <b>Viewer</b> gets new order + cancellation alerts only. <b>None</b> gets nothing.
         </p>
 
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+          <button type="button" className="secondary" onClick={handleRefreshRecipients} disabled={recipientsRefreshing}>
+            <RefreshIcon spinning={recipientsRefreshing} />
+            {recipientsRefreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+
         {recipientsError && <div className="banner bad">{recipientsError}</div>}
 
         {recipients === null && !recipientsError && <p className="muted">Loading…</p>}
@@ -684,6 +744,28 @@ export default function AdminPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </details>
+
+      <details className="card">
+        <summary>Role change history</summary>
+        {roleHistory === null && <p className="muted">Loading…</p>}
+        {roleHistory && roleHistory.length === 0 && (
+          <p className="muted">No role changes yet — this starts tracking from the next one.</p>
+        )}
+        {roleHistory && roleHistory.length > 0 && (
+          <div>
+            {roleHistory.map((h, i) => (
+              <div className="history-row" key={`${h.chatId}-${h.changedAt}-${i}`}>
+                <span>{h.name || h.chatId}</span>
+                <span className="muted">
+                  {h.fromRole === 'NONE' ? 'None' : h.fromRole === 'OWNER' ? 'Owner' : 'Viewer'} →{' '}
+                  {h.toRole === 'NONE' ? 'None' : h.toRole === 'OWNER' ? 'Owner' : 'Viewer'}
+                </span>
+                <span className="muted">{timeAgo(h.changedAt)}</span>
+              </div>
+            ))}
           </div>
         )}
       </details>

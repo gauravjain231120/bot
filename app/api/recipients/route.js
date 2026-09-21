@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { isAuthed } from '../../../lib/adminAuth';
-import { listRecipients } from '../../../lib/recipients';
+import { listRecipients, toPublicShape } from '../../../lib/recipients';
 import { getBotUsername } from '../../../lib/telegram';
 
 export const runtime = 'nodejs';
@@ -13,15 +13,12 @@ export async function GET() {
 
   const [recipients, botUsername] = await Promise.all([listRecipients(), getBotUsername()]);
 
+  // The protected founding-Owner row is deliberately left off this list —
+  // always Owner, always able to issue commands and receive every alert,
+  // never editable or even visible from here, so there's no way to demote
+  // or remove yourself through this UI and lock everyone out.
   return NextResponse.json({
     botUsername,
-    recipients: recipients.map((r) => ({
-      chatId: r._id,
-      name: r.name || null,
-      username: r.username || null,
-      role: r.role,
-      firstSeenAt: r.firstSeenAt || null,
-      lastSeenAt: r.lastSeenAt || null,
-    })),
+    recipients: recipients.filter((r) => !r.protected).map(toPublicShape),
   });
 }
