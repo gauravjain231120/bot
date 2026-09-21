@@ -632,6 +632,116 @@ a {
   margin-left: 6px;
 }
 
+/* ---------- alert recipients ---------- */
+
+.recipient-hint {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.recipient-hint code {
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.recipient-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+}
+.recipient-row + .recipient-row {
+  border-top: 1px solid var(--border);
+}
+
+.recipient-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.recipient-name {
+  font-weight: 700;
+  font-size: 0.92rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.recipient-meta {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.recipient-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.role-group {
+  display: inline-flex;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.role-btn {
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: none;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border-radius: 0;
+}
+.role-btn + .role-btn {
+  border-left: 1px solid var(--border);
+}
+.role-btn:not(:disabled):hover {
+  background: var(--border);
+}
+.role-btn.active.owner {
+  background: var(--accent);
+  color: #fff;
+}
+.role-btn.active.viewer {
+  background: var(--good-soft);
+  color: var(--good);
+}
+.role-btn.active.none {
+  background: var(--surface-2);
+  color: var(--text-dim);
+}
+
+.remove-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.remove-btn:not(:disabled):hover {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
 .empty-state {
   text-align: center;
   padding: 40px 20px;
