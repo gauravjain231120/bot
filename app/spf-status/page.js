@@ -30,11 +30,29 @@ function OwnerOnlyNotice() {
   );
 }
 
+const INR = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
+
+// Every stat card is behind the same confirmation-password click-to-reveal —
+// only "paid" additionally computes+shows the ₹ total (counts.paidTotalAmount,
+// summed server-side in lib/myntra.js's fetchSpfTicketCounts() from each
+// ticket's meta.finalAmount, no extra Myntra call). The other three just
+// reveal the count they already have, nothing extra — per the request:
+// "make all other also clickable and ask for passsword but just show real
+// number on paid on other do nothing".
+const STAT_CARDS = [
+  { key: 'total', label: 'Total claims' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'paid', label: 'Paid' },
+  { key: 'rejected', label: 'Rejected' },
+];
+
 export default function SpfStatusPage() {
   const { isOwner } = useDashboard();
   const [counts, setCounts] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [revealed, setRevealed] = useState({});
+  const [revealBusy, setRevealBusy] = useState(null);
 
   // Deliberately only fires here, on this page — never wired into the main
   // dashboard's poll loop. Fetching this paginates every SPF ticket, a
@@ -61,11 +79,45 @@ export default function SpfStatusPage() {
     if (isOwner) load();
   }, [isOwner, load]);
 
+  // Same "second, separate password" pattern as the Team/Recipients pages
+  // (DashboardContext's promptAccountPassword/promptRolePassword) — checked
+  // server-side (app/api/spf-status/verify), never a client-side-only gate.
+  async function onReveal(key) {
+    if (revealed[key]) return;
+    const confirmPassword = window.prompt('Enter the confirmation password to continue:');
+    if (confirmPassword === null) return; // cancelled
+    setRevealBusy(key);
+    try {
+      const res = await fetch('/api/spf-status/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmPassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(`Could not reveal: ${data.error || `HTTP ${res.status}`}`);
+        return;
+      }
+      setRevealed((prev) => ({ ...prev, [key]: true }));
+    } finally {
+      setRevealBusy(null);
+    }
+  }
+
   if (!isOwner) return <OwnerOnlyNotice />;
 
   const breakdown = counts
     ? STATUS_LABELS.map(([key, label]) => [label, counts.byStatus[key] || 0]).filter(([, n]) => n > 0)
     : [];
+
+  const statNumbers = counts
+    ? {
+        total: counts.total,
+        approved: counts.byStatus.ACCEPT || 0,
+        paid: counts.byStatus.PAYMENT_COMPLETED || 0,
+        rejected: counts.byStatus.REJECT || 0,
+      }
+    : {};
 
   return (
     <>
@@ -84,22 +136,28 @@ export default function SpfStatusPage() {
       {counts && (
         <>
           <div className="stat-grid">
-            <div className="stat-card">
-              <div className="stat-label">Total claims</div>
-              <div className="stat-value">{counts.total}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Approved</div>
-              <div className="stat-value">{counts.byStatus.ACCEPT || 0}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Paid</div>
-              <div className="stat-value">{counts.byStatus.PAYMENT_COMPLETED || 0}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Rejected</div>
-              <div className="stat-value">{counts.byStatus.REJECT || 0}</div>
-            </div>
+            {STAT_CARDS.map(({ key, label }) => {
+              const isRevealed = Boolean(revealed[key]);
+              const busy = revealBusy === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className="stat-card clickable"
+                  onClick={() => onReveal(key)}
+                  disabled={busy}
+                >
+                  <div className="stat-label">{label}</div>
+                  <div className={`stat-value ${isRevealed ? '' : 'masked'}`}>
+                    {busy ? '…' : isRevealed ? statNumbers[key] : 'Click to reveal'}
+                  </div>
+                  {key === 'paid' && isRevealed && (
+                    <div className="stat-sub">{INR.format(counts.paidTotalAmount || 0)} paid total</div>
+                  )}
+                  {!isRevealed && !busy && <div className="stat-sub">Asks for the confirmation password</div>}
+                </button>
+              );
+            })}
           </div>
 
           {breakdown.length > 0 && (

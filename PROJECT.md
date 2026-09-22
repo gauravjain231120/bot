@@ -1093,8 +1093,31 @@ Rejected, plus a full breakdown by every other status.
   stats (packed count, §19's OTC) — 3 live Myntra calls just to load this page once.
 - **UI**: 4 headline `stat-card`s (Total claims / Approved / Paid / Rejected — `ACCEPT`/
   `PAYMENT_COMPLETED`/`REJECT` under the hood) plus a "Full breakdown" card listing every other
-  status present. Linked from the main dashboard's header ("SPF Status" button, Owner-only) and
-  links back.
-- **Owner-only both ways**: hidden from a Viewer in the UI (the dashboard-header link) and
-  enforced server-side by `/api/spf-status` itself via `requireOwner()` — same rule as §23's other
-  Owner-gated surfaces, never just hide-in-UI.
+  status present. Reachable from the sidebar's "SPF Status" link (Owner-only, §7).
+- **Owner-only both ways**: hidden from a Viewer in the sidebar nav and enforced server-side by
+  `/api/spf-status` itself via `requireOwner()` — same rule as §23's other Owner-gated surfaces,
+  never just hide-in-UI.
+
+### Paid total + click-to-reveal-with-password (added 2026-09-22)
+
+All 4 stat cards are now `<button>`s, masked ("Click to reveal") until clicked. Clicking one
+prompts for the same `ROLE_CHANGE_PASSWORD` confirmation password used everywhere else in this app
+(§23's Team page, the Telegram-recipient role changes) — checked server-side by the new
+`POST /api/spf-status/verify` (Owner-gated, compares `confirmPassword` against
+`process.env.ROLE_CHANGE_PASSWORD`, never ships the secret itself to client JS). On success that
+one card's real number shows.
+
+- **Only "Paid" does anything extra**: it also shows a ₹ total, computed from
+  `counts.paidTotalAmount` — the sum of `finalAmount` (parsed from each ticket's `meta` JSON string,
+  which the already-fetched `GET /api/spf/v2/getTickets` response carries per ticket, e.g.
+  `"finalAmount": "2199.0"`) across every `PAYMENT_COMPLETED` ticket. Summed in
+  `fetchSpfTicketCounts()` (`lib/myntra.js`) — **zero extra Myntra API calls**, the field was
+  already in the same paginated response §24's counts always fetched. The other 3 cards reveal only
+  their existing count, no extra calculation — this was explicit: "make all other also clickable
+  and ask for passsword but just show real number on paid on other do nothing."
+- **Why a password check here even though the numbers are already client-side**: by the time
+  someone can click a card, `counts` (including `paidTotalAmount`) is already sitting in the page's
+  React state from the initial load — this isn't an access-control boundary, it's the same
+  friction-on-an-already-authenticated-Owner pattern §23 documents for account changes. The
+  server-side check exists so the actual password value never has to be embedded in client JS to
+  compare against (which is the one thing that *would* be a real leak).
