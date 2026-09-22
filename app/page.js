@@ -29,6 +29,27 @@ function formatDuration(ms) {
   return parts.join(' ');
 }
 
+function formatMinutes(mins) {
+  if (mins == null) return '—';
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+// Whichever of the 4 OTC slots actually have a code — the empty ones just
+// aren't shown, rather than padding the card with four "—" lines.
+function otcLines(values) {
+  if (!values) return [];
+  const labels = [
+    ['pickupMys', 'Pickup MYS'],
+    ['pickupMye', 'Pickup MYE'],
+    ['returnMys', 'Return MYS'],
+    ['returnMye', 'Return MYE'],
+  ];
+  return labels.filter(([key]) => values[key]).map(([key, label]) => `${label}: ${values[key]}`);
+}
+
 function SunIcon() {
   return (
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -143,6 +164,8 @@ export default function AdminPage() {
   const [roleHistory, setRoleHistory] = useState(null);
   const [otcScope, setOtcScope] = useState(null);
   const [otcScopeBusy, setOtcScopeBusy] = useState(false);
+  const [otcStatus, setOtcStatus] = useState(null);
+  const [otcClearing, setOtcClearing] = useState(false);
 
   useEffect(() => {
     let initial = 'light';
@@ -255,6 +278,16 @@ export default function AdminPage() {
     }
   }, []);
 
+  const loadOtcStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/otc-status');
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setOtcStatus(data);
+    } catch {
+      // Non-critical — the rest of the dashboard still works without it.
+    }
+  }, []);
+
   useEffect(() => {
     if (authed !== true) return;
     loadOrders();
@@ -262,6 +295,7 @@ export default function AdminPage() {
     loadRecipients();
     loadRoleHistory();
     loadOtcConfig();
+    loadOtcStatus();
     const interval = setInterval(() => {
       loadStatus();
       loadOrders();
@@ -269,9 +303,10 @@ export default function AdminPage() {
       loadRecipients();
       loadRoleHistory();
       loadOtcConfig();
+      loadOtcStatus();
     }, REFRESH_MS);
     return () => clearInterval(interval);
-  }, [authed, loadStatus, loadOrders, loadSessionHistory, loadRecipients, loadRoleHistory, loadOtcConfig]);
+  }, [authed, loadStatus, loadOrders, loadSessionHistory, loadRecipients, loadRoleHistory, loadOtcConfig, loadOtcStatus]);
 
   // Re-pulls every recipient's current name/username straight from Telegram
   // (not just the DB) — guarantees "Refresh" makes names verifiably
@@ -421,6 +456,20 @@ export default function AdminPage() {
     setOtcScope(scope);
   }
 
+  // Display-only — hides today's code from this card, never touches
+  // alertedDate, so it can never make the poller call Myntra again today.
+  async function handleClearOtc() {
+    setOtcClearing(true);
+    const res = await fetch('/api/otc-status', { method: 'PATCH' });
+    const data = await res.json().catch(() => ({}));
+    setOtcClearing(false);
+    if (!res.ok) {
+      alert(`Could not clear: ${data.error || `HTTP ${res.status}`}`);
+      return;
+    }
+    setOtcStatus(data);
+  }
+
   if (authed === null) {
     return (
       <main className="auth-page">
@@ -556,6 +605,47 @@ export default function AdminPage() {
             {status?.sessionCapturedAt ? timeAgo(status.sessionCapturedAt) : '—'} /{' '}
             {status?.amazonSessionCapturedAt ? timeAgo(status.amazonSessionCapturedAt) : '—'}
           </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Pickup/Return OTC</div>
+          {otcStatus?.values ? (
+            <>
+              <div className="stat-value" style={{ fontSize: '0.95rem', lineHeight: 1.5 }}>
+                {otcLines(otcStatus.values).map((line) => (
+                  <div key={line}>{line}</div>
+                ))}
+              </div>
+              <div className="stat-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                found {timeAgo(otcStatus.alertedAt)}
+                <button
+                  type="button"
+                  className="secondary"
+                  style={{ padding: '2px 8px', fontSize: '0.72rem' }}
+                  onClick={handleClearOtc}
+                  disabled={otcClearing}
+                >
+                  {otcClearing ? 'Clearing…' : 'Clear'}
+                </button>
+              </div>
+            </>
+          ) : otcStatus?.clearedToday ? (
+            <>
+              <div className="stat-value">Cleared</div>
+              <div className="stat-sub">won&apos;t check again today</div>
+            </>
+          ) : otcStatus?.windowActive ? (
+            <>
+              <div className="stat-value">Checking…</div>
+              <div className="stat-sub">window closes in {formatMinutes(otcStatus.minutesToWindowChange)}</div>
+            </>
+          ) : otcStatus ? (
+            <>
+              <div className="stat-value">Not active</div>
+              <div className="stat-sub">opens in {formatMinutes(otcStatus.minutesToWindowChange)}</div>
+            </>
+          ) : (
+            <div className="stat-value">—</div>
+          )}
         </div>
       </div>
 

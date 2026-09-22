@@ -473,6 +473,7 @@ app/
     check-cancellations/route.js  cron endpoint (§6)
     check-otc/route.js            cron endpoint (§6, §19)
     otc-config/route.js           GET/PATCH — OTC alert's Owner-vs-Broadcast scope setting (§19)
+    otc-status/route.js           GET — today's OTC codes + window countdown; PATCH — Clear (display-only) (§19)
     admin/start|stop|check-now/route.js   dashboard action endpoints (§7)
     login/route.js                sets the admin_auth cookie
     session/route.js              saves a freshly-pasted Myntra/Amazon session
@@ -654,6 +655,17 @@ actually goes active for that courier.
   session, or a 401/403 from `fetchOtc`) per IST day — its own `errorAlertedDate` dedup flag on
   the same `otc_status` doc, independent of the success-side `alertedDate` so a session fixed
   mid-window still alerts normally the moment a real code appears.
+- **Dashboard card (added 2026-09-22, `getOtcDisplayStatus()`/`clearOtcDisplay()` in
+  `lib/checkOtc.js`, `GET`/`PATCH /api/otc-status`)**: a 6th stat-grid tile on the admin page shows
+  whichever codes were found today (blank slots omitted), or — when nothing's been found yet — the
+  window's live state: `windowActive` + `minutesToWindowChange` (minutes until 13:00 if currently
+  in the window, minutes until the next 12:00 — today or tomorrow — otherwise), pure clock math,
+  no DB. A **"Clear"** button next to a found code sets `clearedDate` = today's IST date, which
+  hides that value from the card — but **deliberately never touches `alertedDate`**, so clearing
+  the display can never make the poller start calling the Myntra API again for the rest of the
+  day (verified directly against production: simulated a found-today state, cleared it, confirmed
+  `runCheckOtc()` still reports already-alerted/skipped). Resets naturally the next day, same
+  pattern as every other date-keyed field here.
 
 ## 20. Alert recipients — Owner/Viewer/None roles (`lib/recipients.js`, added 2026-09-22)
 
