@@ -827,9 +827,21 @@ export default function AdminPage() {
                   <div style={{ fontWeight: 600 }}>{c.productName ?? c.resolvedSku}</div>
                   <div className="muted" style={{ fontFamily: 'monospace' }}>{c.matchedSku ?? c.resolvedSku}</div>
                   {c.size && (
-                    <div className="muted">
-                      Size: {c.size}
-                      {c.color ? ` · ${c.color}` : ''}
+                    <div style={{ marginTop: 4 }}>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          fontWeight: 700,
+                          fontSize: '0.9rem',
+                          color: 'var(--accent)',
+                          background: 'var(--accent-soft)',
+                          borderRadius: 6,
+                          padding: '2px 8px',
+                        }}
+                      >
+                        Size: {c.size}
+                      </span>
+                      {c.color ? <span className="muted"> · {c.color}</span> : ''}
                     </div>
                   )}
                   {c.returnReason && <div className="muted">Reason: {c.returnReason}</div>}
