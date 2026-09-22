@@ -222,7 +222,7 @@ multi-page app sharing one persistent sidebar/topbar shell and one pool of live 
   | Route | Content | Notes |
   |---|---|---|
   | `/` | Stat grid (7 cards) + Open orders grid | landing page; orders grid added 2026-09-22 so it's visible without a click — see `components/OrdersGrid.js` below |
-  | `/orders` | Open orders grid + platform filter | same `OrdersGrid` component as `/`, still its own page for a focused view |
+  | `/orders` | Open orders grid + platform filter | same `OrdersGrid` component as `/`; no longer linked from the sidebar (removed 2026-09-22, redundant with `/` showing the same grid) but the route itself still exists |
   | `/returns` | Scan a Myntra return (§22) | camera scan, resolve, add to stock-manager |
   | `/sessions` | Refresh Myntra/Amazon session forms | session *history* removed 2026-09-22, see below |
   | `/recipients` | Alert recipients (§20) + OTC scope toggle (§19) + role change history | **Owner-only** |

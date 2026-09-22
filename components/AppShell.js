@@ -7,12 +7,16 @@ import { useDashboard } from '../lib/DashboardContext';
 import { LoginScreen } from './LoginScreen';
 import {
   SunIcon, MoonIcon, BellIcon, PlayIcon, StopIcon, RefreshIcon, MenuIcon, CloseIcon,
-  HomeIcon, BoxIcon, ScanIcon, KeyIcon, UsersIcon, ShieldIcon, ChartIcon, LogoutIcon,
+  HomeIcon, ScanIcon, KeyIcon, UsersIcon, ShieldIcon, ChartIcon, LogoutIcon,
 } from './icons';
 
+// No standalone Orders nav entry — the orders grid is shown directly on
+// Overview (components/OrdersGrid.js) now, so a separate nav link to /orders
+// would just be a redundant way to see the same thing. The /orders route
+// itself is left in place (still using the same shared OrdersGrid), just not
+// linked from here.
 const NAV_ITEMS = [
   { href: '/', label: 'Overview', Icon: HomeIcon },
-  { href: '/orders', label: 'Orders', Icon: BoxIcon },
   { href: '/returns', label: 'Scan Return', Icon: ScanIcon },
   { href: '/sessions', label: 'Sessions', Icon: KeyIcon },
   { href: '/recipients', label: 'Recipients', Icon: UsersIcon, ownerOnly: true },
