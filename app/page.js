@@ -303,10 +303,11 @@ export default function AdminPage() {
     }
   }, []);
 
-  // Included in the 20s auto-refresh loop below (like the other dashboard
-  // stats) so this stays real-time while the page is open — it still only
-  // ever fires because someone has this tab open and the interval it's
-  // attached to is running, never as a background job when nobody's here.
+  // Deliberately NOT in the 20s auto-refresh loop below — unlike the other
+  // dashboard stats, this hits Myntra's live API on every call (the others
+  // just read already-stored DB state). Only fires once, when this page is
+  // actually opened — leaving the tab open must never cause a recurring
+  // background Myntra call purely because the interval ticked.
   const loadPackedCount = useCallback(async () => {
     setPackedLoading(true);
     try {
@@ -342,7 +343,7 @@ export default function AdminPage() {
       loadRoleHistory();
       loadOtcConfig();
       loadOtcStatus();
-      loadPackedCount();
+      // loadPackedCount() intentionally excluded — see its own comment above.
     }, REFRESH_MS);
     return () => clearInterval(interval);
   }, [authed, loadStatus, loadOrders, loadSessionHistory, loadRecipients, loadRoleHistory, loadOtcConfig, loadOtcStatus, loadPackedCount]);
