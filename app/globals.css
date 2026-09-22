@@ -1152,3 +1152,42 @@ details > summary::-webkit-details-marker {
 details[open] > summary {
   margin-bottom: 14px;
 }
+
+/* ---------- modal (e.g. SPF Status's password-confirm dialog) ---------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  padding: 22px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.modal h2 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+}
+
+.modal p.muted {
+  margin: 0 0 16px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
