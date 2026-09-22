@@ -315,10 +315,16 @@ a {
 }
 
 .shell-content {
-  max-width: 920px;
+  /* max-width without auto-centering — content hugs the sidebar's left edge
+     instead of floating centered in whatever's left of a wide screen (a
+     real complaint: `margin: 0 auto` on a 920px block inside a much wider
+     .shell-main split the leftover space evenly, leaving a big dead gap
+     between the sidebar and the actual cards). Still capped so a line of
+     text or a form row doesn't run away to an unreadable width on an
+     ultrawide monitor. */
+  max-width: 1200px;
   width: 100%;
-  margin: 0 auto;
-  padding: 28px 24px 100px;
+  padding: 28px 32px 100px;
 }
 
 .page-header {

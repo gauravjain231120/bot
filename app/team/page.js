@@ -12,12 +12,13 @@ function OwnerOnlyNotice() {
 }
 
 export default function TeamPage() {
-  const { isOwner, accounts, accountsError, handleAddAccount, handleDeleteAccount } = useDashboard();
+  const { isOwner, accounts, accountsError, handleAddAccount, handleDeleteAccount, handleChangeAccountRole } = useDashboard();
   const [newAccountUsername, setNewAccountUsername] = useState('');
   const [newAccountPassword, setNewAccountPassword] = useState('');
   const [newAccountRole, setNewAccountRole] = useState('VIEWER');
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountFormError, setAccountFormError] = useState('');
+  const [roleBusy, setRoleBusy] = useState(null); // username currently being changed, or null
 
   if (!isOwner) return <OwnerOnlyNotice />;
 
@@ -46,6 +47,15 @@ export default function TeamPage() {
     }
   }
 
+  async function onChangeRole(username, role) {
+    setRoleBusy(username);
+    try {
+      await handleChangeAccountRole(username, role);
+    } finally {
+      setRoleBusy(null);
+    }
+  }
+
   return (
     <>
       <div className="page-header">
@@ -54,9 +64,11 @@ export default function TeamPage() {
       </div>
 
       <div className="card">
+        <h2>Add someone</h2>
         <p className="recipient-hint">
           <b>Owner</b> can do everything, including managing this list. <b>Viewer</b> can log in and
-          see the dashboard.
+          see the dashboard. Adding, changing a role, or removing someone asks for the
+          confirmation password.
         </p>
 
         <form onSubmit={onSubmit} className="form-grid">
@@ -92,38 +104,56 @@ export default function TeamPage() {
             {accountBusy ? 'Adding…' : 'Add'}
           </button>
         </form>
-        {accountFormError && <div className="banner bad" style={{ marginBottom: 14 }}>{accountFormError}</div>}
+        {accountFormError && <div className="banner bad" style={{ marginTop: 4 }}>{accountFormError}</div>}
+      </div>
 
+      <div className="card">
+        <h2>Team members</h2>
         {accountsError && <div className="banner bad">{accountsError}</div>}
         {accounts === null && !accountsError && <p className="muted">Loading…</p>}
+        {accounts && accounts.length === 0 && !accountsError && <p className="muted">No accounts yet.</p>}
         {accounts && accounts.length > 0 && (
           <div>
-            {accounts.map((a) => (
-              <div className="recipient-row" key={a.username}>
-                <div className="recipient-info">
-                  <div className="recipient-name">{a.username}</div>
-                  <div className="recipient-meta">
-                    <span className={`role-btn ${a.role.toLowerCase()} active`} style={{ pointerEvents: 'none' }}>
-                      {a.role === 'OWNER' ? 'Owner' : 'Viewer'}
-                    </span>
+            {accounts.map((a) => {
+              const busy = roleBusy === a.username || accountBusy;
+              return (
+                <div className="recipient-row" key={a.username}>
+                  <div className="recipient-info">
+                    <div className="recipient-name">
+                      {a.username}
+                      {a.protected && <span className="muted">protected</span>}
+                    </div>
+                  </div>
+                  <div className="recipient-controls">
+                    <div className="role-group">
+                      {['OWNER', 'VIEWER'].map((role) => (
+                        <button
+                          key={role}
+                          type="button"
+                          className={`role-btn ${role.toLowerCase()} ${a.role === role ? 'active' : ''}`}
+                          disabled={busy || a.protected}
+                          onClick={() => onChangeRole(a.username, role)}
+                        >
+                          {role === 'OWNER' ? 'Owner' : 'Viewer'}
+                        </button>
+                      ))}
+                    </div>
+                    {!a.protected && (
+                      <button
+                        type="button"
+                        className="remove-btn"
+                        disabled={busy}
+                        onClick={() => onDelete(a.username)}
+                        aria-label={`Remove ${a.username}`}
+                        title="Remove"
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div className="recipient-controls">
-                  {!a.protected && (
-                    <button
-                      type="button"
-                      className="remove-btn"
-                      disabled={accountBusy}
-                      onClick={() => onDelete(a.username)}
-                      aria-label={`Remove ${a.username}`}
-                      title="Remove"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

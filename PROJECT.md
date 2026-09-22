@@ -226,7 +226,7 @@ multi-page app sharing one persistent sidebar/topbar shell and one pool of live 
   | `/returns` | Scan a Myntra return (§22) | camera scan, resolve, add to stock-manager |
   | `/sessions` | Refresh Myntra/Amazon session forms | session *history* removed 2026-09-22, see below |
   | `/recipients` | Alert recipients (§20) + OTC scope toggle (§19) + role change history | **Owner-only** |
-  | `/team` | Dashboard accounts CRUD (§23) | **Owner-only** |
+  | `/team` | Dashboard accounts CRUD + role changes, confirmation-password-gated (§23) | **Owner-only** |
   | `/spf-status` | SPF claim counts (§24) | **Owner-only** |
 
 - **Form layout gotcha (fixed 2026-09-22, twice)**: the Team page's "add account" row was
@@ -1032,13 +1032,33 @@ account system, simplified to two roles for now (no Manager here).
   **`POST /api/logout`** (new) destroys the session server-side and clears the cookie.
   **`GET /api/status`** now also returns `account: {username, role}` so the dashboard knows who's
   logged in without a separate round trip — it was already the bootstrap "am I logged in" call.
-- **`GET/POST /api/accounts`, `DELETE /api/accounts/[username]`** (new, Owner-only) — list, create,
-  remove dashboard accounts. New accounts default to Viewer in the UI but Owner can pick either
-  role.
+- **`GET/POST /api/accounts`, `PATCH`/`DELETE /api/accounts/[username]`** (Owner-only) — list,
+  create, change-role, remove dashboard accounts. New accounts default to Viewer in the UI but
+  Owner can pick either role. `setAccountRole()` (`lib/accounts.js`, added 2026-09-22) has the
+  same guards as `deleteAccount()`: refuses the protected founding Owner, and refuses demoting the
+  last remaining Owner. Changing a role also kills that account's active sessions (same as
+  removing one) — a session's `role` is cached at login time in the session row itself, so without
+  this an already-logged-in account would keep the OLD role's access until it happened to log in
+  again.
+- **Second confirmation password on every Team change (added 2026-09-22)** — adding, re-roling, or
+  removing a dashboard account now prompts for the same `ROLE_CHANGE_PASSWORD` env var the
+  Telegram recipients routes already use (`promptAccountPassword()` in `lib/DashboardContext.js`,
+  checked again server-side in every `/api/accounts*` route via `confirmPassword` in the body —
+  same "never trust the client-side prompt alone" rule). One shared password across both
+  recipient-role changes and dashboard-account changes, not a separate one to remember.
 - **UI**: login form gained a Username field. Header shows `username · Owner`/`Viewer` + a Log out
-  button. A new "Dashboard team" card (Owner-only — hidden entirely for a Viewer, styled like the
-  existing Alert recipients card, reusing its `.recipient-row`/`.role-btn`/`.remove-btn` classes)
-  lists accounts and lets an Owner add one (username, password ≥8 chars, role) or remove one.
+  button. The Team page is now two cards (matching Alert recipients' own split into "recipients" +
+  "role history"): **"Add someone"** (the add-account form) and **"Team members"** (the list) —
+  originally one card, split 2026-09-22 for clearer visual separation (see the "card UI" note
+  below). Each member row has a live Owner/Viewer role toggle (`.role-group`/`.role-btn`, same
+  component the Alert recipients page already uses) instead of a static badge, disabled for the
+  protected founding Owner.
+- **Content no longer centered (fixed 2026-09-22)**: `.shell-content` had `max-width: 920px;
+  margin: 0 auto`, which centered that 920px block inside whatever width `.shell-main` actually
+  had — on any screen wider than about 1160px this left a large **empty gap on both sides**,
+  including between the sidebar and the cards themselves, which read as "cards floating in the
+  middle of the page." Changed to `max-width: 1200px` with no auto-margin, so content starts
+  right after the sidebar and is only capped (not centered) on very wide screens.
 - **Owner-only so far**: the "Dashboard team" card, the "Alert recipients" card (including the OTC
   alert's Owner-vs-Broadcast scope toggle it contains), and "Role change history" — hidden in the
   UI for a Viewer AND enforced server-side via a new shared `requireOwner()` guard in
