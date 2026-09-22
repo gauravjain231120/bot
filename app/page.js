@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { BarcodeScanner } from '../components/BarcodeScanner';
 
 // 7 API calls fire every tick (status/orders/sessionHistory/recipients/
@@ -771,6 +772,11 @@ export default function AdminPage() {
             <span className="muted" style={{ fontSize: '0.8rem' }}>
               {account.username} · {account.role === 'OWNER' ? 'Owner' : 'Viewer'}
             </span>
+          )}
+          {isOwner && (
+            <Link href="/spf-status" className="secondary" style={{ textDecoration: 'none' }}>
+              SPF Status
+            </Link>
           )}
           <button type="button" className="secondary" onClick={handleLogout}>
             Log out

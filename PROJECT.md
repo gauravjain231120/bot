@@ -473,7 +473,7 @@ lib/
   adminAuth.js            session-token cookie (admin_auth) against the `sessions` collection; getCurrentAccount()/isAuthed()/createSession()/destroySession() (§23, rewritten 2026-09-22 — was a single shared ADMIN_PASSWORD)
   accounts.js             the `accounts` collection — dashboard login accounts, Owner/Viewer roles, scrypt password hashing (§23, added 2026-09-22)
   monitorState.js         getRunning/setRunning on settings/_id:'status'.running
-  myntra.js                Myntra API calls + per-order/per-item Telegram text formatting; fetchPackedCount() (getPostPackedOrders, paginated) for /packed; resolveReturnByTrackingId() (SPF claim -> packed-order lookup) for /api/resolve-return, see §21 (added 2026-09-22)
+  myntra.js                Myntra API calls + per-order/per-item Telegram text formatting; fetchPackedCount() (getPostPackedOrders, paginated) for /packed; resolveReturnByTrackingId() (SPF claim -> packed-order lookup) for /api/resolve-return, see §21 (added 2026-09-22); fetchSpfTicketCounts() (spf/v2/getTickets, paginated, page/pageSize) for §24 (added 2026-09-22)
   amazon.js                Amazon API calls + per-order/per-item Telegram text formatting
   checkOrders.js           orchestrates one Myntra poll cycle (fetch → diff → alert → queue)
   checkAmazonOrders.js     same, for Amazon
@@ -490,6 +490,7 @@ components/
   BarcodeScanner.js        full-screen camera barcode scanner (@zxing/browser), plain JS/JSX port of stock-manager's own BarcodeScanner.tsx (§22, added 2026-09-22)
 app/
   page.js                  the dashboard (login form + admin UI + order grid + Alert recipients + Role change history + Scan a Myntra return)
+  spf-status/page.js       Owner-only SPF claim counts page — total/Approved/Paid/Rejected + full breakdown, on demand only (§24, added 2026-09-22)
   api/telegram-webhook/route.js   Telegram's webhook target — command parsing/dispatch, Owner-gated (§20)
   globals.css              all dashboard styling, theme (light/dark) CSS variables
   api/
@@ -500,6 +501,7 @@ app/
     otc-config/route.js           GET/PATCH — OTC alert's Owner-vs-Broadcast scope setting (§19)
     otc-status/route.js           GET — today's OTC codes + window countdown; PATCH — Clear (display-only) (§19)
     packed-count/route.js         GET — today's Myntra packed-order count (added 2026-09-22, see note below)
+    spf-status/route.js           GET — SPF ticket counts by status, Owner-only, on demand (§24)
     resolve-return/route.js       GET — resolve a Myntra return tracking id to SKU/size/photo, for stock-manager (§21)
     dashboard/resolve-return/route.js   GET — same resolver, admin_auth-gated + catalog-matched, for this app's own dashboard (§22)
     dashboard/add-return/route.js       POST — logs the resolved return into stock-manager (§22)
@@ -927,3 +929,29 @@ account system, simplified to two roles for now (no Manager here).
   protected founding Owner. Verified live: login (correct password, wrong password, unknown
   username), account creation, the protected/last-Owner delete refusals, and cleanup all behaved
   correctly against production before this shipped.
+
+## 24. SPF claim status page (`app/spf-status/page.js`, added 2026-09-22)
+
+A dedicated Owner-only page — the first real second page/route in this app (everything else lives
+on the single dashboard at `/`) — showing SPF claim (ticket) counts: total, Approved, Paid,
+Rejected, plus a full breakdown by every other status.
+
+- **`fetchSpfTicketCounts()`** (`lib/myntra.js`) — paginates Myntra's `GET /api/spf/v2/getTickets`
+  (a *different* pagination shape from every other endpoint here: `page`/`pageSize`, not
+  `start`/`fetchSize`), querying every known status explicitly (`SPF_TICKET_STATUSES`, matching a
+  real captured request from Myntra's own frontend) so nothing is silently excluded by some other
+  default filter. Tallies every ticket by its `status` field. Verified live against production:
+  paginated total (138, across 3 pages) matched the response envelope's own `totalCount` exactly.
+- **`GET /api/spf-status`** (new, Owner-only via `requireOwner()`) — calls it, returns
+  `{ total, byStatus: {...} }`.
+- **Deliberately never polled** — not in the cron checks, not in the main dashboard's poll loop,
+  not even fetched until this specific page is opened (fetches once on mount, plus a manual
+  Refresh button). Paginating every SPF ticket is meaningfully heavier than the other on-demand
+  stats (packed count, §19's OTC) — 3 live Myntra calls just to load this page once.
+- **UI**: 4 headline `stat-card`s (Total claims / Approved / Paid / Rejected — `ACCEPT`/
+  `PAYMENT_COMPLETED`/`REJECT` under the hood) plus a "Full breakdown" card listing every other
+  status present. Linked from the main dashboard's header ("SPF Status" button, Owner-only) and
+  links back.
+- **Owner-only both ways**: hidden from a Viewer in the UI (the dashboard-header link) and
+  enforced server-side by `/api/spf-status` itself via `requireOwner()` — same rule as §23's other
+  Owner-gated surfaces, never just hide-in-UI.

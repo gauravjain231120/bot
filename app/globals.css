@@ -876,6 +876,26 @@ button.secondary:not(:disabled):hover {
   background: var(--border);
 }
 
+/* Same look as button.secondary, for a <Link> styled as a button (e.g. the
+   SPF Status / Dashboard nav links) — an <a> doesn't pick up bare `button`
+   element styles, so this repeats them explicitly. */
+a.secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+a.secondary:hover {
+  background: var(--border);
+}
+
 button.danger {
   background: var(--bad);
 }
