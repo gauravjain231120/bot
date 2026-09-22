@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { replyToChat, sendTelegramMessage } from '../../../lib/telegram';
 import { recordSeen } from '../../../lib/recipients';
-import { fetchPackedCount } from '../../../lib/myntra';
+import { fetchPackedCount, fetchOtc } from '../../../lib/myntra';
 import {
   fetchQueueSummary,
   formatShipList,
@@ -12,6 +12,7 @@ import {
   formatReadyList,
   formatNotReadyList,
   formatPackedCount,
+  formatOtcStatus,
   parseShortDate,
   toDMY,
   todayIst,
@@ -52,6 +53,8 @@ const COMMAND_LIST =
   '/notreadyall [date] — same, sent to everyone\n' +
   '/packed [date] — Myntra packed-order count, today unless a date is given (just you)\n' +
   '/packedall [date] — same, sent to everyone\n' +
+  '/otc — pickup/return OTC codes, right now (just you)\n' +
+  '/otcall — same, sent to everyone\n' +
   '/command — this list';
 
 // A brand-new chat id (never before recorded) gets this once, right after
@@ -230,6 +233,20 @@ export async function POST(request) {
         const headers = await getMyntraHeaders();
         const count = await fetchPackedCount(dmy, dmy, headers);
         await replyToChat(chatId, formatPackedCount(count, dayKey));
+        break;
+      }
+      case '/otcall': {
+        const headers = await getMyntraHeaders();
+        const [pickup, ret] = await Promise.all([fetchOtc('PICKUP', headers), fetchOtc('RETURN', headers)]);
+        const values = { pickupMys: pickup.MYS || null, pickupMye: pickup.MYE || null, returnMys: ret.MYS || null, returnMye: ret.MYE || null };
+        await sendTelegramMessage(formatOtcStatus(values));
+        break;
+      }
+      case '/otc': {
+        const headers = await getMyntraHeaders();
+        const [pickup, ret] = await Promise.all([fetchOtc('PICKUP', headers), fetchOtc('RETURN', headers)]);
+        const values = { pickupMys: pickup.MYS || null, pickupMye: pickup.MYE || null, returnMys: ret.MYS || null, returnMye: ret.MYE || null };
+        await replyToChat(chatId, formatOtcStatus(values));
         break;
       }
       case '/makeall': {
