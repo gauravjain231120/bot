@@ -32,13 +32,12 @@ function OwnerOnlyNotice() {
 
 const INR = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 
-// Every stat card is behind the same confirmation-password click-to-reveal —
-// only "paid" additionally computes+shows the ₹ total (counts.paidTotalAmount,
-// summed server-side in lib/myntra.js's fetchSpfTicketCounts() from each
-// ticket's meta.finalAmount, no extra Myntra call). The other three just
-// reveal the count they already have, nothing extra — per the request:
-// "make all other also clickable and ask for passsword but just show real
-// number on paid on other do nothing".
+// Counts are shown plainly, same as before — the password gate is only for
+// the "paid" card's extra ₹ total (counts.paidTotalAmount, summed
+// server-side in lib/myntra.js's fetchSpfTicketCounts() from each ticket's
+// meta.finalAmount, no extra Myntra call). All four cards stay clickable and
+// still ask for the confirmation password, but the other three don't reveal
+// anything further — their count was already visible.
 const STAT_CARDS = [
   { key: 'total', label: 'Total claims' },
   { key: 'approved', label: 'Approved' },
@@ -137,7 +136,6 @@ export default function SpfStatusPage() {
         <>
           <div className="stat-grid">
             {STAT_CARDS.map(({ key, label }) => {
-              const isRevealed = Boolean(revealed[key]);
               const busy = revealBusy === key;
               return (
                 <button
@@ -148,13 +146,10 @@ export default function SpfStatusPage() {
                   disabled={busy}
                 >
                   <div className="stat-label">{label}</div>
-                  <div className={`stat-value ${isRevealed ? '' : 'masked'}`}>
-                    {busy ? '…' : isRevealed ? statNumbers[key] : 'Click to reveal'}
-                  </div>
-                  {key === 'paid' && isRevealed && (
+                  <div className="stat-value">{statNumbers[key]}</div>
+                  {key === 'paid' && revealed.paid && (
                     <div className="stat-sub">{INR.format(counts.paidTotalAmount || 0)} paid total</div>
                   )}
-                  {!isRevealed && !busy && <div className="stat-sub">Asks for the confirmation password</div>}
                 </button>
               );
             })}

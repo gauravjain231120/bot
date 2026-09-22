@@ -596,11 +596,6 @@ a {
   border-color: var(--accent);
 }
 
-.stat-value.masked {
-  color: var(--text-dim);
-  letter-spacing: 0.02em;
-}
-
 .stat-label {
   font-size: 0.72rem;
   font-weight: 600;
