@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BarcodeScanner } from '../components/BarcodeScanner';
 
-const REFRESH_MS = 20000;
+// 7 API calls fire every tick (status/orders/sessionHistory/recipients/
+// roleHistory/otcConfig/otcStatus) while this dashboard tab is open — at 20s
+// that's thousands of invocations/day if left open for hours, a meaningful
+// chunk of Vercel Hobby's Active CPU allowance. 60s still feels live but
+// cuts that load to a third.
+const REFRESH_MS = 60000;
 
 function timeAgo(iso) {
   if (!iso) return 'never';
