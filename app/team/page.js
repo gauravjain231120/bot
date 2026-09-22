@@ -59,11 +59,8 @@ export default function TeamPage() {
           see the dashboard.
         </p>
 
-        <form
-          onSubmit={onSubmit}
-          style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}
-        >
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.78rem' }} className="muted">
+        <form onSubmit={onSubmit} className="form-grid">
+          <label className="field">
             Username
             <input
               value={newAccountUsername}
@@ -74,7 +71,7 @@ export default function TeamPage() {
               required
             />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.78rem' }} className="muted">
+          <label className="field">
             Password
             <input
               type="password"
@@ -84,7 +81,7 @@ export default function TeamPage() {
               required
             />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.78rem' }} className="muted">
+          <label className="field">
             Role
             <select value={newAccountRole} onChange={(e) => setNewAccountRole(e.target.value)}>
               <option value="VIEWER">Viewer</option>

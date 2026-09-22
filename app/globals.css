@@ -206,15 +206,20 @@ a {
 /* ---------- app shell (sidebar + topbar) ---------- */
 
 .shell {
-  display: flex;
   min-height: 100vh;
 }
 
+/* Fixed, not sticky — html/body's own overflow-x:hidden (needed elsewhere)
+   breaks position:sticky on a flex sibling in some browsers, and a fixed
+   sidebar is simpler to reason about anyway: it never moves, full stop,
+   regardless of how the content pane scrolls. .shell-main is offset by its
+   width instead (see below) to make room for it. Same approach
+   stock-manager's own Sidebar.tsx uses. */
 .sidebar {
   width: 240px;
-  flex: none;
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -222,6 +227,7 @@ a {
   border-right: 1px solid var(--border);
   padding: 18px 14px;
   z-index: 40;
+  transform: translateX(0);
 }
 
 .sidebar-brand {
@@ -293,7 +299,7 @@ a {
 }
 
 .shell-main {
-  flex: 1;
+  margin-left: 240px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -349,15 +355,13 @@ a {
 
 @media (max-width: 900px) {
   .sidebar {
-    position: fixed;
-    left: -260px;
-    top: 0;
     width: 250px;
     box-shadow: var(--shadow);
-    transition: left 0.22s ease;
+    transition: transform 0.22s ease;
+    transform: translateX(-100%);
   }
   .sidebar.open {
-    left: 0;
+    transform: translateX(0);
   }
   .sidebar-close {
     display: inline-flex;
@@ -371,6 +375,9 @@ a {
   }
   .nav-toggle {
     display: inline-flex;
+  }
+  .shell-main {
+    margin-left: 0;
   }
   .shell-content {
     padding: 20px 16px 100px;
@@ -479,6 +486,18 @@ a {
   font-size: 0.95rem;
   font-weight: 700;
   margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card h2::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--accent);
+  flex: none;
 }
 
 .card p {
@@ -492,6 +511,32 @@ a {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* Robust inline-form layout (e.g. the Team page's "add account" row) — a
+   grid, not flex-wrap. A flex item with no explicit width sized against an
+   input{width:100%} child resolves unpredictably across browsers (the bug
+   that made the add-account form render as a narrow column pinned to the
+   right instead of a row); grid tracks don't have that ambiguity. */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px 14px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.form-grid .field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  min-width: 0;
+}
+
+.form-grid button {
+  height: 40px;
 }
 
 /* ---------- stat grid ---------- */
@@ -575,22 +620,6 @@ a {
   color: var(--text-dim);
 }
 
-.history-day {
-  margin-top: 12px;
-}
-.history-day:first-of-type {
-  margin-top: 8px;
-}
-
-.history-date {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--text-dim);
-  margin-bottom: 6px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--border);
-}
-
 .history-row {
   display: flex;
   align-items: center;
@@ -601,11 +630,6 @@ a {
 }
 .history-row + .history-row {
   border-top: 1px solid var(--border);
-}
-
-.history-active {
-  color: var(--good);
-  font-weight: 700;
 }
 
 .order-grid {
@@ -816,10 +840,15 @@ a {
   justify-content: space-between;
   gap: 14px;
   flex-wrap: wrap;
-  padding: 12px 0;
+  padding: 12px 10px;
+  border-radius: 10px;
+  transition: background-color 0.12s ease;
+}
+.recipient-row:hover {
+  background: var(--surface-2);
 }
 .recipient-row + .recipient-row {
-  border-top: 1px solid var(--border);
+  margin-top: 2px;
 }
 
 .recipient-info {

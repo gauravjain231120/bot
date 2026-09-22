@@ -86,9 +86,11 @@ export function AppShell({ children }) {
 
       <div className="shell-main">
         <div className="topbar">
-          <button type="button" className="icon-btn nav-toggle" onClick={() => setNavOpen(true)} aria-label="Open menu">
-            <MenuIcon />
-          </button>
+          {!navOpen && (
+            <button type="button" className="icon-btn nav-toggle" onClick={() => setNavOpen(true)} aria-label="Open menu">
+              <MenuIcon />
+            </button>
+          )}
           <div className="topbar-controls">
             <button className={running ? 'danger' : ''} onClick={handleToggle} disabled={toggling}>
               {running ? <StopIcon /> : <PlayIcon />}
