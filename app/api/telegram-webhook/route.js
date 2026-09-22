@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
+import { getDb } from '../../../lib/db';
 import { replyToChat, sendTelegramMessage } from '../../../lib/telegram';
 import { recordSeen } from '../../../lib/recipients';
+import { fetchPackedCount } from '../../../lib/myntra';
 import {
   fetchQueueSummary,
   formatShipList,
@@ -9,8 +11,22 @@ import {
   formatPlatformLeftList,
   formatReadyList,
   formatNotReadyList,
+  formatPackedCount,
   parseShortDate,
+  toDMY,
+  todayIst,
 } from '../../../lib/telegramCommands';
+
+// Same saved Myntra session the cron checks use — read fresh per command
+// rather than cached, so a just-refreshed session takes effect immediately.
+async function getMyntraHeaders() {
+  const db = await getDb();
+  const sessionDoc = await db.collection('settings').findOne({ _id: 'session' });
+  if (!sessionDoc || !sessionDoc.headers) {
+    throw new Error('No Myntra session saved — paste one on the admin page.');
+  }
+  return sessionDoc.headers;
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,6 +50,8 @@ const COMMAND_LIST =
   '/readyall [date] — same, sent to everyone\n' +
   '/notready [date] — everything still left to pack, all platforms (just you)\n' +
   '/notreadyall [date] — same, sent to everyone\n' +
+  '/packed [date] — Myntra packed-order count, today unless a date is given (just you)\n' +
+  '/packedall [date] — same, sent to everyone\n' +
   '/command — this list';
 
 // A brand-new chat id (never before recorded) gets this once, right after
@@ -64,6 +82,8 @@ const DATE_CAPABLE = new Set([
   '/readyall',
   '/notready',
   '/notreadyall',
+  '/packed',
+  '/packedall',
 ]);
 
 // Telegram calls this on every incoming message. Always ack quickly with 200
@@ -194,6 +214,22 @@ export async function POST(request) {
       case '/notready': {
         const summary = await fetchQueueSummary();
         await replyToChat(chatId, formatNotReadyList(summary, dateFilter));
+        break;
+      }
+      case '/packedall': {
+        const dayKey = dateFilter || todayIst();
+        const dmy = toDMY(dayKey);
+        const headers = await getMyntraHeaders();
+        const count = await fetchPackedCount(dmy, dmy, headers);
+        await sendTelegramMessage(formatPackedCount(count, dayKey));
+        break;
+      }
+      case '/packed': {
+        const dayKey = dateFilter || todayIst();
+        const dmy = toDMY(dayKey);
+        const headers = await getMyntraHeaders();
+        const count = await fetchPackedCount(dmy, dmy, headers);
+        await replyToChat(chatId, formatPackedCount(count, dayKey));
         break;
       }
       case '/makeall': {

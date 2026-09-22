@@ -451,7 +451,7 @@ lib/
   telegram.js             the only file that calls the Telegram Bot API
   adminAuth.js            checks the `admin_auth` cookie against ADMIN_PASSWORD
   monitorState.js         getRunning/setRunning on settings/_id:'status'.running
-  myntra.js                Myntra API calls + per-order/per-item Telegram text formatting
+  myntra.js                Myntra API calls + per-order/per-item Telegram text formatting; fetchPackedCount() (getPostPackedOrders, paginated) for /packed (added 2026-09-22)
   amazon.js                Amazon API calls + per-order/per-item Telegram text formatting
   checkOrders.js           orchestrates one Myntra poll cycle (fetch → diff → alert → queue)
   checkAmazonOrders.js     same, for Amazon
@@ -462,7 +462,7 @@ lib/
   sessionSyncWatchdog.js   alerts if an extension-sourced session goes stale (§12, §18)
   sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
   recipients.js            the `recipients`/`recipientRoleHistory` collections — who gets alerted, who can run bot commands, role-change audit log (§20)
-  telegramCommands.js      fetchQueueSummary() (reads stock-manager's `/api/pending/summary`) + one formatXList() per bot command's text — /ship, /make, /myntra(all/left), /amazon(all/left), /ready(all), /notready(all) (added 2026-09-22)
+  telegramCommands.js      fetchQueueSummary() (reads stock-manager's `/api/pending/summary`) + one formatXList() per bot command's text — /ship, /make, /myntra(all/left), /amazon(all/left), /ready(all), /notready(all); toDMY()/todayIst() + formatPackedCount() for /packed(all) (added 2026-09-22)
 app/
   page.js                  the dashboard (login form + admin UI + order grid + Alert recipients + Role change history)
   api/telegram-webhook/route.js   Telegram's webhook target — command parsing/dispatch, Owner-gated (§20)
