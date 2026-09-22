@@ -1,37 +1,42 @@
+/* Same tokens as stock-manager's own globals.css — same brand, same tool
+   family, should look like one product. Brand maroon/dusty-rose is literally
+   copied from its --color-brand-500/600/700 (from the Rangrooh logo); card
+   surface/border/shadow/radius match its actual rounded-xl/border-black
+   /shadow-sm/bg-white card class, not a from-scratch guess. */
 :root {
-  --bg: #f7f7fb;
+  --bg: #fafafa;
   --surface: #ffffff;
-  --surface-2: #f2f2f7;
-  --border: rgba(15, 15, 25, 0.09);
-  --text: #16161d;
-  --text-dim: #6b6b78;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: rgba(79, 70, 229, 0.1);
-  --good: #16a34a;
-  --good-soft: rgba(22, 163, 74, 0.12);
+  --surface-2: #f5f5f5;
+  --border: rgba(0, 0, 0, 0.1);
+  --text: #171717;
+  --text-dim: #737373;
+  --accent: #9c4458;
+  --accent-hover: #82384a;
+  --accent-soft: rgba(156, 68, 88, 0.1);
+  --good: #059669;
+  --good-soft: rgba(5, 150, 105, 0.12);
   --bad: #dc2626;
   --bad-soft: rgba(220, 38, 38, 0.12);
-  --shadow: 0 1px 2px rgba(16, 16, 30, 0.04), 0 8px 24px rgba(16, 16, 30, 0.05);
-  --radius: 14px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --radius: 12px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg: #0b0b10;
-    --surface: #16161d;
-    --surface-2: #1d1d26;
-    --border: rgba(255, 255, 255, 0.08);
-    --text: #f1f1f4;
-    --text-dim: #9797a6;
-    --accent: #818cf8;
-    --accent-hover: #a5b4fc;
-    --accent-soft: rgba(129, 140, 248, 0.14);
-    --good: #4ade80;
-    --good-soft: rgba(74, 222, 128, 0.14);
+    --bg: #000000;
+    --surface: #171717;
+    --surface-2: #262626;
+    --border: rgba(255, 255, 255, 0.1);
+    --text: #ededed;
+    --text-dim: #a3a3a3;
+    --accent: #c85f79;
+    --accent-hover: #d97c93;
+    --accent-soft: rgba(200, 95, 121, 0.16);
+    --good: #10b981;
+    --good-soft: rgba(16, 185, 129, 0.14);
     --bad: #f87171;
     --bad-soft: rgba(248, 113, 113, 0.14);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   }
   :root:not([data-theme='light']) {
     color-scheme: dark;
@@ -40,20 +45,20 @@
 
 /* Explicit toggle (via the sun/moon button) wins over system preference. */
 :root[data-theme='dark'] {
-  --bg: #0b0b10;
-  --surface: #16161d;
-  --surface-2: #1d1d26;
-  --border: rgba(255, 255, 255, 0.08);
-  --text: #f1f1f4;
-  --text-dim: #9797a6;
-  --accent: #818cf8;
-  --accent-hover: #a5b4fc;
-  --accent-soft: rgba(129, 140, 248, 0.14);
-  --good: #4ade80;
-  --good-soft: rgba(74, 222, 128, 0.14);
+  --bg: #000000;
+  --surface: #171717;
+  --surface-2: #262626;
+  --border: rgba(255, 255, 255, 0.1);
+  --text: #ededed;
+  --text-dim: #a3a3a3;
+  --accent: #c85f79;
+  --accent-hover: #d97c93;
+  --accent-soft: rgba(200, 95, 121, 0.16);
+  --good: #10b981;
+  --good-soft: rgba(16, 185, 129, 0.14);
   --bad: #f87171;
   --bad-soft: rgba(248, 113, 113, 0.14);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }
 
@@ -263,11 +268,12 @@ a {
   align-items: center;
   gap: 11px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--text-dim);
   font-size: 0.88rem;
   font-weight: 600;
   text-decoration: none;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .sidebar-link svg {
@@ -281,8 +287,11 @@ a {
 }
 
 .sidebar-link.active {
-  background: var(--accent-soft);
-  color: var(--accent);
+  /* Solid brand fill, not a soft tint — matches stock-manager's own
+     Sidebar.tsx active state (bg-brand-600 text-white shadow-sm) exactly. */
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow);
 }
 
 .sidebar-link.active svg {
@@ -1039,7 +1048,7 @@ button {
   font: inherit;
   font-weight: 600;
   padding: 9px 16px;
-  border-radius: 9px;
+  border-radius: 8px;
   border: none;
   background: var(--accent);
   color: #fff;

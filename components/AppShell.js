@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useDashboard } from '../lib/DashboardContext';
@@ -35,6 +35,29 @@ export function AppShell({ children }) {
   } = useDashboard();
   const pathname = usePathname();
   const [navOpen, setNavOpen] = useState(false);
+  // Same 900px breakpoint as the CSS. Tracked in JS too — not just relying
+  // on a CSS media query to hide the hamburger/close buttons on desktop —
+  // so the mobile-only toggle controls straight up don't exist in the DOM
+  // above 900px, no matter what. Real bug this fixes: both were showing at
+  // once on a wide screen (stale-cache-proof now, since the JS branch can't
+  // silently keep serving an old CSS bundle's behavior).
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 900px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+
+  // Never let a stale "open" drawer state survive resizing past desktop
+  // width (e.g. a phone rotated to landscape, or a browser window dragged
+  // wider) — the scrim would otherwise stay stuck covering the desktop
+  // layout with no way to dismiss it.
+  useEffect(() => {
+    if (!isMobile) setNavOpen(false);
+  }, [isMobile]);
 
   if (authed === null) {
     return (
@@ -52,16 +75,18 @@ export function AppShell({ children }) {
 
   return (
     <div className="shell">
-      {navOpen && <div className="shell-scrim" onClick={() => setNavOpen(false)} />}
-      <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
+      {isMobile && navOpen && <div className="shell-scrim" onClick={() => setNavOpen(false)} />}
+      <aside className={`sidebar ${isMobile && navOpen ? 'open' : ''}`}>
         <div className="sidebar-brand">
           <span className="auth-logo">
             <BellIcon />
           </span>
           <span className="sidebar-brand-text">Order Alerts</span>
-          <button type="button" className="icon-btn sidebar-close" onClick={() => setNavOpen(false)} aria-label="Close menu">
-            <CloseIcon />
-          </button>
+          {isMobile && (
+            <button type="button" className="icon-btn sidebar-close" onClick={() => setNavOpen(false)} aria-label="Close menu">
+              <CloseIcon />
+            </button>
+          )}
         </div>
         <nav className="sidebar-nav">
           {visibleNav.map(({ href, label, Icon }) => (
@@ -86,7 +111,7 @@ export function AppShell({ children }) {
 
       <div className="shell-main">
         <div className="topbar">
-          {!navOpen && (
+          {isMobile && !navOpen && (
             <button type="button" className="icon-btn nav-toggle" onClick={() => setNavOpen(true)} aria-label="Open menu">
               <MenuIcon />
             </button>

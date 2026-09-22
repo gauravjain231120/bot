@@ -195,6 +195,27 @@ multi-page app sharing one persistent sidebar/topbar shell and one pool of live 
   own close (✕) button at once was confusing (fixed 2026-09-22). Renders
   `components/LoginScreen.js` instead of the shell while `authed !== true` — same
   `null`(loading)/`false`(show login)/`true`(show shell) branching the old single page had.
+  - **Hamburger/close visibility made JS-driven, not CSS-only (fixed again 2026-09-22, same day)**:
+    the first fix above relied purely on a CSS media query to hide `.nav-toggle`/`.sidebar-close`
+    above 900px — the user still saw both simultaneously on a wide screen afterward. Since the CSS
+    is verifiably correct (re-checked directly), the mismatch is a browser/deploy caching
+    explanation, not a code bug — but the fix is now robust either way: `AppShell.js` tracks
+    `isMobile` itself via `window.matchMedia('(max-width: 900px)')` and only renders these buttons
+    (and the scrim) at all when actually true, so there's no CSS-cascade/cache failure mode left
+    to hide behind. Also resets `navOpen` back to `false` whenever the breakpoint is crossed (e.g.
+    a window resized wider), so a stuck-open drawer/scrim can't survive that.
+- **Design tokens rebuilt to match stock-manager's own (2026-09-22)** — `app/globals.css`'s
+  `:root`/dark-mode color variables, previously an independently-chosen indigo palette, now copy
+  stock-manager's actual values directly: brand maroon/dusty-rose accent (`#9c4458` light /
+  a lighter `#c85f79` tint for dark-mode legibility — stock-manager itself never uses its brand
+  color as plain text on a dark background, only as solid button fills, so this app needed a
+  choice it didn't; same hue family either way), `emerald-600` for success (was a plain green),
+  page background `#fafafa` light / `#000000` dark with card surface `#ffffff` / `#171717` (was a
+  more tinted-gray/indigo-dark scheme), `12px` card radius + a single flat `shadow-sm`-style shadow
+  (was a two-layer floatier one), `8px` button/nav-link radius. The sidebar's active-link state
+  also changed from a soft accent-tinted background to a **solid** brand-color fill with white
+  text — stock-manager's actual `Sidebar.tsx` pattern (`bg-brand-600 text-white shadow-sm`), not a
+  softer style of this app's own invention.
 - **Pages**, each pulling only what it needs from `useDashboard()` plus its own page-local state
   (forms, scan candidates, filters — anything that was never part of the poll loop):
 
