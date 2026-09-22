@@ -103,6 +103,7 @@ configured to hit the three `/api/check-*` endpoints directly.
 | `ADMIN_PASSWORD` | Password for the dashboard login; also the literal value stored in the `admin_auth` cookie |
 | `CRON_SECRET` | Shared secret cron-job.org must pass as `?secret=` on every check endpoint |
 | `EXTENSION_SYNC_SECRET` | Shared secret the browser extension sends as `x-sync-secret` on `POST /api/session/sync` (§18) |
+| `RESOLVE_RETURN_SECRET` | Shared secret stock-manager's backend sends as `x-resolve-secret` on `GET /api/resolve-return` (§21) — the one call that goes stock-manager → this app; every other integration point goes the other way |
 | `MONGODB_URI` | This app's own MongoDB Atlas connection string |
 | `MONGODB_DB` | This app's own DB name (defaults to `myntra_alerts`) |
 | `STOCK_MONGODB_URI` | **Read-only** connection to stock-manager's MongoDB, for live stock lookups |
@@ -460,7 +461,7 @@ lib/
   telegram.js             the only file that calls the Telegram Bot API
   adminAuth.js            checks the `admin_auth` cookie against ADMIN_PASSWORD
   monitorState.js         getRunning/setRunning on settings/_id:'status'.running
-  myntra.js                Myntra API calls + per-order/per-item Telegram text formatting; fetchPackedCount() (getPostPackedOrders, paginated) for /packed (added 2026-09-22)
+  myntra.js                Myntra API calls + per-order/per-item Telegram text formatting; fetchPackedCount() (getPostPackedOrders, paginated) for /packed; resolveReturnByTrackingId() (SPF claim -> packed-order lookup) for /api/resolve-return, see §21 (added 2026-09-22)
   amazon.js                Amazon API calls + per-order/per-item Telegram text formatting
   checkOrders.js           orchestrates one Myntra poll cycle (fetch → diff → alert → queue)
   checkAmazonOrders.js     same, for Amazon
@@ -484,6 +485,7 @@ app/
     otc-config/route.js           GET/PATCH — OTC alert's Owner-vs-Broadcast scope setting (§19)
     otc-status/route.js           GET — today's OTC codes + window countdown; PATCH — Clear (display-only) (§19)
     packed-count/route.js         GET — today's Myntra packed-order count (added 2026-09-22, see note below)
+    resolve-return/route.js       GET — resolve a Myntra return tracking id to SKU/size/photo, for stock-manager (§21)
     admin/start|stop|check-now/route.js   dashboard action endpoints (§7)
     login/route.js                sets the admin_auth cookie
     session/route.js              saves a freshly-pasted Myntra/Amazon session
@@ -750,3 +752,39 @@ VIEWER) at the roles they already effectively had, so alert delivery didn't chan
 `scripts/protect-primary-owner.js` then marked Gaurav's row `protected: true`. Both are idempotent
 one-offs (`--dry` flag supported) — safe to re-run, they no-op on anything already in the expected
 state.
+
+## 21. Resolve a Myntra return tracking id (`GET /api/resolve-return`, added 2026-09-22)
+
+Grading a Myntra return in stock-manager used to mean two manual lookups on Myntra's own site:
+search the return tracking id (e.g. `MYSR...`) in the Seller Protection Fund claims panel to get
+the *original* shipment tracking id + a product photo, then search *that* id again in the
+packed-orders search to get the real seller SKU + size. This endpoint does both automatically,
+server-to-server, so stock-manager's Returns page can do it in one call.
+
+- **`resolveReturnByTrackingId(returnTrackingId, headers)`** (`lib/myntra.js`) chains two Myntra
+  calls:
+  1. `fetchSpfClaim()` — `GET .../api/spf/fetchNewClaim?fetchAccio=true&id=<returnTrackingId>` —
+     gives back the *original* outbound tracking id (`data[0].trackingId`, a different number,
+     e.g. `MYSP...`) and one product photo (`data[0].styleInfo.imageLink`, upgraded to `https://`)
+     — deliberately the **only** image used; the richer multi-angle image set from step 2 is
+     ignored on purpose (asked for specifically — SPF's own photo is what should show).
+  2. `fetchPackedOrderByTracking()` — `GET .../api/mdirect/orders/searchPostPackedOrder/<warehouse>
+     ?searchOn=trackingNumber&id=<originalTrackingId>` — gives back the real
+     `lineItems[0].sellerSkuCode` (e.g. `RRC-012-CO-HI-GRN-M`, exactly stock-manager's own SKU
+     format) and `.size`/`.color`.
+  - Returns `null` only if step 1 finds no claim at all. A claim found but with no resolvable SKU
+    (step 2 empty) still returns the claim's own fields (image, `returnReason`, `returnMode`) with
+    `sku`/`size`/`color` left `null`, so the caller can say exactly what's missing rather than
+    failing opaquely.
+  - Verified directly against production with a real return tracking id — matched the exact
+    payloads captured from DevTools before this was built.
+- **The route** (`app/api/resolve-return/route.js`) is the **one exception** to this integration's
+  usual direction — every other call between these two apps goes bot → stock-manager (§8); this
+  one goes stock-manager → bot. Guarded by `RESOLVE_RETURN_SECRET` in an `x-resolve-secret`
+  header (never a query param, so it's never logged in a URL) — same convention as the browser
+  extension's `EXTENSION_SYNC_SECRET`/`x-sync-secret` (§18), just a different secret for a
+  different caller. Responds 404 (not 500) both when the claim itself isn't found and when the SKU
+  can't be resolved — both are "nothing to add," not server errors.
+- **What happens on the other end**: stock-manager calls this, shows the photo/SKU/size, and logs
+  the actual return itself using its own existing return-logging code — this endpoint only
+  resolves data, it never writes anything. See stock-manager's own `PROJECT.md` for that side.
