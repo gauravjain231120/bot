@@ -33,11 +33,12 @@ function OwnerOnlyNotice() {
 const INR = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 
 // Counts are shown plainly, same as before — the password gate is only for
-// the "paid" card's extra ₹ total (counts.paidTotalAmount, summed
-// server-side in lib/myntra.js's fetchSpfTicketCounts() from each ticket's
-// meta.finalAmount, no extra Myntra call). All four cards stay clickable and
-// still ask for the confirmation password, but the other three don't reveal
-// anything further — their count was already visible.
+// the "paid" card's extra ₹ total, computed on demand by
+// POST /api/spf-status/verify (see lib/myntra.js's fetchSpfPaidTotal — it's
+// not part of the counts this page loads on mount, since finalAmount costs
+// one extra Myntra call per paid ticket to fetch). All four cards stay
+// clickable and still ask for the confirmation password, but the other three
+// don't reveal anything further — their count was already visible.
 const STAT_CARDS = [
   { key: 'total', label: 'Total claims' },
   { key: 'approved', label: 'Approved' },
@@ -52,6 +53,7 @@ export default function SpfStatusPage() {
   const [error, setError] = useState('');
   const [revealed, setRevealed] = useState({});
   const [revealBusy, setRevealBusy] = useState(null);
+  const [paidTotal, setPaidTotal] = useState(null);
 
   // Deliberately only fires here, on this page — never wired into the main
   // dashboard's poll loop. Fetching this paginates every SPF ticket, a
@@ -81,6 +83,10 @@ export default function SpfStatusPage() {
   // Same "second, separate password" pattern as the Team/Recipients pages
   // (DashboardContext's promptAccountPassword/promptRolePassword) — checked
   // server-side (app/api/spf-status/verify), never a client-side-only gate.
+  // Only for key === 'paid' does the server actually compute anything (the
+  // ₹ total, one extra Myntra call per paid ticket — see
+  // lib/myntra.js's fetchSpfPaidTotal) — that's why this can take a few
+  // seconds for Paid but is instant for the other three.
   async function onReveal(key) {
     if (revealed[key]) return;
     const confirmPassword = window.prompt('Enter the confirmation password to continue:');
@@ -90,13 +96,14 @@ export default function SpfStatusPage() {
       const res = await fetch('/api/spf-status/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmPassword }),
+        body: JSON.stringify({ confirmPassword, key }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         alert(`Could not reveal: ${data.error || `HTTP ${res.status}`}`);
         return;
       }
+      if (key === 'paid') setPaidTotal(data.paidTotalAmount || 0);
       setRevealed((prev) => ({ ...prev, [key]: true }));
     } finally {
       setRevealBusy(null);
@@ -147,8 +154,9 @@ export default function SpfStatusPage() {
                 >
                   <div className="stat-label">{label}</div>
                   <div className="stat-value">{statNumbers[key]}</div>
+                  {key === 'paid' && busy && <div className="stat-sub">Calculating total…</div>}
                   {key === 'paid' && revealed.paid && (
-                    <div className="stat-sub">{INR.format(counts.paidTotalAmount || 0)} paid total</div>
+                    <div className="stat-sub">{INR.format(paidTotal || 0)} paid total</div>
                   )}
                 </button>
               );

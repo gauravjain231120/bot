@@ -1100,24 +1100,34 @@ Rejected, plus a full breakdown by every other status.
 
 ### Paid total + click-to-reveal-with-password (added 2026-09-22)
 
-All 4 stat cards are now `<button>`s, masked ("Click to reveal") until clicked. Clicking one
-prompts for the same `ROLE_CHANGE_PASSWORD` confirmation password used everywhere else in this app
-(§23's Team page, the Telegram-recipient role changes) — checked server-side by the new
-`POST /api/spf-status/verify` (Owner-gated, compares `confirmPassword` against
-`process.env.ROLE_CHANGE_PASSWORD`, never ships the secret itself to client JS). On success that
-one card's real number shows.
+All 4 stat cards are `<button>`s showing their real count plainly (no "Click to reveal"
+placeholder — the count itself was never sensitive). Clicking one prompts for the same
+`ROLE_CHANGE_PASSWORD` confirmation password used everywhere else in this app (§23's Team page,
+the Telegram-recipient role changes) — checked server-side by `POST /api/spf-status/verify`
+(Owner-gated, compares `confirmPassword` against `process.env.ROLE_CHANGE_PASSWORD`, never ships
+the secret itself to client JS).
 
-- **Only "Paid" does anything extra**: it also shows a ₹ total, computed from
-  `counts.paidTotalAmount` — the sum of `finalAmount` (parsed from each ticket's `meta` JSON string,
-  which the already-fetched `GET /api/spf/v2/getTickets` response carries per ticket, e.g.
-  `"finalAmount": "2199.0"`) across every `PAYMENT_COMPLETED` ticket. Summed in
-  `fetchSpfTicketCounts()` (`lib/myntra.js`) — **zero extra Myntra API calls**, the field was
-  already in the same paginated response §24's counts always fetched. The other 3 cards reveal only
-  their existing count, no extra calculation — this was explicit: "make all other also clickable
-  and ask for passsword but just show real number on paid on other do nothing."
-- **Why a password check here even though the numbers are already client-side**: by the time
-  someone can click a card, `counts` (including `paidTotalAmount`) is already sitting in the page's
-  React state from the initial load — this isn't an access-control boundary, it's the same
-  friction-on-an-already-authenticated-Owner pattern §23 documents for account changes. The
-  server-side check exists so the actual password value never has to be embedded in client JS to
-  compare against (which is the one thing that *would* be a real leak).
+- **Only "Paid" does anything extra**: on success it also shows a ₹ total. This was originally
+  implemented assuming `finalAmount` was already present on the `GET /api/spf/v2/getTickets` list
+  response (in a per-row `meta` field) — that assumption was wrong, confirmed live: a real
+  `PAYMENT_COMPLETED` row from that endpoint has no `meta` field at all. `finalAmount` only exists
+  in the per-claim `meta` JSON string returned by `fetchNewClaim` (the same endpoint
+  `fetchSpfClaims`/`fetchClaimTrackingByReturnId` already use), queried by a ticket's `returnId`.
+  So the real total costs **one extra Myntra call per paid ticket** — `fetchSpfPaidTotal()`
+  (`lib/myntra.js`) fetches all tickets, filters to `PAYMENT_COMPLETED`, then queries each one's
+  claim detail with limited concurrency (`PAID_TOTAL_CONCURRENCY = 8`, same pattern as
+  `resolveTrackingIdsForTickets`) and sums `meta.finalAmount`. ~15% of paid tickets come back with
+  `returnId: null` from the list endpoint — `fetchNewClaim` also accepts a ticket's `orderId` as a
+  fallback lookup key (verified live), matching the returned claim back to the ticket by
+  `ticketId` in case an order ever has more than one SPF ticket. Verified against production:
+  61/72 paid tickets resolved by `returnId` alone; adding the `orderId` fallback got all 72,
+  totalling ₹1,25,616 (~2.5s at concurrency 8).
+- **Deliberately not part of `fetchSpfTicketCounts()`** — too heavy (72 extra live calls) to run
+  on every page load/Refresh. `POST /api/spf-status/verify` only calls `fetchSpfPaidTotal()` when
+  `body.key === 'paid'`; the other 3 cards' password check is a no-op beyond validating the
+  password, per the original request: "make all other also clickable and ask for passsword but
+  just show real number on paid on other do nothing."
+- **Why a password check here even for the 3 cards that reveal nothing extra**: their counts are
+  already visible on the page (this isn't an access-control boundary for them), it's the same
+  friction-on-an-already-authenticated-Owner pattern §23 documents for account changes. For Paid,
+  the password check also gates a real, non-trivial computation from running unauthenticated.
