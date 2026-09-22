@@ -130,7 +130,7 @@ Everything lives in one `settings` collection (by `_id`) plus a few small tracki
   - `lastCheck`, `openCount`, `lastError`, `sessionExpiredAlertSent` — Myntra
   - `amazonLastCheck`, `amazonOpenCount`, `amazonLastError`, `amazonSessionExpiredAlertSent` — Amazon
   - `lastCancelCheck`, `cancelledCount`, `lastCancelError` — Myntra cancellations
-- `settings/_id:'otc_status'` — `{ alertedDate, alertedAt, values }`, the OTC alert's own dedup flag (§19): `alertedDate` is an IST `YYYY-MM-DD` string, compared against today so a new day always gets a fresh chance to alert without anything having to reset it.
+- `settings/_id:'otc_status'` — `{ alertedDate, alertedAt, values, errorAlertedDate }`, the OTC alert's own dedup flags (§19): both are IST `YYYY-MM-DD` strings, compared against today so a new day always gets a fresh chance to alert without anything having to reset it. `alertedDate` guards the success ping (a real code found); `errorAlertedDate` separately guards the missing/expired-session ping, so the two never interfere with each other.
 - `seenOrders` — `{ _id: orderId, seenAt }` — every Myntra order ID the poller has ever fetched (whether or not it turned into an alert). This is the de-dup ledger; an order ID here is never alerted again.
 - `seenAmazonOrders` — same, for Amazon (`_id: amazonOrderId`)
 - `seenCancellations` — same idea, for Myntra cancelled-order IDs
@@ -636,6 +636,13 @@ actually goes active for that courier.
   proceeds normally.
 - Uses the same Myntra session (`settings/_id:'session'`) as the order/cancellation checks — no
   separate session of its own.
+- **Session-problem alerting (fixed 2026-09-22, review finding)**: the first version of this
+  silently swallowed a missing-or-expired Myntra session during the window — `fetchOtc()`'s error
+  just propagated to the cron route's JSON error response with nobody notified, exactly the hour
+  the code is time-sensitive. Now `alertOtcSessionProblem()` sends one Owner alert (missing
+  session, or a 401/403 from `fetchOtc`) per IST day — its own `errorAlertedDate` dedup flag on
+  the same `otc_status` doc, independent of the success-side `alertedDate` so a session fixed
+  mid-window still alerts normally the moment a real code appears.
 
 ## 20. Alert recipients — Owner/Viewer/None roles (`lib/recipients.js`, added 2026-09-22)
 
