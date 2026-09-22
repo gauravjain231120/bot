@@ -914,12 +914,15 @@ account system, simplified to two roles for now (no Manager here).
   button. A new "Dashboard team" card (Owner-only — hidden entirely for a Viewer, styled like the
   existing Alert recipients card, reusing its `.recipient-row`/`.role-btn`/`.remove-btn` classes)
   lists accounts and lets an Owner add one (username, password ≥8 chars, role) or remove one.
-- **Scope, deliberately (asked for "just this first")**: this ships the account/role system and
-  the Team management UI. It does **not** yet gate individual dashboard actions differently by
-  role (Start/Stop, Check now, Refresh Myntra session, Add to Return, Recipients, etc. all still
-  work the same for both roles once logged in) — only the Team card itself is Owner-only so far.
-  Narrowing what a Viewer can actually *do* on the rest of the dashboard is a deliberately separate
-  follow-up, not assumed here.
+- **Owner-only so far**: the "Dashboard team" card, the "Alert recipients" card (including the OTC
+  alert's Owner-vs-Broadcast scope toggle it contains), and "Role change history" — hidden in the
+  UI for a Viewer AND enforced server-side via a new shared `requireOwner()` guard in
+  `lib/adminAuth.js`, applied to all 4 `/api/recipients*` routes and both `/api/accounts*` routes
+  (never just hide-in-UI — a Viewer calling those routes directly still gets a real 403). Everything
+  else (Start/Stop, Check now, Refresh Myntra session, Add to Return, the order grid, OTC status
+  display, packed count) still works the same for both roles once logged in — narrowing what a
+  Viewer can do on the *rest* of the dashboard is a deliberately separate follow-up, not assumed
+  here (asked for "just this first").
 - **Seeded via `scripts/seed-dashboard-owner.js`** (one-off, run once): creates `gaurav` as the
   protected founding Owner. Verified live: login (correct password, wrong password, unknown
   username), account creation, the protected/last-Owner delete refusals, and cleanup all behaved
