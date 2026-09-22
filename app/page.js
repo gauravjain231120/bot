@@ -166,6 +166,9 @@ export default function AdminPage() {
   const [otcScopeBusy, setOtcScopeBusy] = useState(false);
   const [otcStatus, setOtcStatus] = useState(null);
   const [otcClearing, setOtcClearing] = useState(false);
+  const [packedCount, setPackedCount] = useState(null);
+  const [packedCountError, setPackedCountError] = useState('');
+  const [packedLoading, setPackedLoading] = useState(false);
 
   useEffect(() => {
     let initial = 'light';
@@ -288,6 +291,29 @@ export default function AdminPage() {
     }
   }, []);
 
+  // Deliberately NOT in the 20s auto-refresh loop below — unlike the other
+  // dashboard stats, this hits Myntra's live API on every call (the others
+  // just read already-stored DB state). Only fires once, when this page is
+  // actually opened — leaving the tab open must never cause a recurring
+  // background Myntra call purely because the interval ticked.
+  const loadPackedCount = useCallback(async () => {
+    setPackedLoading(true);
+    try {
+      const res = await fetch('/api/packed-count');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPackedCountError(data.error || `HTTP ${res.status}`);
+        return;
+      }
+      setPackedCount(data);
+      setPackedCountError('');
+    } catch (err) {
+      setPackedCountError(err.message);
+    } finally {
+      setPackedLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (authed !== true) return;
     loadOrders();
@@ -296,6 +322,7 @@ export default function AdminPage() {
     loadRoleHistory();
     loadOtcConfig();
     loadOtcStatus();
+    loadPackedCount();
     const interval = setInterval(() => {
       loadStatus();
       loadOrders();
@@ -304,9 +331,10 @@ export default function AdminPage() {
       loadRoleHistory();
       loadOtcConfig();
       loadOtcStatus();
+      // loadPackedCount() intentionally excluded — see its own comment above.
     }, REFRESH_MS);
     return () => clearInterval(interval);
-  }, [authed, loadStatus, loadOrders, loadSessionHistory, loadRecipients, loadRoleHistory, loadOtcConfig, loadOtcStatus]);
+  }, [authed, loadStatus, loadOrders, loadSessionHistory, loadRecipients, loadRoleHistory, loadOtcConfig, loadOtcStatus, loadPackedCount]);
 
   // Re-pulls every recipient's current name/username straight from Telegram
   // (not just the DB) — guarantees "Refresh" makes names verifiably
@@ -646,6 +674,29 @@ export default function AdminPage() {
           ) : (
             <div className="stat-value">—</div>
           )}
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Myntra packed today</div>
+          {packedCountError ? (
+            <>
+              <div className="stat-value" style={{ fontSize: '0.85rem' }}>Error</div>
+              <div className="stat-sub">{packedCountError}</div>
+            </>
+          ) : (
+            <div className="stat-value">{packedCount ? packedCount.count : packedLoading ? '…' : '—'}</div>
+          )}
+          <div className="stat-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {packedCount ? packedCount.dayKey : ''}
+            <button
+              type="button"
+              className="secondary"
+              style={{ padding: '2px 8px', fontSize: '0.72rem' }}
+              onClick={loadPackedCount}
+              disabled={packedLoading}
+            >
+              {packedLoading ? 'Checking…' : 'Refresh'}
+            </button>
+          </div>
         </div>
       </div>
 

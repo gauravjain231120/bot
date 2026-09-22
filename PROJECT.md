@@ -194,6 +194,15 @@ The page polls `/api/status` and `/api/orders` every 20s while logged in (`REFRE
 stays live without a manual refresh — but again, this is only for *your viewing*; it has no
 bearing on whether alerts fire (see §14).
 
+**Deliberate exception, "Myntra packed today" stat card (added 2026-09-22)**: every other
+dashboard stat is either DB-read (cheap, safe to poll every 20s) or already covered by the
+cron checks. This one calls `/api/packed-count`, which hits Myntra's live `getPostPackedOrders`
+API directly, on request. That call is made **once, only when the page is opened** — it is
+*not* in the 20s interval loop (`loadPackedCount()` is called in the mount effect but left out of
+`setInterval`'s body, on purpose) — a manual "Refresh" button on the card is the only other way
+to trigger it. Leaving the dashboard tab open must never cause a recurring background Myntra call
+just because the interval ticked.
+
 ## 8. Order-processing pipeline (per new order, per marketplace)
 
 1. Fetch the order's line items.
@@ -474,6 +483,7 @@ app/
     check-otc/route.js            cron endpoint (§6, §19)
     otc-config/route.js           GET/PATCH — OTC alert's Owner-vs-Broadcast scope setting (§19)
     otc-status/route.js           GET — today's OTC codes + window countdown; PATCH — Clear (display-only) (§19)
+    packed-count/route.js         GET — today's Myntra packed-order count (added 2026-09-22, see note below)
     admin/start|stop|check-now/route.js   dashboard action endpoints (§7)
     login/route.js                sets the admin_auth cookie
     session/route.js              saves a freshly-pasted Myntra/Amazon session
