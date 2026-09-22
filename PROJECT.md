@@ -855,21 +855,38 @@ uses). "Scan a Myntra return" is a card on the dashboard itself, open by default
   it's the first thing visible on open). The candidate photo renders at its natural aspect ratio
   (`objectFit: 'contain'`, width capped ~170px/38vw, height capped ~250px) rather than a cropped
   square — an earlier `objectFit: 'cover'` square was cutting off parts of the product photo.
-- **Camera scan**: `components/BarcodeScanner.js` — a plain-JS/JSX port of stock-manager's own
-  `BarcodeScanner.tsx` (this app has no TypeScript), same `@zxing/browser` approach: full-screen
-  overlay, rear camera preferred automatically, continuous decode until a code is found or
-  cancelled, media stream explicitly stopped on unmount. `playsInline` on the `<video>` is required
-  for iOS Safari specifically, or it forces its own native fullscreen player instead. Tuned for
-  speed/reliability (2026-09-22): the default `delayBetweenScanAttempts` is 500ms (~2 decode
-  attempts/sec, the main source of felt lag) — dropped to 75ms (~13/sec). `DecodeHintType.
-  POSSIBLE_FORMATS` restricts decoding to the 1D formats tracking/label barcodes actually use
-  (CODE_128/CODE_39/EAN_13/EAN_8/UPC_A/ITF) instead of zxing trying every symbology it knows on
-  every frame, and `TRY_HARDER` is on to still catch slightly blurry/tilted codes. Camera opened
-  via `decodeFromConstraints()` (not `decodeFromVideoDevice()`) with explicit `{ width: 1280,
-  height: 720, advanced: [{ focusMode: 'continuous' }] }` instead of the browser's default
-  resolution/focus. `@zxing/library` (a peer dep of `@zxing/browser`, previously only resolved
-  transitively) was added as a direct dependency since these hint types are imported from it
+- **Camera scan**: `components/BarcodeScanner.js` — a plain-JS/JSX port of what was originally
+  stock-manager's own `BarcodeScanner.tsx` (that copy was later removed along with its whole scan
+  box, once this app's own dashboard version covered the same need — see stock-manager's own
+  PROJECT.md; this is now the only copy). Full-screen overlay, rear camera preferred automatically, scans until a code
+  is found or cancelled. `playsInline` on the `<video>` is required for iOS Safari specifically, or
+  it forces its own native fullscreen player instead. `DecodeHintType.POSSIBLE_FORMATS` restricts
+  decoding to the 1D formats tracking/label barcodes actually use (CODE_128/CODE_39/EAN_13/EAN_8/
+  UPC_A/ITF) instead of zxing trying every symbology it knows, and `TRY_HARDER` is on for more
+  thorough scanline analysis. `@zxing/library` (a peer dep of `@zxing/browser`, previously only
+  resolved transitively) is a direct dependency since these hint types are imported from it
   directly.
+  - **Rearchitected for angle/contrast robustness (2026-09-22)**: originally used `@zxing/
+    browser`'s own `decodeFromConstraints()` continuous-video-decode helper (single orientation
+    per frame). Real user feedback: a sideways or upside-down label never decoded (1D readers scan
+    horizontal lines — a rotated barcode just isn't found no matter how many times the same
+    orientation is retried), and a faintly/lightly printed label often didn't either. Replaced with
+    a component-driven loop: raw `getUserMedia()` (not the wrapper) + its own `setInterval`
+    (120ms — was 75ms, since each tick now does more work) that, per tick, draws the current video
+    frame onto a canvas at **all 4 cardinal rotations** (`ROTATIONS = [0, 90, 180, 270]`) with a
+    `contrast(1.4) brightness(1.15)` canvas filter applied first, trying `reader.decodeFromCanvas()`
+    at each until one succeeds. A normally-aligned, well-lit scan still resolves on the very first
+    (0°) attempt — same speed as before; the extra rotations/contrast pass only cost anything on
+    frames that don't decode plainly. A `busy` flag skips a tick outright rather than letting
+    attempts queue up if a capture ever runs long.
+  - **Flashlight toggle**: if the camera track's `getCapabilities().torch` reports support, a 🔦
+    button appears in the scanner header (`track.applyConstraints({ advanced: [{ torch }] })`) —
+    real extra light is the most reliable fix for a genuinely faint print that software contrast
+    boosting alone can't fully recover. Hidden entirely on devices/browsers that don't support it
+    (most laptops, some iOS versions).
+  - Media stream is now stopped manually (`stream.getTracks().forEach(t => t.stop())`) on unmount
+    and on a successful detection, since this no longer goes through `@zxing/browser`'s own
+    `controls.stop()` continuous-decode helper.
 - **Verified end-to-end against production**: both the single-item (`MYSR1249196910`) and the real
   2-item (`MYEP1132530153`) cases resolve through the FULL chain — SPF claim, packed-order line
   items, and the catalog match — to the correct, already-confirmed SKUs. The write side reuses

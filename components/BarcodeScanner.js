@@ -6,7 +6,7 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 
 // Myntra tracking barcodes (and the label barcodes this is used for) are all
 // 1D — restricting decode to just these formats (instead of zxing's default
-// of trying every symbology it knows) means every video frame is cheaper to
+// of trying every symbology it knows) means every attempt is cheaper to
 // process, which is most of what made scanning feel slow.
 const HINTS = new Map();
 HINTS.set(DecodeHintType.POSSIBLE_FORMATS, [
@@ -17,26 +17,68 @@ HINTS.set(DecodeHintType.POSSIBLE_FORMATS, [
   BarcodeFormat.UPC_A,
   BarcodeFormat.ITF,
 ]);
-// TRY_HARDER costs a bit more per frame but catches codes that are slightly
-// blurry, tilted or partially out of focus — worth it once decode attempts
-// are already fast and frequent (see delayBetweenScanAttempts below).
+// TRY_HARDER makes each individual attempt more thorough — more scanlines,
+// better tolerance for a partially faint/damaged edge — which is exactly
+// what a lightly-printed label needs, worth the extra cost per attempt.
 HINTS.set(DecodeHintType.TRY_HARDER, true);
 
+// 1D readers decode along horizontal scanlines, so a barcode that's sideways
+// or upside down relative to the frame just isn't found no matter how many
+// times the same orientation is retried. Every capture is tried at all 4
+// cardinal rotations (a real return label can end up any which way depending
+// on how the courier stuck it on, or how the phone's held) — stops at the
+// first one that decodes, so a normally-aligned scan (the common case) still
+// resolves on the very first attempt, same speed as before.
+const ROTATIONS = [0, 90, 180, 270];
+
+// A light contrast/brightness boost applied to every captured frame before
+// decoding — a faint/low-ink print is a real contrast problem a phone
+// camera's own auto-exposure doesn't always compensate for; this is a cheap,
+// GPU-accelerated way to widen the gap between bar and background before
+// zxing's own adaptive thresholding (HybridBinarizer) runs on it.
+const CANVAS_FILTER = 'contrast(1.4) brightness(1.15)';
+
+function drawRotatedFrame(video, canvas, angleDeg) {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (angleDeg === 90 || angleDeg === 270) {
+    canvas.width = vh;
+    canvas.height = vw;
+  } else {
+    canvas.width = vw;
+    canvas.height = vh;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.filter = CANVAS_FILTER;
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((angleDeg * Math.PI) / 180);
+  ctx.drawImage(video, -vw / 2, -vh / 2, vw, vh);
+  ctx.restore();
+}
+
 /**
- * Full-screen camera barcode scanner — rear camera preferred automatically
- * (no deviceId given), continuous decode until a code is found or the user
- * cancels. Works on Android Chrome and iOS Safari over HTTPS (Vercel's
- * default) or localhost; `playsInline` is required specifically for iOS —
- * without it Safari forces its own native fullscreen video player instead of
- * showing the feed inside this overlay. Same component as stock-manager's
- * own BarcodeScanner.tsx, ported to plain JS/JSX to match this project's
+ * Full-screen camera barcode scanner — rear camera preferred automatically,
+ * scans until a code is found or the user cancels. Works on Android Chrome
+ * and iOS Safari over HTTPS (Vercel's default) or localhost; `playsInline`
+ * is required specifically for iOS — without it Safari forces its own native
+ * fullscreen video player instead of showing the feed inside this overlay.
+ *
+ * Drives the camera and the capture loop directly (getUserMedia + its own
+ * `setInterval`, not @zxing/browser's decodeFromConstraints) instead of the
+ * simpler continuous-video-decode helper, specifically so every captured
+ * frame can be tried at 4 rotations with a contrast boost first — see
+ * ROTATIONS/CANVAS_FILTER above. Same component as stock-manager's own
+ * BarcodeScanner.tsx, ported to plain JS/JSX to match this project's
  * convention (no TypeScript here).
  */
 export function BarcodeScanner({ onDetected, onClose }) {
   const videoRef = useRef(null);
-  const controlsRef = useRef(null);
+  const trackRef = useRef(null);
   const onDetectedRef = useRef(onDetected);
   const [error, setError] = useState(null);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
 
   // Refs must not be written during render — keep the latest callback synced
   // via its own effect instead.
@@ -45,49 +87,103 @@ export function BarcodeScanner({ onDetected, onClose }) {
   }, [onDetected]);
 
   useEffect(() => {
-    // Default is 500ms between decode attempts (~2 frames/sec) — that gap is
-    // what made scanning feel laggy. 75ms (~13 frames/sec) is still light
-    // enough for a phone to sustain and makes the scanner feel near-instant.
-    const reader = new BrowserMultiFormatReader(HINTS, {
-      delayBetweenScanAttempts: 75,
-      delayBetweenScanSuccess: 500,
-    });
     let cancelled = false;
+    let stream = null;
+    let intervalId = null;
+    let busy = false;
+    const reader = new BrowserMultiFormatReader(HINTS);
+    const canvas = document.createElement('canvas');
 
-    const constraints = {
-      video: {
-        facingMode: { ideal: 'environment' },
-        // Higher resolution helps small/far-away barcodes resolve; continuous
-        // autofocus (where supported) keeps the barcode sharp without the
-        // user having to hold the phone at one exact distance.
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        advanced: [{ focusMode: 'continuous' }],
-      },
-    };
+    function stop() {
+      if (intervalId) clearInterval(intervalId);
+      intervalId = null;
+      if (stream) {
+        // Stops the media stream (turns the camera light off) — without
+        // this the browser keeps the camera "on" even after this unmounts.
+        stream.getTracks().forEach((t) => t.stop());
+        stream = null;
+      }
+    }
 
-    reader
-      .decodeFromConstraints(constraints, videoRef.current ?? undefined, (result, _err, controls) => {
-        controlsRef.current = controls;
-        if (cancelled || !result) return; // no code in this frame yet — normal, keep scanning
-        controls.stop();
-        onDetectedRef.current(result.getText());
-      })
-      .catch((e) => {
+    async function start() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            // Higher resolution helps small/far-away barcodes resolve;
+            // continuous autofocus (where supported) keeps the barcode
+            // sharp without the user holding the phone at one exact
+            // distance.
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            advanced: [{ focusMode: 'continuous' }],
+          },
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        const video = videoRef.current;
+        video.srcObject = stream;
+        await video.play();
+
+        const track = stream.getVideoTracks()[0];
+        trackRef.current = track;
+        const caps = track.getCapabilities ? track.getCapabilities() : {};
+        if (caps.torch) setTorchSupported(true);
+
+        // 120ms (not the earlier 75ms) — each tick now tries up to 4
+        // rotations instead of 1, so this keeps typical CPU load similar
+        // while still resolving in well under half a second either way.
+        // `busy` skips a tick outright rather than letting attempts queue
+        // up if a capture ever takes longer than the interval.
+        intervalId = setInterval(() => {
+          if (busy || cancelled || !video.videoWidth) return;
+          busy = true;
+          for (const angle of ROTATIONS) {
+            drawRotatedFrame(video, canvas, angle);
+            try {
+              const result = reader.decodeFromCanvas(canvas);
+              if (result) {
+                stop();
+                onDetectedRef.current(result.getText());
+                return;
+              }
+            } catch {
+              // No code at this rotation — normal, try the next one.
+            }
+          }
+          busy = false;
+        }, 120);
+      } catch (e) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : 'Could not start the camera.';
         setError(/permission|denied/i.test(msg) ? 'Camera permission denied — allow camera access and try again.' : msg);
-      });
+      }
+    }
+
+    start();
 
     return () => {
-      // Stops the media stream (turns the camera light off) — without this
-      // the browser keeps the camera "on" even after this component unmounts.
       cancelled = true;
-      controlsRef.current?.stop();
+      stop();
     };
     // Runs exactly once per mount — onDetected is read via a ref so a new
-    // inline function passed in from the caller never restarts the stream.
+    // inline function passed in from the caller never restarts the camera.
   }, []);
+
+  async function toggleTorch() {
+    if (!trackRef.current) return;
+    const next = !torchOn;
+    try {
+      await trackRef.current.applyConstraints({ advanced: [{ torch: next }] });
+      setTorchOn(next);
+    } catch {
+      // Some browsers report torch as a capability but still reject the
+      // constraint at runtime — leave the toggle as it was, nothing to show.
+    }
+  }
 
   return (
     <div
@@ -97,9 +193,21 @@ export function BarcodeScanner({ onDetected, onClose }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
         <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>Scan barcode</span>
-        <button type="button" onClick={onClose} aria-label="Close scanner">
-          ✕
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {torchSupported && (
+            <button
+              type="button"
+              onClick={toggleTorch}
+              aria-label={torchOn ? 'Turn off flashlight' : 'Turn on flashlight — helps with a faint or light print'}
+              title="Flashlight — helps scan a faint or lightly-printed barcode"
+            >
+              {torchOn ? '🔦 On' : '🔦 Off'}
+            </button>
+          )}
+          <button type="button" onClick={onClose} aria-label="Close scanner">
+            ✕
+          </button>
+        </div>
       </div>
       <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
         <video
@@ -116,7 +224,7 @@ export function BarcodeScanner({ onDetected, onClose }) {
         />
       </div>
       <div style={{ padding: 16, textAlign: 'center', fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)' }}>
-        {error ?? 'Point the camera at the tracking barcode'}
+        {error ?? 'Point the camera at the tracking barcode — any angle works. Faint print? Try the flashlight.'}
       </div>
     </div>
   );
