@@ -762,29 +762,39 @@ packed-orders search to get the real seller SKU + size. This endpoint does both 
 server-to-server, so stock-manager's Returns page can do it in one call.
 
 - **`resolveReturnByTrackingId(returnTrackingId, headers)`** (`lib/myntra.js`) chains two Myntra
-  calls:
-  1. `fetchSpfClaim()` — `GET .../api/spf/fetchNewClaim?fetchAccio=true&id=<returnTrackingId>` —
-     gives back the *original* outbound tracking id (`data[0].trackingId`, a different number,
-     e.g. `MYSP...`) and one product photo (`data[0].styleInfo.imageLink`, upgraded to `https://`)
-     — deliberately the **only** image used; the richer multi-angle image set from step 2 is
-     ignored on purpose (asked for specifically — SPF's own photo is what should show).
+  calls and **always returns an array**:
+  1. `fetchSpfClaims()` — `GET .../api/spf/fetchNewClaim?fetchAccio=true&id=<returnTrackingId>` —
+     gives back the *original* outbound tracking id (`trackingId`, a different number, e.g.
+     `MYSP...`) and one product photo (`styleInfo.imageLink`, upgraded to `https://`) per claim —
+     deliberately the **only** image used; the richer multi-angle image set from step 2 is ignored
+     on purpose (asked for specifically — SPF's own photo is what should show).
   2. `fetchPackedOrderByTracking()` — `GET .../api/mdirect/orders/searchPostPackedOrder/<warehouse>
-     ?searchOn=trackingNumber&id=<originalTrackingId>` — gives back the real
-     `lineItems[0].sellerSkuCode` (e.g. `RRC-012-CO-HI-GRN-M`, exactly stock-manager's own SKU
-     format) and `.size`/`.color`.
-  - Returns `null` only if step 1 finds no claim at all. A claim found but with no resolvable SKU
-    (step 2 empty) still returns the claim's own fields (image, `returnReason`, `returnMode`) with
-    `sku`/`size`/`color` left `null`, so the caller can say exactly what's missing rather than
-    failing opaquely.
-  - Verified directly against production with a real return tracking id — matched the exact
-    payloads captured from DevTools before this was built.
+     ?searchOn=trackingNumber&id=<originalTrackingId>` — gives back **every** `lineItems[]` entry
+     on that shipment (real `sellerSkuCode`, e.g. `RRC-012-CO-HI-GRN-M`, exactly stock-manager's
+     own SKU format, plus `.size`/`.color`).
+  - **Fixed same day, real case (multi-item shipment)**: the first version took `data[0]` from
+    both calls, silently dropping every item but the first. Confirmed for real: one shipment
+    (`MYEP1132530153`) carrying 2 different products returns 2 separate SPF claims, each with its
+    own `skuId`/`styleInfo`/image, sharing that one tracking id — and its packed-order record is
+    ONE order with a 2-entry `lineItems[]`, not two separate order records. Now every claim is
+    kept, and each is matched to its own line item **by `skuId`** (never by array position) —
+    verified against this exact real order: correctly resolved to two distinct SKUs
+    (`RRC-011-CO-F-BLU-M` / Blue and `RRC-011-CO-J-GRN-M` / Green), each with its own photo. A
+    single-item return still just comes back as a 1-element array, so callers never special-case
+    the common case.
+  - Returns `[]` only if step 1 finds no claim at all. A claim found but with no resolvable SKU
+    still gets an entry (image/`returnReason`/`returnMode` intact) with `sku`/`size`/`color` left
+    `null`, so the caller can say exactly what's missing rather than silently dropping it.
+  - Verified directly against production with real tracking ids, both single- and multi-item —
+    matched the exact payloads captured from DevTools before this was built.
 - **The route** (`app/api/resolve-return/route.js`) is the **one exception** to this integration's
   usual direction — every other call between these two apps goes bot → stock-manager (§8); this
   one goes stock-manager → bot. Guarded by `RESOLVE_RETURN_SECRET` in an `x-resolve-secret`
   header (never a query param, so it's never logged in a URL) — same convention as the browser
   extension's `EXTENSION_SYNC_SECRET`/`x-sync-secret` (§18), just a different secret for a
-  different caller. Responds 404 (not 500) both when the claim itself isn't found and when the SKU
-  can't be resolved — both are "nothing to add," not server errors.
+  different caller. Response shape: `{ items: [...] }`, one or more resolved items, only the ones
+  with a resolvable SKU. Responds 404 (not 500) both when no claim is found at all and when no
+  item on it has a resolvable SKU — both are "nothing to add," not server errors.
 - **What happens on the other end**: stock-manager calls this, shows the photo/SKU/size, and logs
   the actual return itself using its own existing return-logging code — this endpoint only
   resolves data, it never writes anything. See stock-manager's own `PROJECT.md` for that side.

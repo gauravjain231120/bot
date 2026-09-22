@@ -28,17 +28,21 @@ export async function GET(request) {
   }
 
   try {
-    const result = await resolveReturnByTrackingId(trackingId, sessionDoc.headers);
-    if (!result) {
+    // Always an array — a shipment with more than one product on it returns
+    // more than one entry here (confirmed real case), so the caller must
+    // never assume just one result.
+    const items = await resolveReturnByTrackingId(trackingId, sessionDoc.headers);
+    if (!items.length) {
       return NextResponse.json({ error: `No SPF claim found for ${trackingId}` }, { status: 404 });
     }
-    if (!result.sku) {
+    const resolvable = items.filter((i) => i.sku);
+    if (!resolvable.length) {
       return NextResponse.json(
-        { error: `Found the return, but couldn't resolve a SKU for it (original tracking id: ${result.originalTrackingId || 'unknown'}).`, partial: result },
+        { error: `Found ${items.length === 1 ? 'the return' : `${items.length} items`}, but couldn't resolve a SKU for ${items.length === 1 ? 'it' : 'any of them'}.`, partial: items },
         { status: 404 },
       );
     }
-    return NextResponse.json(result);
+    return NextResponse.json({ items: resolvable });
   } catch (err) {
     const status = err.response && err.response.status;
     return NextResponse.json({ error: err.message }, { status: status === 401 || status === 403 ? 401 : 500 });
