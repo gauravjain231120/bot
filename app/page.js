@@ -141,6 +141,8 @@ export default function AdminPage() {
   const [roleBusy, setRoleBusy] = useState(null); // chatId currently being updated, or null
   const [recipientsRefreshing, setRecipientsRefreshing] = useState(false);
   const [roleHistory, setRoleHistory] = useState(null);
+  const [otcScope, setOtcScope] = useState(null);
+  const [otcScopeBusy, setOtcScopeBusy] = useState(false);
 
   useEffect(() => {
     let initial = 'light';
@@ -243,21 +245,33 @@ export default function AdminPage() {
     }
   }, []);
 
+  const loadOtcConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/otc-config');
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setOtcScope(data.recipientScope || 'OWNER');
+    } catch {
+      // Non-critical — the rest of the dashboard still works without it.
+    }
+  }, []);
+
   useEffect(() => {
     if (authed !== true) return;
     loadOrders();
     loadSessionHistory();
     loadRecipients();
     loadRoleHistory();
+    loadOtcConfig();
     const interval = setInterval(() => {
       loadStatus();
       loadOrders();
       loadSessionHistory();
       loadRecipients();
       loadRoleHistory();
+      loadOtcConfig();
     }, REFRESH_MS);
     return () => clearInterval(interval);
-  }, [authed, loadStatus, loadOrders, loadSessionHistory, loadRecipients, loadRoleHistory]);
+  }, [authed, loadStatus, loadOrders, loadSessionHistory, loadRecipients, loadRoleHistory, loadOtcConfig]);
 
   // Re-pulls every recipient's current name/username straight from Telegram
   // (not just the DB) — guarantees "Refresh" makes names verifiably
@@ -389,6 +403,22 @@ export default function AdminPage() {
       return;
     }
     loadRecipients();
+  }
+
+  async function handleSetOtcScope(scope) {
+    setOtcScopeBusy(true);
+    const res = await fetch('/api/otc-config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipientScope: scope }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setOtcScopeBusy(false);
+    if (!res.ok) {
+      alert(`Could not change this: ${data.error || `HTTP ${res.status}`}`);
+      return;
+    }
+    setOtcScope(scope);
   }
 
   if (authed === null) {
@@ -684,6 +714,31 @@ export default function AdminPage() {
           {' '}
           <b>Owner</b> gets every alert. <b>Viewer</b> gets new order + cancellation alerts only. <b>None</b> gets nothing.
         </p>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+          <span className="muted" style={{ fontSize: '0.85rem' }}>Pickup/return OTC alert goes to:</span>
+          <div className="role-group">
+            <button
+              type="button"
+              className={`role-btn owner ${otcScope === 'OWNER' ? 'active' : ''}`}
+              disabled={otcScopeBusy || otcScope === null}
+              onClick={() => handleSetOtcScope('OWNER')}
+            >
+              Owner
+            </button>
+            <button
+              type="button"
+              className={`role-btn viewer ${otcScope === 'BROADCAST' ? 'active' : ''}`}
+              disabled={otcScopeBusy || otcScope === null}
+              onClick={() => handleSetOtcScope('BROADCAST')}
+            >
+              Viewer
+            </button>
+          </div>
+          <span className="muted" style={{ fontSize: '0.78rem' }}>
+            {otcScope === 'BROADCAST' ? '(you + everyone with a role)' : '(only you)'}
+          </span>
+        </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
           <button type="button" className="secondary" onClick={handleRefreshRecipients} disabled={recipientsRefreshing}>

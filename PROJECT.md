@@ -457,6 +457,7 @@ lib/
   checkAmazonOrders.js     same, for Amazon
   checkCancellations.js    orchestrates the Myntra-cancellations poll cycle
   checkOtc.js              pickup/return OTC poll cycle — time-window + once-per-day gated, not the seen-collection pattern (§19)
+  otcConfig.js             the OTC alert's Owner-vs-Broadcast recipient-scope setting (§19)
   pendingQueue.js          removes cancelled orders/lines from stock-manager's queue, or un-ships them if already shipped, via its HTTP API (§12)
   sessionSyncWatchdog.js   alerts if an extension-sourced session goes stale (§12, §18)
   sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
@@ -471,6 +472,7 @@ app/
     check-amazon-orders/route.js  cron endpoint (§6)
     check-cancellations/route.js  cron endpoint (§6)
     check-otc/route.js            cron endpoint (§6, §19)
+    otc-config/route.js           GET/PATCH — OTC alert's Owner-vs-Broadcast scope setting (§19)
     admin/start|stop|check-now/route.js   dashboard action endpoints (§7)
     login/route.js                sets the admin_auth cookie
     session/route.js              saves a freshly-pasted Myntra/Amazon session
@@ -628,11 +630,18 @@ actually goes active for that courier.
 - **What one check does**: fetches both trip types for both couriers (4 values total: Pickup MYS,
   Pickup MYE, Return MYS, Return MYE) in one pass.
 - **Alert + stop**: the moment any of those 4 is no longer `null`, sends **one** Telegram message
-  with all 4 lines (blank/`—` for whichever are still null) to whoever has **Owner** role only
-  (§20) — not the broadcast list, and not silent. Then writes `settings/_id:'otc_status'.
-  alertedDate` = today's IST date, which makes every later check that same day return
-  `{ skipped: true, reason: 'already alerted today' }` immediately — no repeat pings, no more
-  Myntra API calls for the rest of the hour.
+  with all 4 lines (blank/`—` for whichever are still null) — not silent. Then writes
+  `settings/_id:'otc_status'.alertedDate` = today's IST date, which makes every later check that
+  same day return `{ skipped: true, reason: 'already alerted today' }` immediately — no repeat
+  pings, no more Myntra API calls for the rest of the hour.
+- **Recipient scope, dashboard-configurable (added 2026-09-22, `lib/otcConfig.js`)**: a single
+  global setting, `settings/_id:'otc_config'.recipientScope`, either `'OWNER'` (default — only
+  Owner role gets this alert) or `'BROADCAST'` (everyone in the recipients list, Owner included —
+  Owner always gets every alert regardless of this setting). Toggled from two buttons right on the
+  "Alert recipients" dashboard card (`GET`/`PATCH /api/otc-config`, admin-login gated only — not
+  the `ROLE_CHANGE_PASSWORD`, since this isn't a per-person permission change, just an alert-routing
+  preference). Deliberately does **not** affect the session-problem alerts below — those always
+  stay Owner-only, since a dead session isn't something a Viewer can act on.
 - **Resets naturally the next day**: `alertedDate` is compared against *today's* IST date, so
   there's nothing to clear manually — tomorrow's first check in the window just won't match and
   proceeds normally.
