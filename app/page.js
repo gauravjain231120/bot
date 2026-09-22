@@ -809,7 +809,19 @@ export default function AdminPage() {
               <div key={i} style={{ display: 'flex', gap: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
                 {c.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.image} alt="" style={{ width: 140, height: 140, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
+                  <img
+                    src={c.image}
+                    alt=""
+                    style={{
+                      width: 220,
+                      maxWidth: '45vw',
+                      height: 'auto',
+                      maxHeight: 320,
+                      borderRadius: 10,
+                      objectFit: 'contain',
+                      flexShrink: 0,
+                    }}
+                  />
                 ) : null}
                 <div style={{ flex: 1, minWidth: 0, fontSize: '0.8rem' }}>
                   <div style={{ fontWeight: 600 }}>{c.productName ?? c.resolvedSku}</div>
