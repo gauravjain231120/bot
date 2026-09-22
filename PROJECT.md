@@ -174,17 +174,26 @@ that still mentions it.
 multi-page app sharing one persistent sidebar/topbar shell and one pool of live state:
 
 - **`lib/DashboardContext.js`** (`DashboardProvider` + `useDashboard()`) — owns auth/account/
-  theme, `status`/`orders`/`sessionHistory`/`otcConfig`/`otcStatus`/`packedCount`/`recipients`/
-  `roleHistory`/`accounts` and their loaders, and the **single 60s poll loop** (`REFRESH_MS`).
-  Mounted once in `app/layout.js`, so it survives client-side page navigation — switching pages
-  never loses live data or re-triggers a fetch storm. Polling rules (unchanged from before the
-  rewrite, still load-bearing for Active CPU cost): `loadStatus/loadOrders/loadSessionHistory/
-  loadOtcConfig/loadOtcStatus` fire every tick unconditionally, `loadRecipients/loadRoleHistory`
-  only when `isOwner`, and `loadPackedCount`/`loadAccounts` are **excluded from the interval**
-  entirely — each fetches once (on initial load, or an explicit action) and never on a timer.
-- **`components/AppShell.js`** — the sidebar (nav links + active-route highlight, collapses to a
-  slide-over under 900px) and topbar (Start/Stop, Check now, account chip, theme toggle, logout).
-  Renders `components/LoginScreen.js` instead of the shell while `authed !== true` — same
+  theme, `status`/`orders`/`otcConfig`/`otcStatus`/`packedCount`/`recipients`/`roleHistory`/
+  `accounts` and their loaders, and the **single 60s poll loop** (`REFRESH_MS`). Mounted once in
+  `app/layout.js`, so it survives client-side page navigation — switching pages never loses live
+  data or re-triggers a fetch storm. Polling rules (unchanged from before the rewrite, still
+  load-bearing for Active CPU cost): `loadStatus/loadOrders/loadOtcConfig/loadOtcStatus` fire
+  every tick unconditionally, `loadRecipients/loadRoleHistory` only when `isOwner`, and
+  `loadPackedCount`/`loadAccounts` are **excluded from the interval** entirely — each fetches once
+  (on initial load, or an explicit action) and never on a timer.
+- **`components/AppShell.js`** — the sidebar (nav links + active-route highlight) and topbar
+  (Start/Stop, Check now, account chip, theme toggle, logout). Sidebar is `position: fixed`
+  (**not** `sticky` — `sticky` on a flex item inside a `display:flex` container with a fixed
+  `height` is a known cross-browser breaker, and that's exactly what this was; it visually
+  scrolled away with the page instead of staying put, fixed 2026-09-22), full height, always on
+  screen past 900px width; under 900px it's an off-canvas drawer (`transform: translateX(-100%)`
+  ↔ `translateX(0)`, plus a click-to-close scrim), same technique stock-manager's own
+  `Sidebar.tsx` uses. `.shell-main` is offset with `margin-left: 240px` to make room for it (0 on
+  mobile, where the sidebar overlays instead of pushing content). The mobile hamburger button
+  (`.nav-toggle`) is hidden whenever the drawer is already open — showing both it and the drawer's
+  own close (✕) button at once was confusing (fixed 2026-09-22). Renders
+  `components/LoginScreen.js` instead of the shell while `authed !== true` — same
   `null`(loading)/`false`(show login)/`true`(show shell) branching the old single page had.
 - **Pages**, each pulling only what it needs from `useDashboard()` plus its own page-local state
   (forms, scan candidates, filters — anything that was never part of the poll loop):
@@ -194,15 +203,31 @@ multi-page app sharing one persistent sidebar/topbar shell and one pool of live 
   | `/` | Stat grid (7 cards: Myntra/Amazon open+cancelled, Sessions, OTC, Packed) | landing page |
   | `/orders` | Open orders grid + platform filter | |
   | `/returns` | Scan a Myntra return (§22) | camera scan, resolve, add to stock-manager |
-  | `/sessions` | Refresh Myntra/Amazon session forms + session history | |
+  | `/sessions` | Refresh Myntra/Amazon session forms | session *history* removed 2026-09-22, see below |
   | `/recipients` | Alert recipients (§20) + OTC scope toggle (§19) + role change history | **Owner-only** |
   | `/team` | Dashboard accounts CRUD (§23) | **Owner-only** |
   | `/spf-status` | SPF claim counts (§24) | **Owner-only** |
 
+- **Form layout gotcha (fixed 2026-09-22)**: the Team page's "add account" row was originally an
+  inline `display:flex; flexWrap:wrap` style with unsized children — rendered as a narrow column
+  pinned to the card's right edge instead of a row, because a flex item with no explicit width,
+  sized against an `input{width:100%}` child, resolves unpredictably across browsers. Replaced
+  with a reusable `.form-grid`/`.field` CSS grid (`app/globals.css`) — grid tracks don't have that
+  ambiguity. Use `.form-grid` for any future inline form like this one, not ad-hoc flex-wrap.
+- **Session history removed entirely (2026-09-22)** — the user didn't want it. Removed: the
+  "Session history" card, `lib/sessionHistory.js` (`recordSessionCaptured`/`recordSessionExpired`/
+  `listSessionHistory`), `app/api/session-history/route.js`, the calls into it from
+  `announceSessionActivated()` (`lib/sessionStore.js`) and both check loops'
+  `alertSessionMissingOrExpired()` (`lib/checkOrders.js`/`lib/checkAmazonOrders.js`), and the
+  `sessionHistory` MongoDB collection's data itself (151 documents deleted from production). This
+  was purely an audit-trail side channel — it never drove any alerting/dedup logic (that's the
+  separate `sessionExpiredAlertSent`/`amazonSessionExpiredAlertSent` flags on the `status` doc,
+  untouched) — so removing it has zero effect on real session-expiry alerting.
+
   Owner-only pages check `isOwner` from context and render a plain "Owner only" notice for a
   Viewer — belt-and-braces on top of the APIs themselves already being Owner-gated server-side
   (`requireOwner()`), never the only guard.
-- **`lib/format.js`** — `timeAgo`/`formatDuration`/`formatMinutes`/`otcLines`/`RETURN_CONDITIONS`/
+- **`lib/format.js`** — `timeAgo`/`formatMinutes`/`otcLines`/`RETURN_CONDITIONS`/
   `RETURN_CONDITION_LABELS`, extracted so more than one page can use them without duplicating.
 - **`components/icons.js`** — every inline SVG icon component, extracted the same way.
 
@@ -496,6 +521,10 @@ iterations worth knowing about, because the reasoning matters if it needs to cha
   on every login with no opt-out (confirmed via Seller Central's own forums), and a passkey does
   not replace or skip that OTP step, so there's no login flow here that could be automated even in
   principle without also automating OTP retrieval.
+  **Note (2026-09-22, later the same day)**: the `sessionHistory` collection this investigation's
+  lifespan data came from has since been removed entirely (feature + data — the user didn't want
+  it), so re-running this analysis later needs a different data source — there's no longer an
+  audit trail of past session capture/expiry events to pull from.
 
 ## 13. File map
 
@@ -524,7 +553,7 @@ lib/
   telegramCommands.js      fetchQueueSummary() (reads stock-manager's `/api/pending/summary`) + one formatXList() per bot command's text — /ship, /make, /myntra(all/left), /amazon(all/left), /ready(all), /notready(all); toDMY()/todayIst() + formatPackedCount() for /packed(all) (added 2026-09-22)
   returns.js               addReturnToStockManager() — POSTs a Myntra return to stock-manager's own /api/register, same auth pattern as addToReadyToShip() (§22, added 2026-09-22)
   DashboardContext.js      DashboardProvider/useDashboard() — every cross-page dashboard state + the single 60s poll loop (§7, added 2026-09-22, was inline in app/page.js)
-  format.js                timeAgo/formatDuration/formatMinutes/otcLines/RETURN_CONDITIONS/RETURN_CONDITION_LABELS, shared by multiple pages (§7, added 2026-09-22)
+  format.js                timeAgo/formatMinutes/otcLines/RETURN_CONDITIONS/RETURN_CONDITION_LABELS, shared by multiple pages (§7, added 2026-09-22)
 components/
   BarcodeScanner.js        full-screen camera barcode scanner (@zxing/browser), plain JS/JSX port of what was originally stock-manager's own BarcodeScanner.tsx (§22, added 2026-09-22)
   AppShell.js              sidebar + topbar shell every page renders inside, wired in app/layout.js (§7, added 2026-09-22)

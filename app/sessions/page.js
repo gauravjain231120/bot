@@ -2,10 +2,9 @@
 
 import { useState } from 'react';
 import { useDashboard } from '../../lib/DashboardContext';
-import { formatDuration } from '../../lib/format';
 
 export default function SessionsPage() {
-  const { sessionHistory, saveSession } = useDashboard();
+  const { saveSession } = useDashboard();
   const [curlText, setCurlText] = useState('');
   const [saveMsg, setSaveMsg] = useState('');
   const [amazonCurlText, setAmazonCurlText] = useState('');
@@ -22,21 +21,11 @@ export default function SessionsPage() {
     }
   }
 
-  // Group session-history entries by calendar day (browser-local, i.e. IST for
-  // this seller) so the history reads as one section per date.
-  const historyGroups = [];
-  for (const entry of sessionHistory || []) {
-    const dateKey = new Date(entry.capturedAt).toLocaleDateString();
-    const last = historyGroups[historyGroups.length - 1];
-    if (last && last.dateKey === dateKey) last.entries.push(entry);
-    else historyGroups.push({ dateKey, entries: [entry] });
-  }
-
   return (
     <>
       <div className="page-header">
         <h1>Sessions</h1>
-        <p className="muted">Refresh a marketplace session and see the capture/expiry history.</p>
+        <p className="muted">Refresh a marketplace session.</p>
       </div>
 
       <div className="card">
@@ -84,37 +73,6 @@ export default function SessionsPage() {
           <button type="submit">Save Amazon session</button>
         </form>
         {amazonSaveMsg && <p>{amazonSaveMsg}</p>}
-      </div>
-
-      <div className="card">
-        <h2>Session history</h2>
-        {historyGroups.length === 0 ? (
-          <p className="muted">No sessions recorded yet — this starts tracking from your next paste.</p>
-        ) : (
-          historyGroups.map((g) => (
-            <div className="history-day" key={g.dateKey}>
-              <div className="history-date">{g.dateKey}</div>
-              {g.entries.map((entry) => (
-                <div className="history-row" key={entry._id}>
-                  <span className={`source-tag ${entry.marketplace}`}>
-                    {entry.marketplace === 'amazon' ? 'Amazon' : 'Myntra'}
-                  </span>
-                  <span>{new Date(entry.capturedAt).toLocaleTimeString()}</span>
-                  <span className="muted">→</span>
-                  {entry.expiredAt ? (
-                    <>
-                      <span>{new Date(entry.expiredAt).toLocaleTimeString()}</span>
-                      <span className="sku-tag">{formatDuration(entry.durationMs)}</span>
-                      {entry.endedBy === 'replaced' && <span className="muted">(replaced)</span>}
-                    </>
-                  ) : (
-                    <span className="history-active">Still active</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))
-        )}
       </div>
     </>
   );
