@@ -454,7 +454,7 @@ iterations worth knowing about, because the reasoning matters if it needs to cha
 ```
 lib/
   db.js                 this app's own Mongo connection (cached across warm serverless invocations)
-  stock.js              read-only stock lookup against stock-manager's DB (§9)
+  stock.js              read-only stock lookup against stock-manager's DB (§9); lookupProductBySku() for §22, added 2026-09-22
   readyToShip.js         writes to stock-manager's Ready to Ship queue via its HTTP API (§10)
   dates.js               IST formatting + the Myntra ship-by cutoff rule (§12)
   curl.js                 parses pasted cURL / DevTools header-dump text into a headers object
@@ -473,8 +473,11 @@ lib/
   sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
   recipients.js            the `recipients`/`recipientRoleHistory` collections — who gets alerted, who can run bot commands, role-change audit log (§20)
   telegramCommands.js      fetchQueueSummary() (reads stock-manager's `/api/pending/summary`) + one formatXList() per bot command's text — /ship, /make, /myntra(all/left), /amazon(all/left), /ready(all), /notready(all); toDMY()/todayIst() + formatPackedCount() for /packed(all) (added 2026-09-22)
+  returns.js               addReturnToStockManager() — POSTs a Myntra return to stock-manager's own /api/register, same auth pattern as addToReadyToShip() (§22, added 2026-09-22)
+components/
+  BarcodeScanner.js        full-screen camera barcode scanner (@zxing/browser), plain JS/JSX port of stock-manager's own BarcodeScanner.tsx (§22, added 2026-09-22)
 app/
-  page.js                  the dashboard (login form + admin UI + order grid + Alert recipients + Role change history)
+  page.js                  the dashboard (login form + admin UI + order grid + Alert recipients + Role change history + Scan a Myntra return)
   api/telegram-webhook/route.js   Telegram's webhook target — command parsing/dispatch, Owner-gated (§20)
   globals.css              all dashboard styling, theme (light/dark) CSS variables
   api/
@@ -486,6 +489,8 @@ app/
     otc-status/route.js           GET — today's OTC codes + window countdown; PATCH — Clear (display-only) (§19)
     packed-count/route.js         GET — today's Myntra packed-order count (added 2026-09-22, see note below)
     resolve-return/route.js       GET — resolve a Myntra return tracking id to SKU/size/photo, for stock-manager (§21)
+    dashboard/resolve-return/route.js   GET — same resolver, admin_auth-gated + catalog-matched, for this app's own dashboard (§22)
+    dashboard/add-return/route.js       POST — logs the resolved return into stock-manager (§22)
     admin/start|stop|check-now/route.js   dashboard action endpoints (§7)
     login/route.js                sets the admin_auth cookie
     session/route.js              saves a freshly-pasted Myntra/Amazon session
@@ -798,3 +803,43 @@ server-to-server, so stock-manager's Returns page can do it in one call.
 - **What happens on the other end**: stock-manager calls this, shows the photo/SKU/size, and logs
   the actual return itself using its own existing return-logging code — this endpoint only
   resolves data, it never writes anything. See stock-manager's own `PROJECT.md` for that side.
+
+## 22. Scan a Myntra return, straight from this dashboard (added 2026-09-22)
+
+The whole return-resolve-and-log flow (§21) is also usable **without opening stock-manager at
+all** — this app can both resolve AND write, since it already has a live Myntra session (for
+resolving) and `STOCK_MANAGER_AUTH_TOKEN` (for writing, same as `addToReadyToShip()` already
+uses). "Scan a Myntra return" is a card on the dashboard itself, open by default.
+
+- **`GET /api/dashboard/resolve-return?trackingId=...`** — the dashboard's own version of §21's
+  resolver: same `resolveReturnByTrackingId()`, but gated by the normal `admin_auth` login
+  (`isAuthed()`) instead of `x-resolve-secret` (that header is for stock-manager's server-to-server
+  call specifically — this route is for the browser, logged into this app). Additionally matches
+  each item's resolved SKU against stock-manager's own product catalog via a new
+  **`lookupProductBySku(sku)`** in `lib/stock.js` (same `STOCK_MONGODB_URI` read-only connection
+  this app already uses for stock lookups) — exact match first, then suffix fallback (same
+  brand-prefix-drift tolerance as `skuSuffix`/stock-manager's own `stockSkuFor`/`addPending`).
+  Response: `{ candidates: [...] }`, one entry per resolved item (always a list, multi-item
+  shipments included — same fix as §21), each with `matchedSku`/`productName` (null + a
+  `matchError` string if nothing in the catalog matched).
+- **`POST /api/dashboard/add-return { sku, qty, trackingId, condition }`** — `lib/returns.js`'s
+  **`addReturnToStockManager()`** posts straight to stock-manager's `POST /api/register`
+  (`action: 'RETURN'`, `channel: 'MYNTRA'`), the *exact same write path* stock-manager's own
+  Returns page uses — this app never touches stock-manager's database directly, only its API,
+  same rule `addToReadyToShip()` already follows for the Ready-to-Ship queue.
+- **UI**: one card per candidate (photo, resolved product, size/color, return reason), a condition
+  dropdown (`GOOD`/`USED`/`FAKED`/`WRONG`/`DEFECTIVE` — duplicated here as a small constant since
+  this app never imports stock-manager's own `RETURN_CONDITIONS`, same boundary as
+  `BUNDLE_CODE_MAP`) and an "Add to Return" button per item; a saved item is marked "✓ Added"
+  without clearing the rest of the list, so a multi-item shipment can be added one at a time off a
+  single scan, same UX as stock-manager's own version of this feature.
+- **Camera scan**: `components/BarcodeScanner.js` — a plain-JS/JSX port of stock-manager's own
+  `BarcodeScanner.tsx` (this app has no TypeScript), same `@zxing/browser` approach: full-screen
+  overlay, rear camera preferred automatically, continuous decode until a code is found or
+  cancelled, media stream explicitly stopped on unmount. `playsInline` on the `<video>` is required
+  for iOS Safari specifically, or it forces its own native fullscreen player instead.
+- **Verified end-to-end against production**: both the single-item (`MYSR1249196910`) and the real
+  2-item (`MYEP1132530153`) cases resolve through the FULL chain — SPF claim, packed-order line
+  items, and the catalog match — to the correct, already-confirmed SKUs. The write side reuses
+  stock-manager's own `/api/register`, the exact same code path already exercised by its own
+  Returns page scan feature.
