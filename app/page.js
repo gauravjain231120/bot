@@ -775,6 +775,77 @@ export default function AdminPage() {
         </div>
       </div>
 
+      <details className="card" open>
+        <summary>Scan a Myntra return</summary>
+        <p className="muted" style={{ marginBottom: 10, fontSize: '0.82rem' }}>
+          Scan or type a return tracking ID (MYSR… / MYER… / MYEC…) — resolves the product, size and
+          photo the same way stock-manager&apos;s own Returns page does, and logs the return straight
+          into stock-manager from here.
+        </p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            value={myntraScanId}
+            onChange={(e) => setMyntraScanId(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); resolveMyntraReturn(); } }}
+            placeholder="MYSR… / MYER… / MYEC…"
+            style={{ flex: 1, fontFamily: 'monospace' }}
+          />
+          <button type="button" className="secondary" onClick={() => setCameraOpen(true)} disabled={myntraResolving} title="Scan with camera" aria-label="Scan with camera">
+            📷
+          </button>
+          <button type="button" onClick={() => resolveMyntraReturn()} disabled={myntraResolving || !myntraScanId.trim()}>
+            {myntraResolving ? 'Looking up…' : 'Resolve'}
+          </button>
+        </div>
+
+        {myntraResolveError && <div className="banner bad" style={{ marginTop: 12, marginBottom: 0 }}>{myntraResolveError}</div>}
+
+        {myntraCandidates.length > 0 && (
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="muted" style={{ fontSize: '0.78rem' }}>
+              Found {myntraCandidates.length} item{myntraCandidates.length === 1 ? '' : 's'} for this tracking ID
+            </div>
+            {myntraCandidates.map((c, i) => (
+              <div key={i} style={{ display: 'flex', gap: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
+                {c.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={c.image} alt="" style={{ width: 140, height: 140, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
+                ) : null}
+                <div style={{ flex: 1, minWidth: 0, fontSize: '0.8rem' }}>
+                  <div style={{ fontWeight: 600 }}>{c.productName ?? c.resolvedSku}</div>
+                  <div className="muted" style={{ fontFamily: 'monospace' }}>{c.matchedSku ?? c.resolvedSku}</div>
+                  {c.size && (
+                    <div className="muted">
+                      Size: {c.size}
+                      {c.color ? ` · ${c.color}` : ''}
+                    </div>
+                  )}
+                  {c.returnReason && <div className="muted">Reason: {c.returnReason}</div>}
+                  {c.matchError && <div style={{ color: 'var(--bad)' }}>{c.matchError}</div>}
+
+                  {c.matchedSku && !c.added && (
+                    <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                      <select value={c.condition} onChange={(e) => setCandidateCondition(i, e.target.value)} disabled={c.adding}>
+                        {RETURN_CONDITIONS.map((k) => (
+                          <option key={k} value={k}>{RETURN_CONDITION_LABELS[k]}</option>
+                        ))}
+                      </select>
+                      <button type="button" onClick={() => addReturnCandidate(i)} disabled={c.adding}>
+                        {c.adding ? 'Adding…' : 'Add to Return'}
+                      </button>
+                    </div>
+                  )}
+                  {c.added && <div style={{ marginTop: 8, color: 'var(--good)', fontWeight: 600 }}>✓ Added</div>}
+                  {c.addError && <div style={{ marginTop: 6, color: 'var(--bad)' }}>{c.addError}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </details>
+
+      {cameraOpen && <BarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setCameraOpen(false)} />}
+
       <div className="section-title">
         <h2>Open orders</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -884,77 +955,6 @@ export default function AdminPage() {
           })}
         </div>
       )}
-
-      <details className="card" open>
-        <summary>Scan a Myntra return</summary>
-        <p className="muted" style={{ marginBottom: 10, fontSize: '0.82rem' }}>
-          Scan or type a return tracking ID (MYSR… / MYER… / MYEC…) — resolves the product, size and
-          photo the same way stock-manager&apos;s own Returns page does, and logs the return straight
-          into stock-manager from here.
-        </p>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            value={myntraScanId}
-            onChange={(e) => setMyntraScanId(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); resolveMyntraReturn(); } }}
-            placeholder="MYSR… / MYER… / MYEC…"
-            style={{ flex: 1, fontFamily: 'monospace' }}
-          />
-          <button type="button" className="secondary" onClick={() => setCameraOpen(true)} disabled={myntraResolving} title="Scan with camera" aria-label="Scan with camera">
-            📷
-          </button>
-          <button type="button" onClick={() => resolveMyntraReturn()} disabled={myntraResolving || !myntraScanId.trim()}>
-            {myntraResolving ? 'Looking up…' : 'Resolve'}
-          </button>
-        </div>
-
-        {myntraResolveError && <div className="banner bad" style={{ marginTop: 12, marginBottom: 0 }}>{myntraResolveError}</div>}
-
-        {myntraCandidates.length > 0 && (
-          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div className="muted" style={{ fontSize: '0.78rem' }}>
-              Found {myntraCandidates.length} item{myntraCandidates.length === 1 ? '' : 's'} for this tracking ID
-            </div>
-            {myntraCandidates.map((c, i) => (
-              <div key={i} style={{ display: 'flex', gap: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
-                {c.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.image} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-                ) : null}
-                <div style={{ flex: 1, minWidth: 0, fontSize: '0.8rem' }}>
-                  <div style={{ fontWeight: 600 }}>{c.productName ?? c.resolvedSku}</div>
-                  <div className="muted" style={{ fontFamily: 'monospace' }}>{c.matchedSku ?? c.resolvedSku}</div>
-                  {c.size && (
-                    <div className="muted">
-                      Size: {c.size}
-                      {c.color ? ` · ${c.color}` : ''}
-                    </div>
-                  )}
-                  {c.returnReason && <div className="muted">Reason: {c.returnReason}</div>}
-                  {c.matchError && <div style={{ color: 'var(--bad)' }}>{c.matchError}</div>}
-
-                  {c.matchedSku && !c.added && (
-                    <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                      <select value={c.condition} onChange={(e) => setCandidateCondition(i, e.target.value)} disabled={c.adding}>
-                        {RETURN_CONDITIONS.map((k) => (
-                          <option key={k} value={k}>{RETURN_CONDITION_LABELS[k]}</option>
-                        ))}
-                      </select>
-                      <button type="button" onClick={() => addReturnCandidate(i)} disabled={c.adding}>
-                        {c.adding ? 'Adding…' : 'Add to Return'}
-                      </button>
-                    </div>
-                  )}
-                  {c.added && <div style={{ marginTop: 8, color: 'var(--good)', fontWeight: 600 }}>✓ Added</div>}
-                  {c.addError && <div style={{ marginTop: 6, color: 'var(--bad)' }}>{c.addError}</div>}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </details>
-
-      {cameraOpen && <BarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setCameraOpen(false)} />}
 
       <details className="card">
         <summary>Session history</summary>
