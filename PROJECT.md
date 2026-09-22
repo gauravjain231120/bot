@@ -202,7 +202,18 @@ API directly, on request. That call is made **once, only when the page is opened
 *not* in the 20s interval loop (`loadPackedCount()` is called in the mount effect but left out of
 `setInterval`'s body, on purpose) — a manual "Refresh" button on the card is the only other way
 to trigger it. Leaving the dashboard tab open must never cause a recurring background Myntra call
-just because the interval ticked.
+just because the interval ticked. (Briefly moved into the 20s loop, then reverted the same day —
+the user explicitly wants this manual-only, not real-time-polled.)
+
+**"Packed" means `packetStatus === 'PACKED'`, not "any packet packed today" (fixed 2026-09-22)**:
+`getPostPackedOrders` returns every packet packed within the queried date range regardless of
+what's happened to it since — a real production capture showed rows with `packetStatus: "PICKED"`
+and `"SHIPPED"` mixed in with `"PACKED"` ones (and `packedOn` timestamps spanning well before the
+queried day). `fetchPackedCount()` originally counted every row returned, which overcounted
+"packed" with orders that had already been picked up by the courier or shipped. It now filters to
+`packetStatus === 'PACKED'` before summing — real incident: showed 20 for 2026-09-22 when
+everything for that day had already moved past PACKED; filtering brought it to the correct 0.
+This is shared by both the dashboard card and the `/packed`/`/packedall` bot commands (§ file map).
 
 ## 8. Order-processing pipeline (per new order, per marketplace)
 
@@ -827,19 +838,40 @@ uses). "Scan a Myntra return" is a card on the dashboard itself, open by default
   (`action: 'RETURN'`, `channel: 'MYNTRA'`), the *exact same write path* stock-manager's own
   Returns page uses — this app never touches stock-manager's database directly, only its API,
   same rule `addToReadyToShip()` already follows for the Ready-to-Ship queue.
-- **UI**: one card per candidate (photo, resolved product, size/color, return reason), a condition
-  dropdown (`GOOD`/`USED`/`FAKED`/`WRONG`/`DEFECTIVE` — duplicated here as a small constant since
-  this app never imports stock-manager's own `RETURN_CONDITIONS`, same boundary as
-  `BUNDLE_CODE_MAP`) and an "Add to Return" button per item; a saved item is marked "✓ Added"
-  without clearing the rest of the list, so a multi-item shipment can be added one at a time off a
-  single scan, same UX as stock-manager's own version of this feature.
+- **UI**: one card per candidate — photo, resolved product, a bold accent-colored "Size: X" badge
+  (deliberately more visually prominent than the rest of the card's plain text, so it's the one
+  thing a packer can't miss at a glance), color/return reason, a condition dropdown
+  (`GOOD`/`USED`/`FAKED`/`WRONG`/`DEFECTIVE` — duplicated here as a small constant since this app
+  never imports stock-manager's own `RETURN_CONDITIONS`, same boundary as `BUNDLE_CODE_MAP`) and
+  an "Add to Return" button per item; a saved item is marked "✓ Added" without clearing the rest of
+  the list, so a multi-item shipment can be added one at a time off a single scan, same UX as
+  stock-manager's own version of this feature. The card sits above "Open orders" (moved there so
+  it's the first thing visible on open). The candidate photo renders at its natural aspect ratio
+  (`objectFit: 'contain'`, width capped ~170px/38vw, height capped ~250px) rather than a cropped
+  square — an earlier `objectFit: 'cover'` square was cutting off parts of the product photo.
 - **Camera scan**: `components/BarcodeScanner.js` — a plain-JS/JSX port of stock-manager's own
   `BarcodeScanner.tsx` (this app has no TypeScript), same `@zxing/browser` approach: full-screen
   overlay, rear camera preferred automatically, continuous decode until a code is found or
   cancelled, media stream explicitly stopped on unmount. `playsInline` on the `<video>` is required
-  for iOS Safari specifically, or it forces its own native fullscreen player instead.
+  for iOS Safari specifically, or it forces its own native fullscreen player instead. Tuned for
+  speed/reliability (2026-09-22): the default `delayBetweenScanAttempts` is 500ms (~2 decode
+  attempts/sec, the main source of felt lag) — dropped to 75ms (~13/sec). `DecodeHintType.
+  POSSIBLE_FORMATS` restricts decoding to the 1D formats tracking/label barcodes actually use
+  (CODE_128/CODE_39/EAN_13/EAN_8/UPC_A/ITF) instead of zxing trying every symbology it knows on
+  every frame, and `TRY_HARDER` is on to still catch slightly blurry/tilted codes. Camera opened
+  via `decodeFromConstraints()` (not `decodeFromVideoDevice()`) with explicit `{ width: 1280,
+  height: 720, advanced: [{ focusMode: 'continuous' }] }` instead of the browser's default
+  resolution/focus. `@zxing/library` (a peer dep of `@zxing/browser`, previously only resolved
+  transitively) was added as a direct dependency since these hint types are imported from it
+  directly.
 - **Verified end-to-end against production**: both the single-item (`MYSR1249196910`) and the real
   2-item (`MYEP1132530153`) cases resolve through the FULL chain — SPF claim, packed-order line
   items, and the catalog match — to the correct, already-confirmed SKUs. The write side reuses
   stock-manager's own `/api/register`, the exact same code path already exercised by its own
   Returns page scan feature.
+- **stock-manager gotcha (fixed 2026-09-22)**: this feature's `POST /api/register` call
+  initially 502'd with `{"error":"Unauthorized"}` — stock-manager's `proxy.ts` service-token
+  bypass (the same `STOCK_MANAGER_AUTH_TOKEN` this app already uses for `/api/pending`, §10) only
+  allowlisted the `/api/pending` prefix, so this app's genuinely-correct service token fell
+  through to the real-session lookup, found none, and 401'd. Fixed on stock-manager's side by
+  adding `/api/register` to its `SERVICE_API_PREFIXES` — see stock-manager's own `PROJECT.md`.
