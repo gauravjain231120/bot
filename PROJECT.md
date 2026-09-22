@@ -1107,21 +1107,28 @@ the Telegram-recipient role changes) — checked server-side by `POST /api/spf-s
 (Owner-gated, compares `confirmPassword` against `process.env.ROLE_CHANGE_PASSWORD`, never ships
 the secret itself to client JS).
 
-- **Only "Paid" does anything extra**: on success it also shows a ₹ total. This was originally
-  implemented assuming `finalAmount` was already present on the `GET /api/spf/v2/getTickets` list
-  response (in a per-row `meta` field) — that assumption was wrong, confirmed live: a real
-  `PAYMENT_COMPLETED` row from that endpoint has no `meta` field at all. `finalAmount` only exists
-  in the per-claim `meta` JSON string returned by `fetchNewClaim` (the same endpoint
-  `fetchSpfClaims`/`fetchClaimTrackingByReturnId` already use), queried by a ticket's `returnId`.
+- **Only "Paid" does anything extra**: on success it also shows a ₹ total — the real amount
+  actually paid out, which took two wrong tries to get right (both confirmed live against
+  production, not guessed):
+  1. First assumed `finalAmount` was already present on the `GET /api/spf/v2/getTickets` list
+     response, in a per-row `meta` field. Wrong — a real `PAYMENT_COMPLETED` row from that
+     endpoint has no `meta` field at all.
+  2. Then fetched `meta.finalAmount` from the per-claim `fetchNewClaim` response instead (the
+     same endpoint `fetchSpfClaims`/`fetchClaimTrackingByReturnId` already use). This DOES exist,
+     but it's the **product's selling price**, not the payout — a claim with
+     `meta.finalAmount: "1989.0"` had `compensationAmount: 1137.49` on that same claim, tied to a
+     real bank `utr` transfer reference. `compensationAmount` (top-level on the claim, roughly
+     tracking `cogs`, consistently lower than `finalAmount`) is the actual amount Myntra paid —
+     confirmed across several real paid tickets before switching to it.
   So the real total costs **one extra Myntra call per paid ticket** — `fetchSpfPaidTotal()`
   (`lib/myntra.js`) fetches all tickets, filters to `PAYMENT_COMPLETED`, then queries each one's
   claim detail with limited concurrency (`PAID_TOTAL_CONCURRENCY = 8`, same pattern as
-  `resolveTrackingIdsForTickets`) and sums `meta.finalAmount`. ~15% of paid tickets come back with
-  `returnId: null` from the list endpoint — `fetchNewClaim` also accepts a ticket's `orderId` as a
-  fallback lookup key (verified live), matching the returned claim back to the ticket by
-  `ticketId` in case an order ever has more than one SPF ticket. Verified against production:
-  61/72 paid tickets resolved by `returnId` alone; adding the `orderId` fallback got all 72,
-  totalling ₹1,25,616 (~2.5s at concurrency 8).
+  `resolveTrackingIdsForTickets`) and sums `compensationAmount`. ~15% of paid tickets come back
+  with `returnId: null` from the list endpoint — `fetchNewClaim` also accepts a ticket's
+  `orderId` as a fallback lookup key (verified live), matching the returned claim back to the
+  ticket by `ticketId` in case an order ever has more than one SPF ticket. Verified against
+  production: all 72 paid tickets resolved (61 by `returnId`, 11 more via the `orderId`
+  fallback), totalling ₹68,899.66 (~2.5s at concurrency 8).
 - **Deliberately not part of `fetchSpfTicketCounts()`** — too heavy (72 extra live calls) to run
   on every page load/Refresh. `POST /api/spf-status/verify` only calls `fetchSpfPaidTotal()` when
   `body.key === 'paid'`; the other 3 cards' password check is a no-op beyond validating the
