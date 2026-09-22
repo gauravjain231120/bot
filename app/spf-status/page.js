@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useDashboard } from '../../lib/DashboardContext';
 
 // Label + display order for every status the getTickets endpoint can return
 // (see lib/myntra.js's SPF_TICKET_STATUSES) — kept in the same order there so
@@ -22,7 +22,16 @@ const STATUS_LABELS = [
   ['DISPUTED', 'Disputed'],
 ];
 
+function OwnerOnlyNotice() {
+  return (
+    <div className="card empty-state">
+      This page is only available to Owner accounts.
+    </div>
+  );
+}
+
 export default function SpfStatusPage() {
+  const { isOwner } = useDashboard();
   const [counts, setCounts] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -37,15 +46,7 @@ export default function SpfStatusPage() {
       const res = await fetch('/api/spf-status');
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (res.status === 401) {
-          setError(
-            data.error === 'unauthorized'
-              ? 'Not logged in — log in on the dashboard first.'
-              : 'Owner only — this page is not available to your account.',
-          );
-        } else {
-          setError(data.error || `HTTP ${res.status}`);
-        }
+        setError(data.error || `HTTP ${res.status}`);
         return;
       }
       setCounts(data);
@@ -57,21 +58,21 @@ export default function SpfStatusPage() {
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (isOwner) load();
+  }, [isOwner, load]);
+
+  if (!isOwner) return <OwnerOnlyNotice />;
 
   const breakdown = counts
     ? STATUS_LABELS.map(([key, label]) => [label, counts.byStatus[key] || 0]).filter(([, n]) => n > 0)
     : [];
 
   return (
-    <main className="wrap">
-      <div className="topbar">
+    <>
+      <div className="page-header">
         <h1>SPF Claim Status</h1>
-        <div className="topbar-controls">
-          <Link href="/" className="secondary" style={{ textDecoration: 'none' }}>
-            ← Dashboard
-          </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <p className="muted" style={{ margin: 0 }}>Total claims, and where each one stands.</p>
           <button type="button" className="secondary" onClick={load} disabled={loading}>
             {loading ? 'Loading…' : 'Refresh'}
           </button>
@@ -102,8 +103,8 @@ export default function SpfStatusPage() {
           </div>
 
           {breakdown.length > 0 && (
-            <details className="card" open>
-              <summary>Full breakdown</summary>
+            <div className="card">
+              <h2>Full breakdown</h2>
               <div>
                 {breakdown.map(([label, n]) => (
                   <div
@@ -120,12 +121,12 @@ export default function SpfStatusPage() {
                   </div>
                 ))}
               </div>
-            </details>
+            </div>
           )}
         </>
       )}
 
       {!counts && !error && loading && <p className="muted">Loading…</p>}
-    </main>
+    </>
   );
 }

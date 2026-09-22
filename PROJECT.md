@@ -98,9 +98,9 @@ configured to hit the three `/api/check-*` endpoints directly.
 | `TELEGRAM_BOT_TOKEN` | Bot used to send all alerts |
 | ~~`TELEGRAM_CHAT_ID`~~ | **No longer read anywhere in this codebase (as of 2026-09-22).** Replaced by the DB-driven `recipients` collection (§20) — safe to remove from Vercel whenever, or leave, doesn't matter either way |
 | ~~`TELEGRAM_COMMAND_CHAT_ID`~~ | **No longer read anywhere in this codebase (as of 2026-09-22).** Both its old jobs (who gets owner-only alerts, who can issue bot commands) are now Owner-role-driven from the `recipients` collection instead (§20) |
-| `ROLE_CHANGE_PASSWORD` | Second password required (on top of `ADMIN_PASSWORD`) to change a recipient's role or remove them — §20 |
+| `ROLE_CHANGE_PASSWORD` | Second password required (on top of being logged in) to change a recipient's role or remove them — §20 |
 | `WAREHOUSE_ID` | Myntra warehouse ID used in its API URLs (default `89623` if unset) |
-| `ADMIN_PASSWORD` | Password for the dashboard login; also the literal value stored in the `admin_auth` cookie |
+| ~~`ADMIN_PASSWORD`~~ | **No longer read anywhere in this codebase (as of 2026-09-22).** Dashboard login is now real per-account accounts in the `accounts` collection (§23), not one shared password — safe to remove from Vercel whenever |
 | `CRON_SECRET` | Shared secret cron-job.org must pass as `?secret=` on every check endpoint |
 | `EXTENSION_SYNC_SECRET` | Shared secret the browser extension sends as `x-sync-secret` on `POST /api/session/sync` (§18) |
 | `RESOLVE_RETURN_SECRET` | Shared secret stock-manager's backend sends as `x-resolve-secret` on `GET /api/resolve-return` (§21) — the one call that goes stock-manager → this app; every other integration point goes the other way |
@@ -164,10 +164,52 @@ backlog.
 `check-otc` still respects the same `running` gate (still a no-op when stopped), but everything
 else about it is different — see §19.
 
-## 7. Dashboard (`app/page.js`) admin actions
+## 7. Dashboard — multi-page shell (rewritten 2026-09-22, was a single `app/page.js`)
 
-Password-gated (cookie `admin_auth`, set by `/api/login`, compared directly against
-`ADMIN_PASSWORD` — no hashing, no sessions table, this is intentionally minimal).
+**Auth**: real per-account login (§23) — cookie `admin_auth` holds a random session token
+(`lib/adminAuth.js`), not a shared password. `ADMIN_PASSWORD` is gone; ignore any doc or memory
+that still mentions it.
+
+**Structure**: the whole dashboard used to be one ~1,400-line `app/page.js`. It's now a real
+multi-page app sharing one persistent sidebar/topbar shell and one pool of live state:
+
+- **`lib/DashboardContext.js`** (`DashboardProvider` + `useDashboard()`) — owns auth/account/
+  theme, `status`/`orders`/`sessionHistory`/`otcConfig`/`otcStatus`/`packedCount`/`recipients`/
+  `roleHistory`/`accounts` and their loaders, and the **single 60s poll loop** (`REFRESH_MS`).
+  Mounted once in `app/layout.js`, so it survives client-side page navigation — switching pages
+  never loses live data or re-triggers a fetch storm. Polling rules (unchanged from before the
+  rewrite, still load-bearing for Active CPU cost): `loadStatus/loadOrders/loadSessionHistory/
+  loadOtcConfig/loadOtcStatus` fire every tick unconditionally, `loadRecipients/loadRoleHistory`
+  only when `isOwner`, and `loadPackedCount`/`loadAccounts` are **excluded from the interval**
+  entirely — each fetches once (on initial load, or an explicit action) and never on a timer.
+- **`components/AppShell.js`** — the sidebar (nav links + active-route highlight, collapses to a
+  slide-over under 900px) and topbar (Start/Stop, Check now, account chip, theme toggle, logout).
+  Renders `components/LoginScreen.js` instead of the shell while `authed !== true` — same
+  `null`(loading)/`false`(show login)/`true`(show shell) branching the old single page had.
+- **Pages**, each pulling only what it needs from `useDashboard()` plus its own page-local state
+  (forms, scan candidates, filters — anything that was never part of the poll loop):
+
+  | Route | Content | Notes |
+  |---|---|---|
+  | `/` | Stat grid (7 cards: Myntra/Amazon open+cancelled, Sessions, OTC, Packed) | landing page |
+  | `/orders` | Open orders grid + platform filter | |
+  | `/returns` | Scan a Myntra return (§22) | camera scan, resolve, add to stock-manager |
+  | `/sessions` | Refresh Myntra/Amazon session forms + session history | |
+  | `/recipients` | Alert recipients (§20) + OTC scope toggle (§19) + role change history | **Owner-only** |
+  | `/team` | Dashboard accounts CRUD (§23) | **Owner-only** |
+  | `/spf-status` | SPF claim counts (§24) | **Owner-only** |
+
+  Owner-only pages check `isOwner` from context and render a plain "Owner only" notice for a
+  Viewer — belt-and-braces on top of the APIs themselves already being Owner-gated server-side
+  (`requireOwner()`), never the only guard.
+- **`lib/format.js`** — `timeAgo`/`formatDuration`/`formatMinutes`/`otcLines`/`RETURN_CONDITIONS`/
+  `RETURN_CONDITION_LABELS`, extracted so more than one page can use them without duplicating.
+- **`components/icons.js`** — every inline SVG icon component, extracted the same way.
+
+**Zero backend behavior change from this rewrite** — every `app/api/*` route, every `lib/*.js`
+backend file, every cron/webhook endpoint is untouched. This was purely a frontend restructuring
+(one page → sidebar + 7 pages sharing one context) done by moving existing state/effects/handlers
+verbatim into their new homes, not rewriting their logic.
 
 - **Start** (`POST /api/admin/start`) — sets `running: true`, then immediately runs both Myntra
   and Amazon checks synchronously (so it "catches up" right away instead of waiting up to a
@@ -176,9 +218,9 @@ Password-gated (cookie `admin_auth`, set by `/api/login`, compared directly agai
   but every one becomes a no-op.
 - **Check now** (`POST /api/admin/check-now`) — runs both checks immediately, **regardless of
   the running flag** (does not check or change it). Useful for testing without toggling Start.
-- **Refresh session** (Myntra/Amazon forms) — paste a `curl` command or a raw DevTools "Headers"
-  panel dump; `lib/curl.js` parses either format into a headers object (handles both `-H
-  'cookie: ...'` and `-b '...'` cookie styles, and both `-H` cURL flags and the two-line
+- **Refresh session** (Myntra/Amazon forms, now on `/sessions`) — paste a `curl` command or a raw
+  DevTools "Headers" panel dump; `lib/curl.js` parses either format into a headers object (handles
+  both `-H 'cookie: ...'` and `-b '...'` cookie styles, and both `-H` cURL flags and the two-line
   header-dump format). Strips `content-length`/`accept-encoding`/`connection` since those are
   meaningless when replayed from a server. Both this route (`app/api/session/route.js`) and the
   extension's sync route (`app/api/session/sync/route.js`, §18) call the same
@@ -188,22 +230,17 @@ Password-gated (cookie `admin_auth`, set by `/api/login`, compared directly agai
   **silently** (`disable_notification`) on purpose, since with the extension running it's a
   routine every-few-hours all-clear, not something worth a buzz — unlike session-*expired*, which
   stays noisy.
-- **Platform filter** / **theme toggle** / **hide past-ship-by orders** — pure display, no
-  server effect.
-
-The page polls `/api/status` and `/api/orders` every 20s while logged in (`REFRESH_MS`), so it
-stays live without a manual refresh — but again, this is only for *your viewing*; it has no
-bearing on whether alerts fire (see §14).
+- **Platform filter** (`/orders`) / **theme toggle** — pure display, no server effect.
 
 **Deliberate exception, "Myntra packed today" stat card (added 2026-09-22)**: every other
-dashboard stat is either DB-read (cheap, safe to poll every 20s) or already covered by the
+dashboard stat is either DB-read (cheap, safe to poll every 60s) or already covered by the
 cron checks. This one calls `/api/packed-count`, which hits Myntra's live `getPostPackedOrders`
-API directly, on request. That call is made **once, only when the page is opened** — it is
-*not* in the 20s interval loop (`loadPackedCount()` is called in the mount effect but left out of
-`setInterval`'s body, on purpose) — a manual "Refresh" button on the card is the only other way
-to trigger it. Leaving the dashboard tab open must never cause a recurring background Myntra call
-just because the interval ticked. (Briefly moved into the 20s loop, then reverted the same day —
-the user explicitly wants this manual-only, not real-time-polled.)
+API directly, on request. That call is made **once, only when the dashboard is opened** — it is
+*not* in the poll interval (`loadPackedCount()` is called in `DashboardContext`'s mount effect
+but left out of `setInterval`'s body, on purpose) — a manual "Refresh" button on the card is the
+only other way to trigger it. Leaving the dashboard open must never cause a recurring background
+Myntra call just because the interval ticked. (Briefly moved into the interval, then reverted the
+same day — the user explicitly wants this manual-only, not real-time-polled.)
 
 **"Packed" means `packetStatus === 'PACKED'`, not "any packet packed today" (fixed 2026-09-22)**:
 `getPostPackedOrders` returns every packet packed within the queried date range regardless of
@@ -265,7 +302,7 @@ This is shared by both the dashboard card and the `/packed`/`/packedall` bot com
   **negative** `available` (oversold — more reserved/queued than physically on hand) is a strictly
   worse signal than plain zero and still renders as `OUT OF STOCK`, unchanged. This override lives
   only in `formatStockLine()`'s text, so nothing else that reads `lookupStock()`'s return value
-  (the dashboard's `app/page.js`, `/api/orders`) is affected — they still show the real level/number.
+  (the dashboard's `/orders` page, `/api/orders`) is affected — they still show the real level/number.
 - Any failure here (bad SKU match, Mongo hiccup) returns `null` silently — a stock-lookup
   problem must never block the alert itself.
 
@@ -486,13 +523,24 @@ lib/
   recipients.js            the `recipients`/`recipientRoleHistory` collections — who gets alerted, who can run bot commands, role-change audit log (§20)
   telegramCommands.js      fetchQueueSummary() (reads stock-manager's `/api/pending/summary`) + one formatXList() per bot command's text — /ship, /make, /myntra(all/left), /amazon(all/left), /ready(all), /notready(all); toDMY()/todayIst() + formatPackedCount() for /packed(all) (added 2026-09-22)
   returns.js               addReturnToStockManager() — POSTs a Myntra return to stock-manager's own /api/register, same auth pattern as addToReadyToShip() (§22, added 2026-09-22)
+  DashboardContext.js      DashboardProvider/useDashboard() — every cross-page dashboard state + the single 60s poll loop (§7, added 2026-09-22, was inline in app/page.js)
+  format.js                timeAgo/formatDuration/formatMinutes/otcLines/RETURN_CONDITIONS/RETURN_CONDITION_LABELS, shared by multiple pages (§7, added 2026-09-22)
 components/
-  BarcodeScanner.js        full-screen camera barcode scanner (@zxing/browser), plain JS/JSX port of stock-manager's own BarcodeScanner.tsx (§22, added 2026-09-22)
+  BarcodeScanner.js        full-screen camera barcode scanner (@zxing/browser), plain JS/JSX port of what was originally stock-manager's own BarcodeScanner.tsx (§22, added 2026-09-22)
+  AppShell.js              sidebar + topbar shell every page renders inside, wired in app/layout.js (§7, added 2026-09-22)
+  LoginScreen.js           the login form, rendered by AppShell while not authed (§7, added 2026-09-22)
+  icons.js                 every inline SVG icon component, shared across pages/shell (§7, added 2026-09-22)
 app/
-  page.js                  the dashboard (login form + admin UI + order grid + Alert recipients + Role change history + Scan a Myntra return)
+  page.js                  Overview page — stat grid + error banners (§7, rewritten 2026-09-22, was the whole dashboard)
+  orders/page.js           Open orders grid + platform filter (§7, added 2026-09-22)
+  returns/page.js          Scan a Myntra return (§7, §22, added 2026-09-22)
+  sessions/page.js         Refresh Myntra/Amazon session forms + session history (§7, added 2026-09-22)
+  recipients/page.js       Alert recipients + OTC scope + role change history, Owner-only (§7, §19, §20, added 2026-09-22)
+  team/page.js             Dashboard accounts CRUD, Owner-only (§7, §23, added 2026-09-22)
   spf-status/page.js       Owner-only SPF claim counts page — total/Approved/Paid/Rejected + full breakdown, on demand only (§24, added 2026-09-22)
+  layout.js                root layout — wraps every page in DashboardProvider + AppShell (§7)
   api/telegram-webhook/route.js   Telegram's webhook target — command parsing/dispatch, Owner-gated (§20)
-  globals.css              all dashboard styling, theme (light/dark) CSS variables
+  globals.css              all dashboard styling, theme (light/dark) CSS variables, sidebar/shell layout (§7)
   api/
     check-orders/route.js         cron endpoint (§6)
     check-amazon-orders/route.js  cron endpoint (§6)
