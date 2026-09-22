@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAuthed } from '../../../lib/adminAuth';
+import { requireOwner } from '../../../lib/adminAuth';
 import { listRecipients, toPublicShape } from '../../../lib/recipients';
 import { getBotUsername } from '../../../lib/telegram';
 
@@ -7,9 +7,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const check = await requireOwner();
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const [recipients, botUsername] = await Promise.all([listRecipients(), getBotUsername()]);
 

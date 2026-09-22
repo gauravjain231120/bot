@@ -153,8 +153,18 @@ function SkeletonOrderCard() {
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState(null); // null = loading
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [account, setAccount] = useState(null); // {username, role} once logged in
+  const isOwner = account?.role === 'OWNER';
+  const [accounts, setAccounts] = useState(null);
+  const [accountsError, setAccountsError] = useState('');
+  const [newAccountUsername, setNewAccountUsername] = useState('');
+  const [newAccountPassword, setNewAccountPassword] = useState('');
+  const [newAccountRole, setNewAccountRole] = useState('VIEWER');
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountFormError, setAccountFormError] = useState('');
   const [status, setStatus] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [orders, setOrders] = useState(null);
@@ -224,6 +234,7 @@ export default function AdminPage() {
       }
       const data = await res.json();
       setStatus(data);
+      setAccount(data.account || null);
       setLoadError('');
       setAuthed(true);
     } catch (err) {
@@ -277,6 +288,68 @@ export default function AdminPage() {
       setRecipientsError(err.message);
     }
   }, []);
+
+  // Owner only — a Viewer's request would just 403, so there's nothing to
+  // show them anyway. Loaded once account is known to avoid that pointless
+  // round trip on every Viewer's dashboard load.
+  const loadAccounts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/accounts');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAccountsError(data.error || `HTTP ${res.status}`);
+        return;
+      }
+      setAccounts(data.accounts || []);
+      setAccountsError('');
+    } catch (err) {
+      setAccountsError(err.message);
+    }
+  }, []);
+
+  async function handleAddAccount(e) {
+    e.preventDefault();
+    setAccountFormError('');
+    setAccountBusy(true);
+    try {
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: newAccountUsername, password: newAccountPassword, role: newAccountRole }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAccountFormError(data.error || `HTTP ${res.status}`);
+        return;
+      }
+      setNewAccountUsername('');
+      setNewAccountPassword('');
+      setNewAccountRole('VIEWER');
+      loadAccounts();
+    } catch (err) {
+      setAccountFormError(err.message);
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
+  async function handleDeleteAccount(name) {
+    if (!window.confirm(`Remove "${name}" from the Team? They'll be logged out immediately.`)) return;
+    setAccountBusy(true);
+    try {
+      const res = await fetch(`/api/accounts/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAccountsError(data.error || `HTTP ${res.status}`);
+        return;
+      }
+      loadAccounts();
+    } catch (err) {
+      setAccountsError(err.message);
+    } finally {
+      setAccountBusy(false);
+    }
+  }
 
   const loadRoleHistory = useCallback(async () => {
     try {
@@ -335,23 +408,34 @@ export default function AdminPage() {
     if (authed !== true) return;
     loadOrders();
     loadSessionHistory();
-    loadRecipients();
-    loadRoleHistory();
     loadOtcConfig();
     loadOtcStatus();
     loadPackedCount();
+    if (isOwner) {
+      loadRecipients();
+      loadRoleHistory();
+      loadAccounts();
+    }
     const interval = setInterval(() => {
       loadStatus();
       loadOrders();
       loadSessionHistory();
-      loadRecipients();
-      loadRoleHistory();
       loadOtcConfig();
       loadOtcStatus();
-      // loadPackedCount() intentionally excluded — see its own comment above.
+      if (isOwner) {
+        loadRecipients();
+        loadRoleHistory();
+      }
+      // loadPackedCount() / loadAccounts() intentionally excluded — see their own comments above.
     }, REFRESH_MS);
     return () => clearInterval(interval);
-  }, [authed, loadStatus, loadOrders, loadSessionHistory, loadRecipients, loadRoleHistory, loadOtcConfig, loadOtcStatus, loadPackedCount]);
+    // isOwner (not the whole `account` object) on purpose — `account` is a
+    // new object reference on every /api/status response, which would
+    // re-trigger this whole effect (and its immediate extra loads) on every
+    // single poll; the primitive role value only actually changes when the
+    // role itself does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed, isOwner, loadStatus, loadOrders, loadSessionHistory, loadRecipients, loadRoleHistory, loadOtcConfig, loadOtcStatus, loadPackedCount, loadAccounts]);
 
   // Re-pulls every recipient's current name/username straight from Telegram
   // (not just the DB) — guarantees "Refresh" makes names verifiably
@@ -381,14 +465,22 @@ export default function AdminPage() {
     const res = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ username, password }),
     });
     if (!res.ok) {
-      setLoginError('Wrong password');
+      const data = await res.json().catch(() => ({}));
+      setLoginError(data.error || 'Wrong username or password');
       return;
     }
     setPassword('');
     loadStatus();
+  }
+
+  async function handleLogout() {
+    await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+    setAuthed(false);
+    setAccount(null);
+    setUsername('');
   }
 
   async function saveSession({ curl, marketplace, setText, setMsg }) {
@@ -605,7 +697,18 @@ export default function AdminPage() {
           </div>
           <form onSubmit={handleLogin} className="auth-card">
             <p className="auth-subtitle">Sign in to view live orders and manage sessions.</p>
-            <label htmlFor="password">Password</label>
+            <label htmlFor="username">Username</label>
+            <input
+              id="username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Enter your username"
+              autoFocus
+              autoCapitalize="none"
+              autoCorrect="off"
+            />
+            <label htmlFor="password" style={{ marginTop: 10 }}>Password</label>
             <div className="input-with-icon">
               <LockIcon />
               <input
@@ -614,7 +717,6 @@ export default function AdminPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
-                autoFocus
               />
             </div>
             <button type="submit" className="auth-submit">
@@ -664,6 +766,14 @@ export default function AdminPage() {
           <button className="secondary" onClick={handleCheckNow} disabled={checking}>
             <RefreshIcon spinning={checking} />
             {checking ? 'Checking...' : 'Check now'}
+          </button>
+          {account && (
+            <span className="muted" style={{ fontSize: '0.8rem' }}>
+              {account.username} · {account.role === 'OWNER' ? 'Owner' : 'Viewer'}
+            </span>
+          )}
+          <button type="button" className="secondary" onClick={handleLogout}>
+            Log out
           </button>
           {theme && (
             <button type="button" className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
@@ -1017,6 +1127,7 @@ export default function AdminPage() {
         )}
       </details>
 
+      {isOwner && (
       <details className="card" open>
         <summary>Alert recipients</summary>
         <p className="recipient-hint">
@@ -1119,28 +1230,112 @@ export default function AdminPage() {
           </div>
         )}
       </details>
+      )}
 
-      <details className="card">
-        <summary>Role change history</summary>
-        {roleHistory === null && <p className="muted">Loading…</p>}
-        {roleHistory && roleHistory.length === 0 && (
-          <p className="muted">No role changes yet — this starts tracking from the next one.</p>
-        )}
-        {roleHistory && roleHistory.length > 0 && (
-          <div>
-            {roleHistory.map((h, i) => (
-              <div className="history-row" key={`${h.chatId}-${h.changedAt}-${i}`}>
-                <span>{h.name || h.chatId}</span>
-                <span className="muted">
-                  {h.fromRole === 'NONE' ? 'None' : h.fromRole === 'OWNER' ? 'Owner' : 'Viewer'} →{' '}
-                  {h.toRole === 'NONE' ? 'None' : h.toRole === 'OWNER' ? 'Owner' : 'Viewer'}
-                </span>
-                <span className="muted">{timeAgo(h.changedAt)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </details>
+      {isOwner && (
+        <details className="card">
+          <summary>Dashboard team</summary>
+          <p className="recipient-hint">
+            Who can log into this dashboard. <b>Owner</b> can do everything, including managing this list.{' '}
+            <b>Viewer</b> can log in and see the dashboard.
+          </p>
+
+          <form
+            onSubmit={handleAddAccount}
+            style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}
+          >
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.78rem' }} className="muted">
+              Username
+              <input
+                value={newAccountUsername}
+                onChange={(e) => setNewAccountUsername(e.target.value)}
+                placeholder="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                required
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.78rem' }} className="muted">
+              Password
+              <input
+                type="password"
+                value={newAccountPassword}
+                onChange={(e) => setNewAccountPassword(e.target.value)}
+                placeholder="at least 8 characters"
+                required
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.78rem' }} className="muted">
+              Role
+              <select value={newAccountRole} onChange={(e) => setNewAccountRole(e.target.value)}>
+                <option value="VIEWER">Viewer</option>
+                <option value="OWNER">Owner</option>
+              </select>
+            </label>
+            <button type="submit" disabled={accountBusy}>
+              {accountBusy ? 'Adding…' : 'Add'}
+            </button>
+          </form>
+          {accountFormError && <div className="banner bad" style={{ marginBottom: 14 }}>{accountFormError}</div>}
+
+          {accountsError && <div className="banner bad">{accountsError}</div>}
+          {accounts === null && !accountsError && <p className="muted">Loading…</p>}
+          {accounts && accounts.length > 0 && (
+            <div>
+              {accounts.map((a) => (
+                <div className="recipient-row" key={a.username}>
+                  <div className="recipient-info">
+                    <div className="recipient-name">{a.username}</div>
+                    <div className="recipient-meta">
+                      <span className={`role-btn ${a.role.toLowerCase()} active`} style={{ pointerEvents: 'none' }}>
+                        {a.role === 'OWNER' ? 'Owner' : 'Viewer'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="recipient-controls">
+                    {!a.protected && (
+                      <button
+                        type="button"
+                        className="remove-btn"
+                        disabled={accountBusy}
+                        onClick={() => handleDeleteAccount(a.username)}
+                        aria-label={`Remove ${a.username}`}
+                        title="Remove"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </details>
+      )}
+
+      {isOwner && (
+        <details className="card">
+          <summary>Role change history</summary>
+          {roleHistory === null && <p className="muted">Loading…</p>}
+          {roleHistory && roleHistory.length === 0 && (
+            <p className="muted">No role changes yet — this starts tracking from the next one.</p>
+          )}
+          {roleHistory && roleHistory.length > 0 && (
+            <div>
+              {roleHistory.map((h, i) => (
+                <div className="history-row" key={`${h.chatId}-${h.changedAt}-${i}`}>
+                  <span>{h.name || h.chatId}</span>
+                  <span className="muted">
+                    {h.fromRole === 'NONE' ? 'None' : h.fromRole === 'OWNER' ? 'Owner' : 'Viewer'} →{' '}
+                    {h.toRole === 'NONE' ? 'None' : h.toRole === 'OWNER' ? 'Owner' : 'Viewer'}
+                  </span>
+                  <span className="muted">{timeAgo(h.changedAt)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </details>
+      )}
 
       <details className="card">
         <summary>Refresh Myntra session</summary>

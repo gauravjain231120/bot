@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAuthed } from '../../../../lib/adminAuth';
+import { requireOwner } from '../../../../lib/adminAuth';
 import { listRecipients, updateProfile, toPublicShape } from '../../../../lib/recipients';
 import { getChatInfo, getBotUsername } from '../../../../lib/telegram';
 
@@ -11,9 +11,8 @@ export const dynamic = 'force-dynamic';
 // verifiably Telegram-sourced right now, not just whatever was captured the
 // last time that person happened to message the bot.
 export async function POST() {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const check = await requireOwner();
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const recipients = await listRecipients();
   const visible = recipients.filter((r) => !r.protected);

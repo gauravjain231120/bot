@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
-import { isAuthed } from '../../../lib/adminAuth';
+import { getCurrentAccount } from '../../../lib/adminAuth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  if (!(await isAuthed())) {
+  const account = await getCurrentAccount();
+  if (!account) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -18,6 +19,7 @@ export async function GET() {
   ]);
 
   return NextResponse.json({
+    account,
     running: Boolean(statusDoc && statusDoc.running),
     lastCheck: statusDoc?.lastCheck ?? null,
     openCount: statusDoc?.openCount ?? null,

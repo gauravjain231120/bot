@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAuthed } from '../../../../lib/adminAuth';
+import { requireOwner } from '../../../../lib/adminAuth';
 import { ROLES, setRole, deleteRecipient } from '../../../../lib/recipients';
 
 export const runtime = 'nodejs';
@@ -14,9 +14,8 @@ function checkRolePassword(body) {
 }
 
 export async function PATCH(request, ctx) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const check = await requireOwner();
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
   const { chatId } = await ctx.params;
   const body = await request.json().catch(() => ({}));
 
@@ -37,9 +36,8 @@ export async function PATCH(request, ctx) {
 }
 
 export async function DELETE(request, ctx) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const check = await requireOwner();
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
   const { chatId } = await ctx.params;
   const body = await request.json().catch(() => ({}));
 

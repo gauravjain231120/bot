@@ -470,7 +470,8 @@ lib/
   dates.js               IST formatting + the Myntra ship-by cutoff rule (§12)
   curl.js                 parses pasted cURL / DevTools header-dump text into a headers object
   telegram.js             the only file that calls the Telegram Bot API
-  adminAuth.js            checks the `admin_auth` cookie against ADMIN_PASSWORD
+  adminAuth.js            session-token cookie (admin_auth) against the `sessions` collection; getCurrentAccount()/isAuthed()/createSession()/destroySession() (§23, rewritten 2026-09-22 — was a single shared ADMIN_PASSWORD)
+  accounts.js             the `accounts` collection — dashboard login accounts, Owner/Viewer roles, scrypt password hashing (§23, added 2026-09-22)
   monitorState.js         getRunning/setRunning on settings/_id:'status'.running
   myntra.js                Myntra API calls + per-order/per-item Telegram text formatting; fetchPackedCount() (getPostPackedOrders, paginated) for /packed; resolveReturnByTrackingId() (SPF claim -> packed-order lookup) for /api/resolve-return, see §21 (added 2026-09-22)
   amazon.js                Amazon API calls + per-order/per-item Telegram text formatting
@@ -503,7 +504,10 @@ app/
     dashboard/resolve-return/route.js   GET — same resolver, admin_auth-gated + catalog-matched, for this app's own dashboard (§22)
     dashboard/add-return/route.js       POST — logs the resolved return into stock-manager (§22)
     admin/start|stop|check-now/route.js   dashboard action endpoints (§7)
-    login/route.js                sets the admin_auth cookie
+    login/route.js                POST {username,password} -> creates a session, sets admin_auth (§23)
+    logout/route.js               POST -> destroys the session, clears admin_auth (§23)
+    accounts/route.js             GET/POST — list/create dashboard accounts, Owner-only (§23)
+    accounts/[username]/route.js  DELETE — remove a dashboard account, Owner-only (§23)
     session/route.js              saves a freshly-pasted Myntra/Amazon session
     session/sync/route.js         same save, from the browser extension instead of a paste (§18)
     status/route.js               feeds the dashboard's status panel
@@ -875,3 +879,48 @@ uses). "Scan a Myntra return" is a card on the dashboard itself, open by default
   allowlisted the `/api/pending` prefix, so this app's genuinely-correct service token fell
   through to the real-session lookup, found none, and 401'd. Fixed on stock-manager's side by
   adding `/api/register` to its `SERVICE_API_PREFIXES` — see stock-manager's own `PROJECT.md`.
+
+## 23. Dashboard login accounts — Owner/Viewer roles (`lib/accounts.js`, added 2026-09-22)
+
+Replaces the single shared `ADMIN_PASSWORD` env var (one password, everyone who had it was
+equally "logged in") with real per-person accounts and a role — same idea as stock-manager's own
+account system, simplified to two roles for now (no Manager here).
+
+- **`accounts` collection** (`lib/accounts.js`) — `_id` is the lowercased username. `createAccount`,
+  `listAccounts` (passwords never included), `verifyPassword`, `deleteAccount`. Passwords hashed
+  with Node's built-in `scrypt` (no new dependency); `verifyPassword` always does exactly one
+  `scryptSync` call, real account or not (`DUMMY_SALT` stands in for a nonexistent username) —
+  closes the same timing side-channel stock-manager's own login already closes, response time
+  alone can't reveal which usernames are real.
+- **`protected: true`** marks the one seeded, founding Owner (`gaurav`) — `deleteAccount()` refuses
+  it outright, and separately refuses removing the last remaining Owner even if unprotected, so
+  this UI can never lock every Owner out of itself. Exact same pattern as the Telegram recipients
+  list's own founding-Owner protection (§20).
+- **Sessions**: `lib/adminAuth.js` was rewritten around a new `sessions` collection instead of the
+  cookie literally holding the shared password — `admin_auth` cookie now holds a random session
+  token (`crypto.randomBytes(32)`, 30-day expiry, same as the old cookie's `maxAge`). Every
+  existing `isAuthed()` call site across the app (17 routes) needed **no changes** — the function
+  still just returns a boolean; only its internals and `app/api/login/route.js` changed. Added
+  `getCurrentAccount()` (returns `{username, role}` or `null`) for routes that need to know who,
+  not just whether.
+- **`POST /api/login { username, password }`** replaces the old `{ password }`-only route.
+  **`POST /api/logout`** (new) destroys the session server-side and clears the cookie.
+  **`GET /api/status`** now also returns `account: {username, role}` so the dashboard knows who's
+  logged in without a separate round trip — it was already the bootstrap "am I logged in" call.
+- **`GET/POST /api/accounts`, `DELETE /api/accounts/[username]`** (new, Owner-only) — list, create,
+  remove dashboard accounts. New accounts default to Viewer in the UI but Owner can pick either
+  role.
+- **UI**: login form gained a Username field. Header shows `username · Owner`/`Viewer` + a Log out
+  button. A new "Dashboard team" card (Owner-only — hidden entirely for a Viewer, styled like the
+  existing Alert recipients card, reusing its `.recipient-row`/`.role-btn`/`.remove-btn` classes)
+  lists accounts and lets an Owner add one (username, password ≥8 chars, role) or remove one.
+- **Scope, deliberately (asked for "just this first")**: this ships the account/role system and
+  the Team management UI. It does **not** yet gate individual dashboard actions differently by
+  role (Start/Stop, Check now, Refresh Myntra session, Add to Return, Recipients, etc. all still
+  work the same for both roles once logged in) — only the Team card itself is Owner-only so far.
+  Narrowing what a Viewer can actually *do* on the rest of the dashboard is a deliberately separate
+  follow-up, not assumed here.
+- **Seeded via `scripts/seed-dashboard-owner.js`** (one-off, run once): creates `gaurav` as the
+  protected founding Owner. Verified live: login (correct password, wrong password, unknown
+  username), account creation, the protected/last-Owner delete refusals, and cleanup all behaved
+  correctly against production before this shipped.
