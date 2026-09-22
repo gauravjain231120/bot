@@ -813,17 +813,17 @@ export default function AdminPage() {
                     src={c.image}
                     alt=""
                     style={{
-                      width: 220,
-                      maxWidth: '45vw',
+                      width: 170,
+                      maxWidth: '38vw',
                       height: 'auto',
-                      maxHeight: 320,
+                      maxHeight: 250,
                       borderRadius: 10,
                       objectFit: 'contain',
                       flexShrink: 0,
                     }}
                   />
                 ) : null}
-                <div style={{ flex: 1, minWidth: 0, fontSize: '0.8rem' }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem' }}>
                   <div style={{ fontWeight: 600 }}>{c.productName ?? c.resolvedSku}</div>
                   <div className="muted" style={{ fontFamily: 'monospace' }}>{c.matchedSku ?? c.resolvedSku}</div>
                   {c.size && (
@@ -832,7 +832,7 @@ export default function AdminPage() {
                         style={{
                           display: 'inline-block',
                           fontWeight: 700,
-                          fontSize: '0.9rem',
+                          fontSize: '1.05rem',
                           color: 'var(--accent)',
                           background: 'var(--accent-soft)',
                           borderRadius: 6,
