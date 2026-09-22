@@ -36,6 +36,16 @@ the connection right at the login gate. That gate is *not* pursued further (matc
 bot-detection is the kind of thing this project won't try to defeat), so **logging in stays a
 manual, human action, done in a real browser, forever.**
 
+The same is true for Amazon Seller Central, likely more so: it's a financial/business account, so
+Amazon made **two-step verification mandatory for every Seller Central login since March 2024,
+with no opt-out** — even Seller Support cannot disable it for anyone, by Amazon's own policy
+(confirmed 2026-09-22 via Seller Central's own forums). A passkey can be added as an *alternative*
+sign-in method, but does not replace or skip the OTP step — sellers report the OTP prompt still
+appears even with a passkey configured. Automating a login would therefore also mean automating
+that OTP (reading an SMS/authenticator code programmatically), which either doesn't work or means
+handing the automation the means to log in as you from anywhere — not something this project
+does. So both marketplaces land on the same rule: **logging in stays a manual, human action.**
+
 What *is* now automated: getting the resulting session into this app, which used to be the
 recurring manual step (§7, §18) and no longer has to be. The orders API itself turned out to be
 far less guarded than the login page — proof of that is this whole app already working via plain
@@ -61,12 +71,15 @@ cron-job.org (external, 24/7)                 Vercel (this app)                s
 GET /api/check-orders?secret=...        ──►    poll Myntra                ──►   POST /api/pending
 GET /api/check-amazon-orders?secret=... ──►    poll Amazon                ──►   POST /api/pending
 GET /api/check-cancellations?secret=... ──►    poll Myntra cancellations
+GET /api/check-otc?secret=...           ──►    poll pickup/return OTC (§19, 12:00-13:00 IST only)
                                                        │
-                                                       ├──► Telegram (order/cancel alerts)
+                                                       ├──► Telegram (order/cancel/OTC alerts,
+                                                       │     routed by Owner/Viewer role — §20)
                                                        │
                                                        └──► its own MongoDB (session, status,
                                                             seenOrders, seenAmazonOrders,
-                                                            seenCancellations)
+                                                            seenCancellations, recipients,
+                                                            recipientRoleHistory)
 ```
 
 **Key fact: none of this depends on your laptop, browser, or the dashboard being open.**
@@ -83,8 +96,9 @@ configured to hit the three `/api/check-*` endpoints directly.
 | Variable | Purpose |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Bot used to send all alerts |
-| `TELEGRAM_CHAT_ID` | Comma-separated list of chat IDs that receive every broadcast alert (new orders, cancellations — both Myntra and Amazon, no per-marketplace filtering) |
-| `TELEGRAM_COMMAND_CHAT_ID` | The **admin** chat — replies to bot commands (`/ship`, `/make`, etc.) and primary-only alerts (session expiry, order-add failures) go here only, not to the full broadcast list |
+| ~~`TELEGRAM_CHAT_ID`~~ | **No longer read anywhere in this codebase (as of 2026-09-22).** Replaced by the DB-driven `recipients` collection (§20) — safe to remove from Vercel whenever, or leave, doesn't matter either way |
+| ~~`TELEGRAM_COMMAND_CHAT_ID`~~ | **No longer read anywhere in this codebase (as of 2026-09-22).** Both its old jobs (who gets owner-only alerts, who can issue bot commands) are now Owner-role-driven from the `recipients` collection instead (§20) |
+| `ROLE_CHANGE_PASSWORD` | Second password required (on top of `ADMIN_PASSWORD`) to change a recipient's role or remove them — §20 |
 | `WAREHOUSE_ID` | Myntra warehouse ID used in its API URLs (default `89623` if unset) |
 | `ADMIN_PASSWORD` | Password for the dashboard login; also the literal value stored in the `admin_auth` cookie |
 | `CRON_SECRET` | Shared secret cron-job.org must pass as `?secret=` on every check endpoint |
@@ -95,15 +109,12 @@ configured to hit the three `/api/check-*` endpoints directly.
 | `STOCK_MANAGER_URL` | Base URL of the stock-manager deployment (defaults to `https://stock-manager-niko.vercel.app`) |
 | `STOCK_MANAGER_AUTH_TOKEN` | Sent as `Cookie: auth=<token>` on every call to stock-manager's `/api/pending*` — must equal whatever stock-manager's own login sets as that cookie's value |
 
-### Telegram recipients (current `.env.local`)
+### Telegram recipients
 
-| Chat ID | Name | Role |
-|---|---|---|
-| `5349388385` | Gaurav | **Admin** — set as `TELEGRAM_COMMAND_CHAT_ID`, also included in `TELEGRAM_CHAT_ID` so they get broadcasts too |
-| `8811057878` | Mukesh Bhandari | Broadcast-only |
-| `8850201003` | Alka Bhandari | Broadcast-only |
-
-**Rule:** Gaurav's chat ID is the one and only admin (`TELEGRAM_COMMAND_CHAT_ID`). Any chat ID added to `TELEGRAM_CHAT_ID` in the future is broadcast-only by default — it will receive every new-order/cancellation alert (Myntra + Amazon) but will never receive command replies or primary-only alerts unless it is explicitly also set as `TELEGRAM_COMMAND_CHAT_ID`. Do not repurpose `TELEGRAM_COMMAND_CHAT_ID` to hold multiple IDs — it must stay a single chat ID.
+Superseded 2026-09-22 by the DB-driven, dashboard-managed Owner/Viewer/None role system — see
+**§20** for the full design. The three people who used to be hardcoded here (Gaurav, Mukesh
+Bhandari, Alka Bhandari) were migrated into it at the roles they already effectively had
+(`scripts/seed-recipients.js`), so nothing changed for them functionally.
 
 ## 5. Data model (this app's own MongoDB — `MONGODB_DB`)
 
@@ -119,23 +130,27 @@ Everything lives in one `settings` collection (by `_id`) plus a few small tracki
   - `lastCheck`, `openCount`, `lastError`, `sessionExpiredAlertSent` — Myntra
   - `amazonLastCheck`, `amazonOpenCount`, `amazonLastError`, `amazonSessionExpiredAlertSent` — Amazon
   - `lastCancelCheck`, `cancelledCount`, `lastCancelError` — Myntra cancellations
+- `settings/_id:'otc_status'` — `{ alertedDate, alertedAt, values }`, the OTC alert's own dedup flag (§19): `alertedDate` is an IST `YYYY-MM-DD` string, compared against today so a new day always gets a fresh chance to alert without anything having to reset it.
 - `seenOrders` — `{ _id: orderId, seenAt }` — every Myntra order ID the poller has ever fetched (whether or not it turned into an alert). This is the de-dup ledger; an order ID here is never alerted again.
 - `seenAmazonOrders` — same, for Amazon (`_id: amazonOrderId`)
 - `seenCancellations` — same idea, for Myntra cancelled-order IDs
+- `recipients` — `{ _id: chatId, chatId, name, username, role: 'OWNER'|'VIEWER'|'NONE', protected, firstSeenAt, lastSeenAt }` — who gets what alerted, and who can issue bot commands (§20). `_id` is the Telegram chat id itself.
+- `recipientRoleHistory` — `{ chatId, name, fromRole, toRole, changedAt }`, append-only, one row per role change — never touched by deleting a recipient (§20).
 
 **"New" is defined purely as "order ID not yet in `seenOrders`/`seenAmazonOrders`."** Nothing
 here tracks whether the underlying order is later shipped, cancelled, edited, etc. — that state
 lives entirely in stock-manager's Ready to Ship queue.
 
-## 6. The three cron endpoints
+## 6. The cron endpoints
 
 | Endpoint | Suggested frequency | What it does |
 |---|---|---|
 | `GET /api/check-orders?secret=CRON_SECRET` | ~1 min | Poll Myntra open orders, alert + queue new ones |
 | `GET /api/check-amazon-orders?secret=CRON_SECRET` | ~1 min | Poll Amazon unshipped orders, alert + queue new ones |
 | `GET /api/check-cancellations?secret=CRON_SECRET` | ~30 min | Poll Myntra cancellations, alert on new ones |
+| `GET /api/check-otc?secret=CRON_SECRET` | ~5 min | Pickup/return OTC alert — see §19, shape is different from the three below (no seen-collection, time-window + once-per-day gated instead) |
 
-All three:
+The first three:
 1. Reject with 401 if `?secret=` doesn't match `CRON_SECRET`.
 2. Read `settings/_id:'status'.running` — **if false, return `{ skipped: true, reason: 'stopped' }` immediately and do nothing else.** This is why "Stop" reliably silences everything even though the external scheduler keeps ticking every minute regardless.
 3. If running, fetch from the marketplace, diff against the seen-collection, alert + queue anything new, then mark everything fetched as seen (including things that weren't "new" — a session that expired and got refreshed won't re-alert stale orders it already knew about before the outage... but *will* alert orders it never got the chance to see. See §14.)
@@ -144,6 +159,9 @@ All three:
 `check-cancellations` has one extra rule: **on its very first-ever run** (empty `seenCancellations`
 collection), it seeds silently instead of blasting a cancellation alert for the entire historical
 backlog.
+
+`check-otc` still respects the same `running` gate (still a no-op when stopped), but everything
+else about it is different — see §19.
 
 ## 7. Dashboard (`app/page.js`) admin actions
 
@@ -216,8 +234,17 @@ bearing on whether alerts fire (see §14).
   — **this is intentionally duplicated, not imported**, because this app was built to never
   import or directly touch stock-manager's codebase. **If stock-manager's bundle mapping ever
   changes, this map must be updated by hand.**
-- Stock classification: `available = onHand - reserved`; `available <= 0` → "OUT OF STOCK"
-  (red), `<= 5` → "Low (N left)" (yellow), else → "N available".
+- Stock classification (`classify()`, still exactly this): `available = onHand - reserved`;
+  `available <= 0` → level `'out'`, `<= 5` → level `'low'` ("Low (N left)"), else level `'ok'`
+  ("N available"). `stock.level`/`stock.available` themselves are used as-is everywhere else
+  (the admin dashboard, etc.) — untouched.
+- **Display-only override in `formatStockLine()` (added 2026-09-22)**: exactly-zero `available`
+  now renders in the Telegram caption as `Stock: 🟡 Low (1 left)` instead of the red `OUT OF
+  STOCK` line — deliberately softened outward-facing text, business decision, not a bug. Genuinely
+  **negative** `available` (oversold — more reserved/queued than physically on hand) is a strictly
+  worse signal than plain zero and still renders as `OUT OF STOCK`, unchanged. This override lives
+  only in `formatStockLine()`'s text, so nothing else that reads `lookupStock()`'s return value
+  (the dashboard's `app/page.js`, `/api/orders`) is affected — they still show the real level/number.
 - Any failure here (bad SKU match, Mongo hiccup) returns `null` silently — a stock-lookup
   problem must never block the alert itself.
 
@@ -383,6 +410,34 @@ iterations worth knowing about, because the reasoning matters if it needs to cha
   showed as "7 available" in the Telegram alert, while stock-manager's own dashboard (which
   correctly filters to `Location.kind === 'SELLABLE'`) showed 5. Fixed per §9 above: `lookupStock()`
   now filters to sellable locations only, so the alert always matches the dashboard.
+- **Pickup/return OTC alert added (2026-09-22)** — new feature, not a bug fix. See §19.
+- **Telegram alert recipients moved from env vars to a DB-driven Owner/Viewer/None role system
+  (2026-09-22)** — also unifies bot-command access (`/ship`, `/make`, ...) onto the same Owner
+  role, adds a protected founding-Owner row, a second password for role changes, and a
+  role-change history log. See §20.
+- **Amazon session still dying in minutes-to-hours even after the 2026-09-20 header-realism fix
+  (investigated 2026-09-22, unresolved)**: real session-history data pulled from production showed
+  lifespans ranging from 1 minute to ~12 hours, no clear pattern — the header fix helped somewhat
+  but didn't fix the underlying cause. Leading suspects, in order of likelihood: (1) the access
+  **pattern** itself (an internal orders-API request every 1-5 minutes, 24/7, forever, is not
+  something a real user's browsing ever looks like, regardless of how browser-like the headers
+  are), and (2) **IP/network mismatch** — the session is born on the seller's real home/office
+  network via the browser extension, then every replayed request comes from Vercel's data-center
+  IPs instead, which is exactly the kind of signal marketplace fraud detection watches for.
+  Slowing the cron-job.org poll interval (already done — set to 5 min, was ~1 min) did **not**
+  meaningfully fix it, which weakens the "it's just the polling rate" theory and points more at
+  the IP mismatch. Two real options if this needs solving properly: (a) route requests through a
+  residential/India-based proxy to match the original login's network — flagged to the user as a
+  real risk to the Seller Central account itself (Amazon's ToS almost certainly prohibits
+  disguising automated traffic as a real user), not something to build silently; (b) migrate to
+  Amazon's official Selling Partner API (SP-API) — the only option with no expiry problem at all,
+  since it's sanctioned access rather than session replay. SP-API access itself is free as of
+  2026-09-22 (Amazon proposed then cancelled a $1,400/year developer fee earlier in 2026), but
+  registration + building a real OAuth integration is still a real, separate engineering effort.
+  Automated re-login is **not** on this list — Amazon Seller Central requires 2-step verification
+  on every login with no opt-out (confirmed via Seller Central's own forums), and a passkey does
+  not replace or skip that OTP step, so there's no login flow here that could be automated even in
+  principle without also automating OTP retrieval.
 
 ## 13. File map
 
@@ -401,22 +456,32 @@ lib/
   checkOrders.js           orchestrates one Myntra poll cycle (fetch → diff → alert → queue)
   checkAmazonOrders.js     same, for Amazon
   checkCancellations.js    orchestrates the Myntra-cancellations poll cycle
+  checkOtc.js              pickup/return OTC poll cycle — time-window + once-per-day gated, not the seen-collection pattern (§19)
   pendingQueue.js          removes cancelled orders/lines from stock-manager's queue, or un-ships them if already shipped, via its HTTP API (§12)
   sessionSyncWatchdog.js   alerts if an extension-sourced session goes stale (§12, §18)
   sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
+  recipients.js            the `recipients`/`recipientRoleHistory` collections — who gets alerted, who can run bot commands, role-change audit log (§20)
 app/
-  page.js                  the dashboard (login form + admin UI + order grid)
+  page.js                  the dashboard (login form + admin UI + order grid + Alert recipients + Role change history)
   globals.css              all dashboard styling, theme (light/dark) CSS variables
   api/
     check-orders/route.js         cron endpoint (§6)
     check-amazon-orders/route.js  cron endpoint (§6)
     check-cancellations/route.js  cron endpoint (§6)
+    check-otc/route.js            cron endpoint (§6, §19)
     admin/start|stop|check-now/route.js   dashboard action endpoints (§7)
     login/route.js                sets the admin_auth cookie
     session/route.js              saves a freshly-pasted Myntra/Amazon session
     session/sync/route.js         same save, from the browser extension instead of a paste (§18)
     status/route.js               feeds the dashboard's status panel
     orders/route.js               feeds the dashboard's order grid (live-fetches both marketplaces + stock, doesn't read seenOrders — this is a live view, not the alert pipeline)
+    recipients/route.js                    GET — list recipients (§20)
+    recipients/[chatId]/route.js            PATCH/DELETE — change role / remove, password-gated (§20)
+    recipients/refresh/route.js             POST — re-pull names live from Telegram (§20)
+    recipients/history/route.js             GET — role-change history (§20)
+scripts/
+  seed-recipients.js         one-off: migrated the 3 hardcoded people into `recipients` at their existing effective roles (§20)
+  protect-primary-owner.js   one-off: marked Gaurav's row `protected: true` (§20)
 browser-extension/         Manifest V3 Chrome extension — auto-syncs the session (§18); not part of the Vercel deploy, lives in the user's Chrome
 ```
 
@@ -533,7 +598,7 @@ barer header set than a manually-pasted session ever had.
 per-marketplace backoff retry (`scheduled: false`, the default everywhere else — installs,
 `online` reconnects, the Start button). That flag rides along in the POST body to
 `/api/session/sync`, and only `trigger: 'auto'` + `scheduled: true` + a verified-working sync
-gets `lib/sessionStore.js#announceScheduledSyncOk()`'s quiet, Gaurav-only Telegram ping — a
+gets `lib/sessionStore.js#announceScheduledSyncOk()`'s quiet, Owner-only Telegram ping (§20) — a
 backoff retry (which can fire every 1-15 minutes during a real outage) never does, which is what
 keeps this from becoming the same activated/expired spam loop a similar announcement caused
 before (§12).
@@ -545,3 +610,103 @@ command) — the server has no channel to reach into a specific browser's cookie
 browser can push cookies out, nothing can pull them in from outside.
 
 Full end-user setup steps live in `browser-extension/README.md`, not duplicated here.
+
+## 19. Pickup/return OTC alert (`lib/checkOtc.js`, added 2026-09-22)
+
+Myntra's warehouse pickup/return system issues a one-time code (OTC) the courier (MYS or MYE)
+needs to hand over when they physically arrive to either collect outgoing parcels (`trip=PICKUP`)
+or drop off returns (`trip=RETURN`) — `GET partnersapi.myntrainfo.com/api/location/otc?warehouse=
+<id>&trip=<PICKUP|RETURN>` (`fetchOtc()` in `lib/myntra.js`). It reads `null` until a tripsheet
+actually goes active for that courier.
+
+- **Window**: only does anything between **12:00-13:00 IST** — checked in-process
+  (`withinWindow()`), not just relied on from the cron-job.org schedule, so a stray or
+  misconfigured trigger outside that hour is always a safe, instant no-op (no DB touch, no Myntra
+  API call). The suggested cron-job.org schedule is every ~5 min, all day — see §6.
+- **What one check does**: fetches both trip types for both couriers (4 values total: Pickup MYS,
+  Pickup MYE, Return MYS, Return MYE) in one pass.
+- **Alert + stop**: the moment any of those 4 is no longer `null`, sends **one** Telegram message
+  with all 4 lines (blank/`—` for whichever are still null) to whoever has **Owner** role only
+  (§20) — not the broadcast list, and not silent. Then writes `settings/_id:'otc_status'.
+  alertedDate` = today's IST date, which makes every later check that same day return
+  `{ skipped: true, reason: 'already alerted today' }` immediately — no repeat pings, no more
+  Myntra API calls for the rest of the hour.
+- **Resets naturally the next day**: `alertedDate` is compared against *today's* IST date, so
+  there's nothing to clear manually — tomorrow's first check in the window just won't match and
+  proceeds normally.
+- Uses the same Myntra session (`settings/_id:'session'`) as the order/cancellation checks — no
+  separate session of its own.
+
+## 20. Alert recipients — Owner/Viewer/None roles (`lib/recipients.js`, added 2026-09-22)
+
+Replaces the old `TELEGRAM_CHAT_ID` (broadcast list) / `TELEGRAM_COMMAND_CHAT_ID` (single admin)
+env vars with a real, dashboard-managed system backed by two collections (§5): `recipients` and
+`recipientRoleHistory`. This also unifies **bot command access** (`/ship`, `/make`, ... —
+`app/api/telegram-webhook/route.js`) onto the same Owner role, which used to be a separate,
+unrelated check against `TELEGRAM_COMMAND_CHAT_ID`.
+
+**Roles:**
+- **OWNER** — receives every alert (broadcast + owner-only, see below) and can issue bot commands.
+- **VIEWER** — receives broadcast alerts only (new orders, cancellations). Cannot issue commands.
+- **NONE** — the default for a brand-new sender; receives nothing.
+
+**Alert routing** (`lib/telegram.js`):
+- `getBroadcastChatIds()` = `chatIdsForRoles(['OWNER','VIEWER'])` — used by default whenever
+  `sendTelegramMessage`/`sendTelegramPhoto`/`sendTelegramMediaGroup` are called with no explicit
+  chat id list (new-order and cancellation alerts).
+- `sendOwnerAlert()` = sends to `chatIdsForRoles(['OWNER'])` only — replaces every old
+  `replyToChat(process.env.TELEGRAM_COMMAND_CHAT_ID, ...)` call site: session-expired/missing
+  (`checkOrders.js`, `checkAmazonOrders.js`), unresolved-cancellation (`checkCancellations.js`),
+  session-activated/scheduled-sync-ok heartbeats (`sessionStore.js`), the extension-stale watchdog
+  (`sessionSyncWatchdog.js`), and the OTC alert (§19).
+- `replyToChat(chatId, ...)` (unchanged) still replies to one *specific* chat — used for bot
+  command responses and the webhook's one-time welcome message, never role-routed.
+
+**How someone gets into the list at all**: `app/api/telegram-webhook/route.js` calls
+`recordSeen(chatId, {name, username})` on **every** incoming message, from anyone — not just an
+existing Owner. First time a chat id is ever seen: inserted at role `NONE`, and the bot replies
+once with a short "noted, ask Gaurav to activate you" message. Every time after (including from
+an existing Owner/Viewer): just refreshes `name`/`username`/`lastSeenAt` from that message — this
+is what keeps a recipient's displayed name "live from Telegram" for anyone actively messaging,
+without needing a manual sync. `recordSeen()` also returns the chat's current `role`, which the
+webhook uses immediately to decide command access (no extra DB round-trip).
+
+**Command access** (`app/api/telegram-webhook/route.js`): after `recordSeen()`, `isOwner = role
+=== 'OWNER'`; if not, the message is silently ignored from that point on (never reveals the bot
+understands commands) — same shape as the old hardcoded check, just role-driven instead of a
+fixed env var.
+
+**Protected founding Owner**: Gaurav's seeded row has `protected: true` (set once via
+`scripts/protect-primary-owner.js`). `setRole()`/`deleteRecipient()` both refuse outright on a
+protected row (`"...protected and cannot be changed/removed here"`), and `GET /api/recipients` /
+`POST /api/recipients/refresh` both filter protected rows out of what the dashboard ever sees —
+so there is no way, through this UI, to demote or remove yourself and lock everyone out. A
+protected row keeps full Owner power underneath (alerts + commands) regardless — the flag only
+blocks *editing* it through the API, nothing else.
+
+**Password-gated role changes**: `PATCH /api/recipients/[chatId]` (change role) and
+`DELETE /api/recipients/[chatId]` (remove) both require a `password` field in the request body,
+checked server-side against `ROLE_CHANGE_PASSWORD` (§4) — a second, deliberate confirmation on
+top of the dashboard's own login, since these control who gets alerted about real orders/returns.
+The dashboard prompts for it via `window.prompt()` on every action (never cached/remembered).
+**`ROLE_CHANGE_PASSWORD` must be set in Vercel's project environment variables** (added to
+`.env.local` locally on 2026-09-22) — until it is, every role change/removal on the deployed site
+fails closed with "Wrong password," which is the safe direction for that to fail in.
+
+**Role-change history**: every actual role transition (no-op if clicking the already-active
+button) is logged to `recipientRoleHistory` — `{chatId, name, fromRole, toRole, changedAt}` — shown
+in the dashboard's "Role change history" section. `deleteRecipient()` never touches this
+collection, so a removed recipient's history stays visible forever, by design.
+
+**"Refresh" button** (`POST /api/recipients/refresh`): re-pulls every *visible* (non-protected)
+recipient's current name/username straight from Telegram's `getChat` API
+(`getChatInfo()` in `lib/telegram.js`) and overwrites it in the DB — guarantees names are
+verifiably Telegram-sourced on demand, not just whatever was captured the last time that person
+happened to message the bot.
+
+**Migration (2026-09-22, already run against production)**: `scripts/seed-recipients.js` inserted
+the 3 previously-hardcoded people (Gaurav → OWNER, Mukesh Bhandari → VIEWER, Alka Bhandari →
+VIEWER) at the roles they already effectively had, so alert delivery didn't change during deploy.
+`scripts/protect-primary-owner.js` then marked Gaurav's row `protected: true`. Both are idempotent
+one-offs (`--dry` flag supported) — safe to re-run, they no-op on anything already in the expected
+state.
