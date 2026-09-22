@@ -516,7 +516,15 @@ a {
   color: var(--text-dim);
 }
 
-.card form {
+/* :not(.form-grid) is load-bearing — without it, this rule's higher
+   specificity (.card form = 0,1,1) silently wins over .form-grid's own
+   (0,1,0) on `display`/`gap`, while .form-grid's OTHER properties
+   (align-items: end, margin-bottom) still apply since nothing here
+   contests them. That exact mix is what produced the "form stacked
+   vertically, pinned to the right" bug — flex-direction:column (from here)
+   + align-items:end (from .form-grid, unopposed) = a narrow, right-aligned
+   column instead of the intended grid row. Found and fixed 2026-09-22. */
+.card form:not(.form-grid) {
   display: flex;
   flex-direction: column;
   gap: 10px;

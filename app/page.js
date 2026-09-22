@@ -2,6 +2,7 @@
 
 import { useDashboard } from '../lib/DashboardContext';
 import { timeAgo, formatMinutes, otcLines } from '../lib/format';
+import { OrdersGrid } from '../components/OrdersGrid';
 
 export default function OverviewPage() {
   const { status, loadError, otcStatus, otcClearing, handleClearOtc, packedCount, packedCountError, packedLoading, loadPackedCount } = useDashboard();
@@ -119,6 +120,8 @@ export default function OverviewPage() {
           </div>
         </div>
       </div>
+
+      <OrdersGrid />
     </>
   );
 }

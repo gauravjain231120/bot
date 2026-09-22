@@ -94,13 +94,20 @@ export default function ReturnsPage() {
             placeholder="MYSR… / MYER… / MYEC…"
             style={{ flex: 1, fontFamily: 'monospace' }}
           />
-          <button type="button" className="secondary" onClick={() => setCameraOpen(true)} disabled={myntraResolving} title="Scan with camera" aria-label="Scan with camera">
-            📷
-          </button>
           <button type="button" onClick={() => resolveMyntraReturn()} disabled={myntraResolving || !myntraScanId.trim()}>
             {myntraResolving ? 'Looking up…' : 'Resolve'}
           </button>
         </div>
+
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => setCameraOpen(true)}
+          disabled={myntraResolving}
+          style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
+        >
+          📷 Scan with camera
+        </button>
 
         {myntraResolveError && <div className="banner bad" style={{ marginTop: 12, marginBottom: 0 }}>{myntraResolveError}</div>}
 

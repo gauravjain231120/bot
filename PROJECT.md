@@ -221,20 +221,27 @@ multi-page app sharing one persistent sidebar/topbar shell and one pool of live 
 
   | Route | Content | Notes |
   |---|---|---|
-  | `/` | Stat grid (7 cards: Myntra/Amazon open+cancelled, Sessions, OTC, Packed) | landing page |
-  | `/orders` | Open orders grid + platform filter | |
+  | `/` | Stat grid (7 cards) + Open orders grid | landing page; orders grid added 2026-09-22 so it's visible without a click — see `components/OrdersGrid.js` below |
+  | `/orders` | Open orders grid + platform filter | same `OrdersGrid` component as `/`, still its own page for a focused view |
   | `/returns` | Scan a Myntra return (§22) | camera scan, resolve, add to stock-manager |
   | `/sessions` | Refresh Myntra/Amazon session forms | session *history* removed 2026-09-22, see below |
   | `/recipients` | Alert recipients (§20) + OTC scope toggle (§19) + role change history | **Owner-only** |
   | `/team` | Dashboard accounts CRUD (§23) | **Owner-only** |
   | `/spf-status` | SPF claim counts (§24) | **Owner-only** |
 
-- **Form layout gotcha (fixed 2026-09-22)**: the Team page's "add account" row was originally an
-  inline `display:flex; flexWrap:wrap` style with unsized children — rendered as a narrow column
-  pinned to the card's right edge instead of a row, because a flex item with no explicit width,
-  sized against an `input{width:100%}` child, resolves unpredictably across browsers. Replaced
-  with a reusable `.form-grid`/`.field` CSS grid (`app/globals.css`) — grid tracks don't have that
-  ambiguity. Use `.form-grid` for any future inline form like this one, not ad-hoc flex-wrap.
+- **Form layout gotcha (fixed 2026-09-22, twice)**: the Team page's "add account" row was
+  originally an inline `display:flex; flexWrap:wrap` style with unsized children — rendered as a
+  narrow column pinned to the card's right edge instead of a row. First fix: a reusable
+  `.form-grid`/`.field` CSS grid (`app/globals.css`). That alone didn't fix it — the *real* root
+  cause was a specificity conflict with the pre-existing `.card form { display:flex;
+  flex-direction:column }` rule (specificity `0,1,1`, beats `.form-grid`'s bare-class `0,1,0` on
+  `display`/`gap`), while `.form-grid`'s *other* properties (`align-items:end`) still applied
+  unopposed — that exact mix (flex-direction:column + align-items:end) is what produced the
+  stacked-and-right-aligned look, not the grid itself failing. Fixed for real by scoping the old
+  rule to `.card form:not(.form-grid)`. **Lesson, repeated from an earlier specificity bug this
+  same session (the `button.secondary`/`.remove-btn` one) — check for a higher-specificity rule
+  on the same element before concluding a new class's styles "aren't applying."**
+  Use `.form-grid` for any future inline form like this one, not ad-hoc flex-wrap.
 - **Session history removed entirely (2026-09-22)** — the user didn't want it. Removed: the
   "Session history" card, `lib/sessionHistory.js` (`recordSessionCaptured`/`recordSessionExpired`/
   `listSessionHistory`), `app/api/session-history/route.js`, the calls into it from
@@ -580,6 +587,7 @@ components/
   AppShell.js              sidebar + topbar shell every page renders inside, wired in app/layout.js (§7, added 2026-09-22)
   LoginScreen.js           the login form, rendered by AppShell while not authed (§7, added 2026-09-22)
   icons.js                 every inline SVG icon component, shared across pages/shell (§7, added 2026-09-22)
+  OrdersGrid.js            the "Open orders" grid + platform filter, extracted so both `/` and `/orders` can render it without duplicating the logic (§7, added 2026-09-22)
 app/
   page.js                  Overview page — stat grid + error banners (§7, rewritten 2026-09-22, was the whole dashboard)
   orders/page.js           Open orders grid + platform filter (§7, added 2026-09-22)
