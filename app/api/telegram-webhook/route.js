@@ -7,6 +7,8 @@ import {
   formatMakeList,
   formatPlatformList,
   formatPlatformLeftList,
+  formatReadyList,
+  formatNotReadyList,
   parseShortDate,
 } from '../../../lib/telegramCommands';
 
@@ -28,6 +30,10 @@ const COMMAND_LIST =
   '/amazonall [date] — same, sent to everyone\n' +
   '/amazonleft [date] — Amazon items not yet packed (just you)\n' +
   '/amazonleftall [date] — same, sent to everyone\n' +
+  '/ready [date] — everything packed & waiting to ship, all platforms (just you)\n' +
+  '/readyall [date] — same, sent to everyone\n' +
+  '/notready [date] — everything still left to pack, all platforms (just you)\n' +
+  '/notreadyall [date] — same, sent to everyone\n' +
   '/command — this list';
 
 // A brand-new chat id (never before recorded) gets this once, right after
@@ -54,6 +60,10 @@ const DATE_CAPABLE = new Set([
   '/myntraleftall',
   '/amazonleft',
   '/amazonleftall',
+  '/ready',
+  '/readyall',
+  '/notready',
+  '/notreadyall',
 ]);
 
 // Telegram calls this on every incoming message. Always ack quickly with 200
@@ -164,6 +174,26 @@ export async function POST(request) {
       case '/amazon': {
         const summary = await fetchQueueSummary();
         await replyToChat(chatId, formatPlatformList(summary, 'AMAZON', 'Amazon', dateFilter));
+        break;
+      }
+      case '/readyall': {
+        const summary = await fetchQueueSummary();
+        await sendTelegramMessage(formatReadyList(summary, dateFilter));
+        break;
+      }
+      case '/ready': {
+        const summary = await fetchQueueSummary();
+        await replyToChat(chatId, formatReadyList(summary, dateFilter));
+        break;
+      }
+      case '/notreadyall': {
+        const summary = await fetchQueueSummary();
+        await sendTelegramMessage(formatNotReadyList(summary, dateFilter));
+        break;
+      }
+      case '/notready': {
+        const summary = await fetchQueueSummary();
+        await replyToChat(chatId, formatNotReadyList(summary, dateFilter));
         break;
       }
       case '/makeall': {

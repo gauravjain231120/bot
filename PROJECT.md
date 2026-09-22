@@ -461,8 +461,10 @@ lib/
   sessionSyncWatchdog.js   alerts if an extension-sourced session goes stale (§12, §18)
   sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
   recipients.js            the `recipients`/`recipientRoleHistory` collections — who gets alerted, who can run bot commands, role-change audit log (§20)
+  telegramCommands.js      fetchQueueSummary() (reads stock-manager's `/api/pending/summary`) + one formatXList() per bot command's text — /ship, /make, /myntra(all/left), /amazon(all/left), /ready(all), /notready(all) (added 2026-09-22)
 app/
   page.js                  the dashboard (login form + admin UI + order grid + Alert recipients + Role change history)
+  api/telegram-webhook/route.js   Telegram's webhook target — command parsing/dispatch, Owner-gated (§20)
   globals.css              all dashboard styling, theme (light/dark) CSS variables
   api/
     check-orders/route.js         cron endpoint (§6)
