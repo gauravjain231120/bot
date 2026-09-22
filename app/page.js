@@ -850,6 +850,7 @@ export default function AdminPage() {
                     </div>
                   )}
                   {c.returnReason && <div className="muted">Reason: {c.returnReason}</div>}
+                  {c.returnCreatedDate && <div className="muted">Return created: {c.returnCreatedDate}</div>}
                   {c.matchError && <div style={{ color: 'var(--bad)' }}>{c.matchError}</div>}
 
                   {c.matchedSku && !c.added && (
