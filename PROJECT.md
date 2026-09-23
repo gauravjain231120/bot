@@ -1186,7 +1186,9 @@ the secret itself to client JS).
 Sidebar item **Scan Packed**, right below Scan Return, visible to Owners and Viewers alike (same
 as Scan Return). Scan a shipping label with the camera (`components/BarcodeScanner.js`, same as
 Scan Return), a USB/Bluetooth scanner, or type it — shows the packet's status (Packed / Picked /
-Shipped), packed/picked/shipped times (IST), and per item: photo, product name, seller SKU, size,
+Shipped), a timeline — Packed, Pack by, Picked, Pick by, Shipped (IST; each row only when Myntra has set it —
+no order date: searchPostPackedOrder returns neither an order date nor an order id; Pack by/Pick by are Myntra's own `packByTime`/`pickByTime`,
+its exact meaning of pick-by isn't documented) — and per item: photo, product name, seller SKU, size,
 color, qty, selling price/MRP. Read-only, one live Myntra call per scan, never on a timer.
 
 - **Endpoint**: `lookupPackedShipment()` in `lib/myntra.js` → `searchPostPackedOrder` (the same

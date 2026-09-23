@@ -22,6 +22,8 @@ function StatusBadge({ status }) {
   );
 }
 
+// Hidden when Myntra hasn't set that time (e.g. Picked/Shipped on a packet
+// still waiting for pickup).
 function DateRow({ label, value }) {
   if (!value) return null;
   return (
@@ -168,9 +170,10 @@ export default function PackedScanPage() {
 
             <div style={{ fontSize: '0.88rem' }}>
               <DateRow label="Packed" value={packet.packedOn} />
+              <DateRow label="Pack by" value={packet.packBy} />
               <DateRow label="Picked" value={packet.pickedOn} />
+              <DateRow label="Pick by" value={packet.pickBy} />
               <DateRow label="Shipped" value={packet.shippedOn} />
-              {!packet.pickedOn && <DateRow label="Pick by" value={packet.pickBy} />}
               {packet.storePacketId && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '4px 0' }}>
                   <span className="muted">Packet ID</span>
