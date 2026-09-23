@@ -38,7 +38,8 @@ adjustable in the popup — for as long as Chrome is running. No further clicks 
   Save. A shorter interval takes effect right away; a longer one from the next cycle.
 - **Logged out = no sync at all**: every sync first checks this browser's login; if you're logged out
   it doesn't send anything (so no Myntra/Amazon call is spent testing a dead copy) — the row just
-  says "Logged out — log in…" until you do.
+  says "Logged out — log in…" until you do. **Then it syncs by itself** a few seconds after you log
+  in (it watches for the login cookie) — no need to click ↻ or wait for the timer.
 - **The bot tests every session before using it**: a copy that doesn't work (logged out, stale)
   is refused and the bot keeps its current, working session — syncing can never break it.
 - **Sync now** always works immediately, regardless of the timer or the Stop/Start state below.
@@ -73,7 +74,7 @@ affect any other.
 | Which marketplaces it syncs / their cookie domain | the `MARKETPLACES` array in `background.js` |
 | App URL / secret | the extension's own options page (not a file) |
 
-**Updating to 1.1 / 1.2**: reload it once at `chrome://extensions` (⟳). Your current countdown carries
+**Updating to 1.1 / 1.2 / 1.3**: reload it once at `chrome://extensions` (⟳). Your current countdown carries
 over to both marketplaces' new timers; nothing needs re-entering.
 
 After editing any `.js`/`.html`/`.json` file here, reload the extension at `chrome://extensions`

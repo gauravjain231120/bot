@@ -51,6 +51,9 @@ const MARKETPLACES = [
     cookieDomain: 'myntrainfo.com',
     // Present only while logged in to M-Direct (the access token).
     loginCookies: ['erp.at'],
+    // What identifies ONE login, for "is this a new login or the copy the bot
+    // already rejected?". erp.rt only changes on a new login / token refresh.
+    fingerprintCookies: ['erp.rt'],
     staticHeaders: {
       accept: 'application/json, text/plain, */*',
       'x-myntra-app-name': 'mdirect',
@@ -64,6 +67,9 @@ const MARKETPLACES = [
     cookieDomain: 'amazon.in',
     // Seller Central's auth cookies — either one means a live login.
     loginCookies: ['at-acbin', 'session-token'],
+    // Stable per login — NOT session-token, which Amazon changes on almost
+    // every page load (it would make every page look like a "new login").
+    fingerprintCookies: ['at-acbin', 'sess-at-acbin'],
     staticHeaders: {
       accept: 'application/json, text/plain, */*',
       'x-requested-with': 'XMLHttpRequest',
@@ -158,8 +164,10 @@ async function loginState(entry) {
   const live = cookies.filter(
     (c) => entry.loginCookies.includes(c.name) && c.value && (c.session || !c.expirationDate || c.expirationDate > now)
   );
+  const names = entry.fingerprintCookies || entry.loginCookies;
+  const idCookies = cookies.filter((c) => names.includes(c.name) && c.value);
   let hash = 5381;
-  for (const c of live.sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const c of (idCookies.length ? idCookies : live).sort((a, b) => a.name.localeCompare(b.name))) {
     const s = `${c.name}=${c.value};`;
     for (let i = 0; i < s.length; i++) hash = ((hash << 5) + hash + s.charCodeAt(i)) | 0;
   }
@@ -394,6 +402,54 @@ async function runAutoSync(names = MARKETPLACE_NAMES, scheduled = false) {
 
 // ---- Health check + auto-recovery ----
 
+// A row is "waiting for you to log in" when this browser's last sync for it
+// found it logged out, or the bot rejected its copy. As soon as a working
+// login shows up here, sync it — no need to click ↻ or wait hours for the
+// timer. Only then, so it's one small test per login, nothing more.
+const LOGIN_RESYNC_MIN_GAP_MS = 60 * 1000;
+const loginResyncAt = new Map(); // marketplace -> ms, in-memory throttle
+
+async function waitingForLogin(m) {
+  const key = `recovery_${m}`;
+  const store = await chrome.storage.local.get(['lastResult', key]);
+  const rec = store[key] || {};
+  const last = store.lastResult && (store.lastResult.results || []).find((r) => r.marketplace === m);
+  const lastFailedOnLogin = last && !last.ok && (last.reason === 'logged-out' || last.reason === 'session-not-working');
+  return { waiting: !!(rec.needsLogin || lastFailedOnLogin), rec };
+}
+
+async function resyncAfterLogin(entry) {
+  const m = entry.marketplace;
+  if (!(await isEnabled())) return;
+  const now = Date.now();
+  if (now - (loginResyncAt.get(m) || 0) < LOGIN_RESYNC_MIN_GAP_MS) return;
+  const { waiting, rec } = await waitingForLogin(m);
+  if (!waiting) return;
+  const { loggedIn, fingerprint } = await loginState(entry);
+  if (!loggedIn) return;
+  // Still the exact copy the bot turned down — you haven't logged in again yet.
+  if (fingerprint && fingerprint === rec.badFingerprint && rec.badAt && now - rec.badAt < BAD_COPY_HOLD_MS) return;
+  loginResyncAt.set(m, now);
+  const [r] = await syncSome([m], 'auto');
+  if (r && r.ok) {
+    await clearRetry(m);
+    await resetSyncAlarm(m);
+  }
+  await updateBadge();
+}
+
+// Fires the moment a cookie changes in this browser. A login cookie being set
+// (not removed) on a marketplace that's waiting for a login = you just logged
+// in: sync it a few seconds later (lets the rest of the login cookies land).
+const loginTimers = new Map();
+chrome.cookies.onChanged.addListener(({ removed, cookie }) => {
+  if (removed || !cookie) return;
+  const entry = MARKETPLACES.find((e) => e.loginCookies.includes(cookie.name) && String(cookie.domain || '').replace(/^\./, '').endsWith(e.cookieDomain));
+  if (!entry) return;
+  clearTimeout(loginTimers.get(entry.marketplace));
+  loginTimers.set(entry.marketplace, setTimeout(() => resyncAfterLogin(entry), 5000));
+});
+
 async function fetchHealth(appUrl, syncSecret) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15000);
@@ -433,7 +489,10 @@ async function checkHealth() {
       const rec = (await chrome.storage.local.get([key]))[key] || {};
 
       if (state === 'ok') {
-        if (rec.count || rec.needsLogin) await chrome.storage.local.set({ [key]: { ...rec, count: 0, needsLogin: false } });
+        if (rec.count) await chrome.storage.local.set({ [key]: { ...rec, count: 0 } });
+        // Bot is fine, but this browser's row may be waiting for a login —
+        // if you've logged in since, sync it now (backup for the cookie event).
+        await resyncAfterLogin(entry);
         continue;
       }
       if (state !== 'expired' && state !== 'missing') continue; // network/5xx: a re-sync won't help

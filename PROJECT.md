@@ -1406,6 +1406,15 @@ spend a Myntra/Amazon call testing. Unattended syncs also never re-send a copy t
 the last 2h (a manual click still can; a skip doesn't extend the hold). The sync request has a 45s
 timeout (bot's limit is 30s). Leftover countdown CSS removed. Simulation: 10 scenarios, all pass.
 
+**Extension 1.3 (2026-09-24)**: a row left red by a sync that found this browser logged out (or
+had its copy rejected) now re-syncs **by itself as soon as you log in** — `chrome.cookies.onChanged`
+on a login cookie (5s debounce), with the minute health check as a backup even when the bot's
+session is fine. Only while a row is waiting for a login, ≤1 attempt/min, and never the copy the bot
+rejected: the "which login is this" fingerprint now uses stable cookies (Myntra `erp.rt`; Amazon
+`at-acbin`/`sess-at-acbin`, not `session-token`, which Amazon changes on nearly every page load and
+would make browsing look like a new login). A healthy bot no longer clears the "needs login" flag —
+only a successful sync does. Simulation: 12 scenarios, all pass.
+
 **Review pass (same day)**: cookie writes throttled to once a minute per server instance, but
 immediate when `erp.at`/`erp.rt` change (the SPF page's ~140 calls no longer mean ~140 writes; a
 skipped write leaves the in-memory copy untouched so the chain stays consistent, and the in-memory
