@@ -46,7 +46,7 @@ flowchart TD
 
   subgraph BOTAPP["Order Alerts bot"]
     CHECKS["/api/check-* endpoints"]
-    BOTDASH["Bot dashboard<br/>+ scan a return"]
+    BOTDASH["Bot dashboard<br/>+ Myntra/Amazon scan pages"]
   end
 
   subgraph SMAPP["stock-manager"]
@@ -123,6 +123,11 @@ flowchart LR
   F -- "Good / Used / Faked" --> G["+stock — sellable"]
   F -- "Wrong item / Defective" --> H["DAMAGED bucket<br/>never sold again"]
 ```
+
+**Amazon returns** have their own page on the bot's dashboard (Amazon Return): scan the return
+label's tracking barcode or read the printed order ID with the camera, the bot looks the return up
+in Amazon Seller Central, and logs it through the same `POST /api/register` — just with channel
+AMAZON. An Amazon Pack page does the same kind of lookup for outbound parcels (read-only).
 
 Available from two places that do the exact same thing: the bot's own dashboard (camera or typed
 tracking ID, can resolve *and* log in one place) and stock-manager's Returns page (manual pick,

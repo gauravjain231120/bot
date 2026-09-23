@@ -17,8 +17,10 @@ import {
 // linked from here.
 const NAV_ITEMS = [
   { href: '/', label: 'Overview', Icon: HomeIcon },
-  { href: '/returns', label: 'Scan Return', Icon: ScanIcon },
-  { href: '/packed', label: 'Scan Packed', Icon: BoxIcon },
+  { href: '/returns', label: 'Myntra Return', Icon: ScanIcon },
+  { href: '/packed', label: 'Myntra Pack', Icon: BoxIcon },
+  { href: '/amazon-packed', label: 'Amazon Pack', Icon: BoxIcon },
+  { href: '/amazon-returns', label: 'Amazon Return', Icon: ScanIcon },
   { href: '/sessions', label: 'Sessions', Icon: KeyIcon },
   { href: '/recipients', label: 'Recipients', Icon: UsersIcon, ownerOnly: true },
   { href: '/team', label: 'Team', Icon: ShieldIcon, ownerOnly: true },

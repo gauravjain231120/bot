@@ -34,7 +34,7 @@ export async function GET(request) {
     const packet = await lookupPackedShipment(id, sessionDoc.headers);
     if (!packet) {
       const hint = RETURN_LABEL_PREFIXES.some((p) => id.startsWith(p))
-        ? ' This looks like a return label — use Scan Return instead.'
+        ? ' This looks like a return label — use Myntra Return instead.'
         : ' It may not be packed yet, or the label belongs to another warehouse.';
       return NextResponse.json({ error: `No packed shipment found for ${id}.${hint}` }, { status: 404 });
     }

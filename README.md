@@ -17,6 +17,21 @@ Admin app that polls Myntra M-Direct for new orders and alerts on Telegram (with
   use, though, a small Chrome extension (`browser-extension/`) does this automatically — see
   below.
 
+## Dashboard pages
+
+Besides the alerts, the logged-in dashboard has scan pages for the packing desk (camera, USB/Bluetooth
+scanner, or typed):
+
+- **Myntra Return** / **Myntra Pack** — scan a Myntra return or outbound label: product photo,
+  SKU, size, dates; returns can be logged straight into stock-manager.
+- **Amazon Pack** / **Amazon Return** — the same for Amazon, by the label's tracking barcode or by
+  the order ID (the camera reads the printed number). Amazon returns log into stock-manager as
+  channel AMAZON.
+- **SPF Status** (Owner-only) — Myntra SPF claim counts, and the ₹ Myntra actually paid split into
+  Fake / Wrong returns.
+
+See `PROJECT.md` §22–§26 for how each lookup works.
+
 ## Setup
 
 1. `cp .env.example .env.local` and fill in the values (Telegram bot token/chat ID, a MongoDB

@@ -113,7 +113,7 @@ export default function ReturnsPage() {
   return (
     <>
       <div className="page-header">
-        <h1>Scan a Myntra return</h1>
+        <h1>Myntra Return</h1>
         <p className="muted">
           Scan or type a return tracking ID (MYSR… / MYER… / MYEC…) — resolves the product, size and
           photo the same way stock-manager&apos;s own Returns page does, and logs the return straight

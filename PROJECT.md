@@ -223,11 +223,14 @@ multi-page app sharing one persistent sidebar/topbar shell and one pool of live 
   |---|---|---|
   | `/` | Stat grid (7 cards) + Open orders grid | landing page; orders grid added 2026-09-22 so it's visible without a click — see `components/OrdersGrid.js` below |
   | `/orders` | Open orders grid + platform filter | same `OrdersGrid` component as `/`; no longer linked from the sidebar (removed 2026-09-22, redundant with `/` showing the same grid) but the route itself still exists |
-  | `/returns` | Scan a Myntra return (§22) | camera scan, resolve, add to stock-manager |
+  | `/returns` | **Myntra Return** — scan a Myntra return (§22) | camera scan, resolve, add to stock-manager; scanned-this-session list |
+  | `/packed` | **Myntra Pack** — scan a Myntra packed/picked label (§25) | product, SKU, size, packed/pick-by/picked/shipped times |
+  | `/amazon-packed` | **Amazon Pack** — scan an Amazon label by tracking or order ID (§26) | order + items + ship-by/pickup slot; order ID read by camera OCR |
+  | `/amazon-returns` | **Amazon Return** — scan an Amazon return by tracking or order ID (§26) | add to stock-manager as channel AMAZON |
   | `/sessions` | Refresh Myntra/Amazon session forms | session *history* removed 2026-09-22, see below |
   | `/recipients` | Alert recipients (§20) + OTC scope toggle (§19) + role change history | **Owner-only** |
   | `/team` | Dashboard accounts CRUD + role changes, confirmation-password-gated (§23) | **Owner-only** |
-  | `/spf-status` | SPF claim counts (§24) | **Owner-only** |
+  | `/spf-status` | SPF claim counts + paid ₹ total split into Fake / Wrong (§24) | **Owner-only** |
 
 - **Form layout gotcha (fixed 2026-09-22, twice)**: the Team page's "add account" row was
   originally an inline `display:flex; flexWrap:wrap` style with unsized children — rendered as a
@@ -559,7 +562,7 @@ iterations worth knowing about, because the reasoning matters if it needs to cha
 ```
 lib/
   db.js                 this app's own Mongo connection (cached across warm serverless invocations)
-  stock.js              read-only stock lookup against stock-manager's DB (§9); lookupProductBySku() for §22, added 2026-09-22
+  stock.js              read-only stock lookup against stock-manager's DB (§9); lookupProductBySku() for §22, added 2026-09-22; lookupReturnsByTracking() (RETURNED rows' condition by tracking id) for §24's paid split, added 2026-09-23
   readyToShip.js         writes to stock-manager's Ready to Ship queue via its HTTP API (§10)
   dates.js               IST formatting + the Myntra ship-by cutoff rule (§12)
   curl.js                 parses pasted cURL / DevTools header-dump text into a headers object
@@ -567,7 +570,7 @@ lib/
   adminAuth.js            session-token cookie (admin_auth) against the `sessions` collection; getCurrentAccount()/isAuthed()/createSession()/destroySession() (§23, rewritten 2026-09-22 — was a single shared ADMIN_PASSWORD)
   accounts.js             the `accounts` collection — dashboard login accounts, Owner/Viewer roles, scrypt password hashing (§23, added 2026-09-22)
   monitorState.js         getRunning/setRunning on settings/_id:'status'.running
-  myntra.js                Myntra API calls + per-order/per-item Telegram text formatting; fetchPackedCount() (getPostPackedOrders, paginated) for /packed; resolveReturnByTrackingId() (SPF claim -> packed-order lookup) for /api/resolve-return, see §21 (added 2026-09-22); fetchSpfTicketCounts() (spf/v2/getTickets, paginated, page/pageSize) for §24 (added 2026-09-22)
+  myntra.js                Myntra API calls + per-order/per-item Telegram text formatting; fetchPackedCount() (getPostPackedOrders, paginated) for /packed; resolveReturnByTrackingId() (SPF claim -> packed-order lookup) for /api/resolve-return, see §21 (added 2026-09-22); fetchSpfTicketCounts() (spf/v2/getTickets, paginated, page/pageSize) for §24 (added 2026-09-22); fetchSpfPaidClaims() (per-paid-claim compensationAmount + tracking ids) for §24, lookupPackedShipment() (searchPostPackedOrder) for §25 (added 2026-09-23)
   amazon.js                Amazon API calls + per-order/per-item Telegram text formatting
   checkOrders.js           orchestrates one Myntra poll cycle (fetch → diff → alert → queue)
   checkAmazonOrders.js     same, for Amazon
@@ -579,11 +582,15 @@ lib/
   sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
   recipients.js            the `recipients`/`recipientRoleHistory` collections — who gets alerted, who can run bot commands, role-change audit log (§20)
   telegramCommands.js      fetchQueueSummary() (reads stock-manager's `/api/pending/summary`) + one formatXList() per bot command's text — /ship, /make, /myntra(all/left), /amazon(all/left), /ready(all), /notready(all); toDMY()/todayIst() + formatPackedCount() for /packed(all) (added 2026-09-22)
-  returns.js               addReturnToStockManager() — POSTs a Myntra return to stock-manager's own /api/register, same auth pattern as addToReadyToShip() (§22, added 2026-09-22)
+  returns.js               addReturnToStockManager() — POSTs a return to stock-manager's own /api/register, same auth pattern as addToReadyToShip(); `channel` defaults to MYNTRA, AMAZON for §26 (§22, added 2026-09-22)
+  spfPaid.js               fetchSpfPaidBreakdown() — splits the SPF paid total into fake/wrong/unclear/gradedOther/notLogged by matching paid claims to stock-manager's return log (§24, added 2026-09-23)
+  amazonScan.js            lookupAmazonPacked()/lookupAmazonReturn() for the Amazon Pack/Return pages — orders-api search (qt=tracking-id) + order detail, returns/api search (§26, added 2026-09-23)
   DashboardContext.js      DashboardProvider/useDashboard() — every cross-page dashboard state + the single 60s poll loop (§7, added 2026-09-22, was inline in app/page.js)
   format.js                timeAgo/formatMinutes/otcLines/RETURN_CONDITIONS/RETURN_CONDITION_LABELS, shared by multiple pages (§7, added 2026-09-22)
 components/
   BarcodeScanner.js        full-screen camera barcode scanner (@zxing/browser), plain JS/JSX port of what was originally stock-manager's own BarcodeScanner.tsx (§22, added 2026-09-22)
+  OrderIdScanner.js        full-screen camera OCR reader (tesseract.js, lazy-loaded) for a printed Amazon order ID — 3-7-7 digit shape, two matching frames required (§26, added 2026-09-23)
+  AmazonScanShared.js      Tracking/Order ID toggle + input + camera, status badge, item card — shared by the two Amazon scan pages only (§26, added 2026-09-23)
   AppShell.js              sidebar + topbar shell every page renders inside, wired in app/layout.js (§7, added 2026-09-22)
   LoginScreen.js           the login form, rendered by AppShell while not authed (§7, added 2026-09-22)
   icons.js                 every inline SVG icon component, shared across pages/shell (§7, added 2026-09-22)
@@ -591,11 +598,14 @@ components/
 app/
   page.js                  Overview page — stat grid + error banners (§7, rewritten 2026-09-22, was the whole dashboard)
   orders/page.js           Open orders grid + platform filter (§7, added 2026-09-22)
-  returns/page.js          Scan a Myntra return (§7, §22, added 2026-09-22)
+  returns/page.js          Myntra Return — scan a Myntra return (§7, §22, added 2026-09-22)
+  packed/page.js           Myntra Pack — scan a Myntra packed/picked label (§25, added 2026-09-23)
+  amazon-packed/page.js    Amazon Pack — tracking or order ID lookup (§26, added 2026-09-23)
+  amazon-returns/page.js   Amazon Return — tracking or order ID lookup + add to stock-manager (§26, added 2026-09-23)
   sessions/page.js         Refresh Myntra/Amazon session forms + session history (§7, added 2026-09-22)
   recipients/page.js       Alert recipients + OTC scope + role change history, Owner-only (§7, §19, §20, added 2026-09-22)
   team/page.js             Dashboard accounts CRUD, Owner-only (§7, §23, added 2026-09-22)
-  spf-status/page.js       Owner-only SPF claim counts page — total/Approved/Paid/Rejected + full breakdown, on demand only (§24, added 2026-09-22)
+  spf-status/page.js       Owner-only SPF claim counts page — total/Approved/Paid/Rejected + full breakdown, paid ₹ split into Fake/Wrong + "paid claims to check" list, on demand only (§24, added 2026-09-22)
   layout.js                root layout — wraps every page in DashboardProvider + AppShell (§7)
   api/telegram-webhook/route.js   Telegram's webhook target — command parsing/dispatch, Owner-gated (§20)
   globals.css              all dashboard styling, theme (light/dark) CSS variables, sidebar/shell layout (§7)
@@ -610,6 +620,12 @@ app/
     spf-status/route.js           GET — SPF ticket counts by status, Owner-only, on demand (§24)
     resolve-return/route.js       GET — resolve a Myntra return tracking id to SKU/size/photo, for stock-manager (§21)
     dashboard/resolve-return/route.js   GET — same resolver, admin_auth-gated + catalog-matched, for this app's own dashboard (§22)
+    dashboard/add-return/route.js       POST — log a Myntra return into stock-manager (§22)
+    dashboard/packed-lookup/route.js    GET — Myntra Pack lookup by tracking number / packet id (§25)
+    dashboard/amazon-packed-lookup/route.js   GET ?mode=tracking|order — Amazon Pack lookup (§26)
+    dashboard/amazon-return-lookup/route.js   GET ?mode=tracking|order — Amazon Return lookup, catalog-matched (§26)
+    dashboard/amazon-add-return/route.js      POST — log an Amazon return into stock-manager, channel AMAZON (§26)
+    spf-status/verify/route.js          POST — confirmation-password gate; for Paid, computes the ₹ total + fake/wrong split (§24)
     dashboard/add-return/route.js       POST — logs the resolved return into stock-manager (§22)
     admin/start|stop|check-now/route.js   dashboard action endpoints (§7)
     login/route.js                POST {username,password} -> creates a session, sets admin_auth (§23)
@@ -1207,3 +1223,37 @@ color, qty, selling price/MRP. Read-only, one live Myntra call per scan, never o
   (`pointer: fine`), so a USB scanner can scan back-to-back; on phones that would pop the keyboard
   after every camera scan. A "Scanned this session" list (last 10, in memory only) and a note when
   the same label is scanned twice. Multi-item packets show every line item.
+
+## 26. Amazon Pack & Amazon Return scan pages (added 2026-09-23)
+
+Two sidebar items below Scan Packed — **Amazon Pack** (`app/amazon-packed/page.js`) and **Amazon
+Return** (`app/amazon-returns/page.js`). Separate from the Myntra scan pages, which are untouched
+(the only shared change: `lib/returns.js`'s `addReturnToStockManager` gained a `channel` option,
+default `'MYNTRA'`). Both pages have a **Tracking ID / Order ID** toggle (tracking is the default;
+the choice is remembered per page in localStorage):
+- Tracking ID → the camera opens the existing barcode scanner.
+- Order ID → the camera opens `components/OrderIdScanner.js`, an OCR reader (tesseract.js, loaded
+  on first open — a few MB from its CDN, cached after) for the order number printed on the label.
+  It crops the middle band of the frame, only accepts the Amazon 3-7-7 digit shape, and only after
+  **two consecutive frames agree**, so other numbers on the label (tracking, PIN, phone) and
+  one-off misreads are ignored. Also maps O→0. Typed ids work with or without dashes/spaces.
+
+Lookups live in `lib/amazonScan.js` (read-only, saved `session_amazon` headers). Verified live:
+- Pack by tracking: `orders-api/search?...&q=<tracking>&qt=tracking-id&date-range=last-365` —
+  **`qt=tracking-id` is required**; without it `q` is silently ignored and every order comes back.
+  Then `orders-api/order/<id>` for the detail (packages → tracking, carrier, pickup slot,
+  items with SellerSKU/title/image/price; purchase date, ship-by, deliver-by, status, label
+  status, COD). Pack by order id goes straight to `orders-api/order/<id>` (`qt=order-id` is NOT
+  honoured). Size/color come from the title/SKU via `lib/amazon.js`'s `extractVariant`.
+- Return: `returns/api/return-requests?searchBy=CarrierTrackingId|OrderId&searchTerm=...`
+  (`dateRange.selectedDateRange=365`) → order id, status, exchange/refund, return tracking +
+  carrier, dates, and per item SKU/title/image/qty/reason/resolution. Items are matched to
+  stock-manager's catalog (`lookupProductBySku`), and "Add to Return" posts via
+  `POST /api/dashboard/amazon-add-return` → stock-manager `/api/register`, `channel: 'AMAZON'`,
+  logged under the return label's tracking id.
+- Expired Amazon session is HTTP 403 `{"reason":"sign_in"}` → a clear "refresh the session"
+  error; a bare 403/429/5xx is retried once (Amazon's one-off bot blocks, see lib/amazon.js).
+- Same "Scanned this session" list / repeat-scan note / USB-scanner focus as the Myntra pages.
+- **Renamed (2026-09-23)**: the Myntra scan pages are now labelled **Myntra Return** (`/returns`)
+  and **Myntra Pack** (`/packed`) in the sidebar and page headings, so they read clearly next to
+  Amazon Pack / Amazon Return. Routes/URLs are unchanged.
