@@ -1331,6 +1331,12 @@ worked before).
   (2) LIVE every 60s per open tab, on every dashboard page (the poll lives in the shared layout),
   even in background tabs — ~11,500 calls/day for one tab left open, 10–15x the alert checks.
 
+- **Root cause, confirmed**: `erp.at` = short-lived access token, `erp.rt` = refresh token. With
+  a bad/expired `erp.at` but a good `erp.rt`, Myntra refreshes silently — the call succeeds and
+  Set-Cookie carries a NEW `erp.at` and a NEW `erp.rt`; only both bad → statusCode 101. The bot
+  discarded those, so its copy died whenever `erp.at` aged out. A superseded `erp.rt` still
+  refreshed fine after newer ones were issued, so the bot refreshing does not log the browser out.
+
 **Fixes**
 - `lib/myntraCookies.js` + `myntraGet()` in `lib/myntra.js` (every Myntra call goes through it):
   merges Set-Cookie back into `settings/session` after each SUCCESSFUL call — only known session
@@ -1368,6 +1374,16 @@ if logged out, no sync + "log in" + red badge; a copy the bot rejected isn't re-
 the cookies change (new login). `session-not-working` never arms the 1–15 min backoff retries.
 Simulated in Node with a mocked Chrome API (migration, intervals, single recovery, logged-out,
 rejected copy, stopped bot, start/stop, schedules/retries) — all pass.
+
+**Review pass (same day)**: cookie writes throttled to once a minute per server instance, but
+immediate when `erp.at`/`erp.rt` change (the SPF page's ~140 calls no longer mean ~140 writes; a
+skipped write leaves the in-memory copy untouched so the chain stays consistent, and the in-memory
+copy only follows a write that actually matched). Session test for Amazon is one `limit=1` search
+(`probeAmazonSession`) instead of a full 2-program fetch. A scheduled/retry sync of the SAME login
+the bot already has working (same `erp.at`/`erp.rt`, or Amazon's `at-acbin`/`sess-at-acbin`/
+`session-token`) makes no marketplace call and doesn't swap the bot's fresher rolled cookies for the
+browser's — it just records `lastSyncedAt`, which the watchdog now reads. The "auto-sync ok"
+heartbeat is sent at most once per marketplace every 4h, however short the interval.
 
 **Marketplace calls after this** (5 open orders): Myntra ~600/day, Amazon ~1,150/day from the
 timers, regardless of how many dashboard tabs are open (was +~11,500/day per open tab).

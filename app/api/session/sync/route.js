@@ -5,8 +5,10 @@ import {
   announceScheduledSyncOk,
   markSessionRestored,
   clearSessionError,
+  isSameWorkingLogin,
+  touchSessionSynced,
 } from '../../../../lib/sessionStore';
-import { fetchUnshippedOrders } from '../../../../lib/amazon';
+import { probeAmazonSession } from '../../../../lib/amazon';
 import { fetchOpenOrders } from '../../../../lib/myntra';
 
 export const runtime = 'nodejs';
@@ -58,9 +60,18 @@ export async function POST(request) {
   const period = Number(body.periodMinutes);
   const syncPeriodMinutes = Number.isFinite(period) ? Math.min(MAX_PERIOD, Math.max(MIN_PERIOD, Math.round(period))) : null;
 
+  // 0. Scheduled/retry sync of the SAME login the bot already has working:
+  // nothing to test or replace (the bot's copy is the fresher one — it keeps
+  // rolling). Just note the check-in. Saves a marketplace call per sync.
+  if (trigger === 'auto' && (await isSameWorkingLogin(marketplace, body.headers))) {
+    await touchSessionSynced(marketplace, syncPeriodMinutes);
+    if (body.scheduled) await announceScheduledSyncOk(marketplace);
+    return NextResponse.json({ ok: true, unchanged: true });
+  }
+
   // 1. Test the browser's session before touching the stored one.
   try {
-    if (marketplace === 'amazon') await fetchUnshippedOrders(body.headers);
+    if (marketplace === 'amazon') await probeAmazonSession(body.headers);
     else await fetchOpenOrders(body.headers);
   } catch (err) {
     const status = err.response && err.response.status;
