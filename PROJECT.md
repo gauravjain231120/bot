@@ -1042,6 +1042,14 @@ uses). "Scan a Myntra return" is a card on the dashboard itself, open by default
   through to the real-session lookup, found none, and 401'd. Fixed on stock-manager's side by
   adding `/api/register` to its `SERVICE_API_PREFIXES` — see stock-manager's own `PROJECT.md`.
 
+- **Order id saved with each Myntra return (added 2026-09-24)**: the return lookup already reads
+  the claim record, whose `orderId` (e.g. `100289743725`) is now carried per item
+  (`fetchSpfClaims` → `resolveReturnByTrackingId` → the candidate), shown on the card ("Order: …")
+  and sent on Add to Return (digits only, else dropped) → stored in the return row's order number
+  field in stock-manager. No extra Myntra call. Caveat: Myntra uses several numbers for one parcel
+  — this is the one its returns/SPF pages show (what claims need); the new-order alert's M-Direct
+  id (e.g. `6028789826`) and some shipped rows' long id are different numbers. On a multi-item
+  parcel each item has its own order id (Myntra keys orders per line).
 - **Scanned this session (added 2026-09-23)**: same in-memory list as Scan Packed (§25) — last 10
   tracking ids scanned in this tab, each with its items' SKU/size and whether each was added (and
   as which condition); gone on refresh, per device, nothing saved. Also a "already scanned this

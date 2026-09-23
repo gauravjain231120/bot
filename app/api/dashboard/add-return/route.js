@@ -29,6 +29,8 @@ export async function POST(request) {
     trackingId: body.trackingId,
     condition: body.condition,
     returnType,
+    // Myntra's order number from the return lookup — digits only, else dropped.
+    orderId: /^\d{6,24}$/.test(String(body.orderId || '')) ? String(body.orderId) : undefined,
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 502 });

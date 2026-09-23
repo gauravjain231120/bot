@@ -99,7 +99,7 @@ export default function ReturnsPage() {
       const res = await fetch('/api/dashboard/add-return', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sku: candidate.matchedSku, qty: 1, trackingId: resolvedId, condition: candidate.condition, returnType: candidate.returnType }),
+        body: JSON.stringify({ sku: candidate.matchedSku, qty: 1, trackingId: resolvedId, condition: candidate.condition, returnType: candidate.returnType, orderId: candidate.orderId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -203,6 +203,7 @@ export default function ReturnsPage() {
                       {c.color ? <span className="muted"> · {c.color}</span> : ''}
                     </div>
                   )}
+                  {c.orderId && <div className="muted">Order: <span style={{ fontFamily: 'monospace' }}>{c.orderId}</span></div>}
                   {c.returnReason && <div className="muted">Reason: {c.returnReason}</div>}
                   {c.returnCreatedDate && <div className="muted">Return created: {c.returnCreatedDate}</div>}
                   {c.matchError && <div style={{ color: 'var(--bad)' }}>{c.matchError}</div>}
