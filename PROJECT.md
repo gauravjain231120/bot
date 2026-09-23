@@ -584,6 +584,7 @@ lib/
   telegramCommands.js      fetchQueueSummary() (reads stock-manager's `/api/pending/summary`) + one formatXList() per bot command's text — /ship, /make, /myntra(all/left), /amazon(all/left), /ready(all), /notready(all); toDMY()/todayIst() + formatPackedCount() for /packed(all) (added 2026-09-22)
   myntraCookies.js         rolling-session cookie merge after each Myntra call (§28, added 2026-09-23)
   ordersSnapshot.js        saved open-orders snapshots + per-order item cache the dashboard reads (§28, added 2026-09-23)
+  amazonPrograms.js        which Amazon programs to search per check — self-ship every 30 min unless in use (§29, added 2026-09-23)
   sessionLifetimes.js      one row per session death, for measuring real lifetimes (§28, added 2026-09-23)
   returnTypeServer.js      myntraReturnTypeFor()/amazonReturnTypeFor() — server-side return type for the add routes (§27, added 2026-09-23)
   returns.js               addReturnToStockManager() — POSTs a return to stock-manager's own /api/register, same auth pattern as addToReadyToShip(); `channel` defaults to MYNTRA, AMAZON for §26; `returnType` CUSTOMER/RTO/UNKNOWN for §27 (§22, added 2026-09-22)
@@ -1388,3 +1389,35 @@ heartbeat is sent at most once per marketplace every 4h, however short the inter
 
 **Marketplace calls after this** (5 open orders): Myntra ~600/day, Amazon ~1,150/day from the
 timers, regardless of how many dashboard tabs are open (was +~11,500/day per open tab).
+
+## 29. Amazon: keep-alive + half the calls (full review, added 2026-09-23)
+
+Verified live, then fixed — all in `lib/amazon.js`, `lib/amazonPrograms.js`, `lib/myntraCookies.js`:
+- **Rolling session for Amazon too.** A successful Seller Central call re-issues `session-token`
+  (new value, 1-year cookie) via Set-Cookie; the bot discarded it — the most likely cause of the
+  long-standing "Amazon session dies in minutes-to-hours" (§12). `persistAmazonCookies()` saves it
+  after every successful JSON response (`getWithRetry` and `lib/amazonScan.js`), using the same
+  shared `rollSessionCookies()` as Myntra: compare-and-set on the exact cookie sent, only cookies
+  the session already has (nothing added), never deletions, ≤1 write/min unless an auth token
+  (`session-token`, `at-acbin`, `sess-at-acbin`, `x-acbin`, `sst-acbin`) changed. Verified: token
+  refreshed, saved, and the refreshed session works.
+- **Self-ship checked every 30 min instead of every 5.** It had 0 orders in 365 days (Easy Ship:
+  704), yet every order + cancellation check searched it — ~576 of ~1,150 Amazon calls/day.
+  `programsToCheck(kind)` returns Easy Ship always, self-ship when 30 min have passed for that
+  check type, or on EVERY check for 24h after it last returned anything
+  (`settings/amazon_programs`; on any error both are checked, the old behaviour). Worst case: the
+  first self-ship order after a long quiet spell is seen ≤30 min later. The checks use the new
+  `fetchUnshippedByProgram` / `fetchCancelledByProgram`; `fetchUnshippedOrders` /
+  `fetchCancelledOrders` keep their old signatures (default both programs).
+- **No retries on a real sign-out.** Amazon answers an expired session with 403
+  `{"reason":"sign_in"}` (and 401); `getWithRetry` used to retry those twice with 4s waits — 3 calls
+  + ~8s per check for the whole outage. Now thrown straight away (other 403/429/5xx still retried).
+- **A sign-in page can no longer look like "0 orders".** `ordersFrom(res)` throws a 401-shaped error
+  when a 200's body isn't the orders JSON, so the existing session-expired alert / health state
+  cover it instead of the check "succeeding" with nothing.
+- Same-login detection for extension syncs (`isSameWorkingLogin`) now compares Amazon's stable
+  `at-acbin` / `sess-at-acbin` only — `session-token` changes on every call now.
+
+**Amazon calls/day now**: ~290 order + ~290 cancellation (Easy Ship) + ~96 self-ship ≈ **~680**
+(was ~1,150), plus ≤1 small test per extension sync when the login changed. Stock-manager makes no
+Myntra/Amazon calls at all (its only cron is the daily backup) — every marketplace call is the bot's.

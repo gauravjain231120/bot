@@ -188,6 +188,10 @@ never replace a working session with a broken one. The dashboard no longer calls
 itself — it shows what the 5-minute checks saved — which cut the marketplace traffic by roughly
 10–15x and keeps it looking like normal use.
 
+**Amazon gets the same keep-alive** (Seller Central also refreshes its `session-token` in every
+reply, which the bot now saves), and its self-ship program — unused for a year — is searched every
+30 minutes instead of every 5, which halves Amazon traffic.
+
 ## What runs, how often, and why
 
 | What | Runs | Why this rate |
