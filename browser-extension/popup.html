@@ -90,6 +90,17 @@
       button:disabled { opacity: 0.5; cursor: default; }
       .btn-primary { background: var(--brand); color: white; }
       .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); margin-top: 8px; }
+      .next { font-size: 11px; color: var(--muted); margin: 2px 0 0 16px; }
+      .watch { font-size: 12px; margin-top: 4px; }
+      .watch .bad { color: var(--bad); font-weight: 600; }
+      .watch .good { color: var(--good); font-weight: 600; }
+      .settings-title { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+      .period-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+      .period-row label { width: 60px; font-weight: 600; }
+      .period-row input { width: 80px; padding: 5px 6px; border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+      .hint { font-size: 11px; color: var(--muted); margin: 4px 0 8px; }
+      .save-status { font-size: 11px; color: var(--good); margin-top: 6px; min-height: 14px; }
+      .btn-small { width: auto; padding: 6px 12px; font-size: 12px; background: var(--brand); color: #fff; }
       footer { text-align: center; margin-top: 12px; }
       footer a { font-size: 11px; color: var(--muted); text-decoration: none; }
       footer a:hover { text-decoration: underline; }
@@ -100,12 +111,21 @@
     <div class="subtitle">Myntra &amp; Amazon, kept fresh automatically</div>
 
     <div class="card">
-      <div class="countdown-label" id="countdownLabel">Next auto-sync in</div>
-      <div class="countdown" id="countdown">—</div>
+      <div class="countdown-label" id="countdownLabel">Session watch</div>
+      <div class="watch" id="watch">—</div>
     </div>
 
     <div class="card">
       <div class="rows" id="rows"></div>
+    </div>
+
+    <div class="card">
+      <div class="settings-title">Auto-sync every (minutes)</div>
+      <div class="period-row"><label for="periodMyntra">Myntra</label><input id="periodMyntra" type="number" inputmode="numeric" /><span class="muted" id="periodMyntraHuman"></span></div>
+      <div class="period-row"><label for="periodAmazon">Amazon</label><input id="periodAmazon" type="number" inputmode="numeric" /><span class="muted" id="periodAmazonHuman"></span></div>
+      <div class="hint" id="periodHint">Default 240 (4 hours).</div>
+      <button class="btn-small" id="savePeriods">Save</button>
+      <div class="save-status" id="saveStatus"></div>
     </div>
 
     <button class="btn-primary" id="sync">Sync now</button>

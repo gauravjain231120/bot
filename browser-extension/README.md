@@ -20,13 +20,24 @@ See the main project's `PROJECT.md` §2 and §18 for why it's built this way.
    same Chrome.
 5. Click the icon → **Sync now** to confirm it works right away.
 
-After that it re-syncs on its own every 4 hours (`SYNC_PERIOD_MINUTES` in `background.js`) for as
-long as Chrome is running — no further clicks needed.
+After that it re-syncs on its own — every 4 hours by default, separately for Myntra and Amazon,
+adjustable in the popup — for as long as Chrome is running. No further clicks needed.
 
 ## Using it day to day
 
-- **Popup** shows a live countdown to the next auto-sync, and a colored dot per marketplace for
-  the last sync's result.
+- **Popup** shows the **session watch** (what the bot says about its Myntra/Amazon session, checked
+  every minute), a colored dot per marketplace for the last sync's result, and a countdown to each
+  marketplace's next auto-sync.
+- **Session watch / auto-restore**: every minute the extension asks the bot — never Myntra or
+  Amazon — whether its session still works. If the bot's session expired while this browser is
+  still logged in, it re-syncs right away (at most once per 10 min, backing off to 60 min if it
+  keeps dying), and you get a quiet "session restored automatically" Telegram note. If this
+  browser is **logged out**, it does not sync (a logged-out copy can't work): the row says
+  "Logged out — log in…", the icon shows a red "!", and it syncs by itself as soon as you log in.
+- **Auto-sync every (minutes)**: set Myntra and Amazon separately (15–1440, default 240) and
+  Save. A shorter interval takes effect right away; a longer one from the next cycle.
+- **The bot tests every session before using it**: a copy that doesn't work (logged out, stale)
+  is refused and the bot keeps its current, working session — syncing can never break it.
 - **Sync now** always works immediately, regardless of the timer or the Stop/Start state below.
 - **Stop auto-sync** / **Start auto-sync** pauses/resumes the timer without uninstalling anything
   — useful if you want to temporarily stop it without losing the setup. Starting again also
@@ -55,9 +66,12 @@ affect any other.
 
 | Want to change | Edit |
 |---|---|
-| How often it auto-syncs | `SYNC_PERIOD_MINUTES` in `background.js`, then reload the extension |
+| How often it auto-syncs | the popup's "Auto-sync every (minutes)" box — per marketplace, no reload needed |
 | Which marketplaces it syncs / their cookie domain | the `MARKETPLACES` array in `background.js` |
 | App URL / secret | the extension's own options page (not a file) |
+
+**Updating to 1.1**: reload it once at `chrome://extensions` (⟳). Your current countdown carries
+over to both marketplaces' new timers; nothing needs re-entering.
 
 After editing any `.js`/`.html`/`.json` file here, reload the extension at `chrome://extensions`
 (click the ⟳ icon on its card) for the change to take effect.

@@ -1,17 +1,42 @@
 import { NextResponse } from 'next/server';
-import { saveSessionHeaders, announceSessionActivated, announceScheduledSyncOk } from '../../../../lib/sessionStore';
-import { getDb } from '../../../../lib/db';
+import {
+  saveSessionHeaders,
+  announceSessionActivated,
+  announceScheduledSyncOk,
+  markSessionRestored,
+  clearSessionError,
+} from '../../../../lib/sessionStore';
 import { fetchUnshippedOrders } from '../../../../lib/amazon';
 import { fetchOpenOrders } from '../../../../lib/myntra';
 
 export const runtime = 'nodejs';
+// Testing a dead Amazon session can take ~10s+ (Amazon's 403s are retried) —
+// don't let the platform's default timeout cut the test short.
+export const maxDuration = 30;
+
+const MIN_PERIOD = 15;
+const MAX_PERIOD = 24 * 60;
 
 /**
  * POST /api/session/sync — the browser-extension equivalent of pasting a
- * session on the admin page. A tiny extension reads the (HttpOnly) Myntra
- * cookies straight from Chrome's cookie jar — something a page script can't
- * do — and posts them here on a timer, so nobody has to open DevTools and
- * copy a curl command by hand every few hours.
+ * session on the admin page. The extension reads the (HttpOnly) cookies
+ * straight from Chrome's cookie jar and posts them here.
+ *
+ * body: { marketplace, headers, trigger, scheduled, periodMinutes }
+ *   trigger 'manual'   — someone clicked Sync in the popup
+ *           'auto'     — the extension's own timer (scheduled: true for the
+ *                        main per-marketplace alarm, false for a retry)
+ *           'recovery' — the extension saw (via /api/session/health) that the
+ *                        bot's session expired while the browser is still
+ *                        logged in, and is re-syncing right away
+ *
+ * The rule for every trigger: the new session is TESTED FIRST (one live
+ * call) and only saved if it actually works. It used to be saved
+ * unconditionally, so a browser that had logged out (or whose copy had gone
+ * stale) could overwrite a perfectly working session and break the bot. Now
+ * a non-working one is refused with reason 'session-not-working' and the
+ * current session is left exactly as it was — the extension then knows the
+ * browser needs a real login and stops re-trying that same copy.
  *
  * Auth is a shared secret, not the admin cookie — the extension runs in a
  * different browser context than the dashboard, with no cookie in common.
@@ -23,83 +48,63 @@ export async function POST(request) {
   }
 
   const body = await request.json().catch(() => null);
-  if (!body || typeof body.headers !== 'object') {
+  if (!body || typeof body.headers !== 'object' || !body.headers) {
     return NextResponse.json({ error: 'missing headers' }, { status: 400 });
   }
 
   const marketplace = body.marketplace === 'amazon' ? 'amazon' : 'myntra';
   const label = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
-  // 'manual' means a person clicked Sync in the popup right now, asking
-  // "does this work?". Anything else (omitted, or 'auto') is the unattended
-  // timer or a backoff retry, happening on its own with no way to know if
-  // anything changed.
-  const trigger = body.trigger === 'manual' ? 'manual' : 'auto';
+  const trigger = ['manual', 'recovery'].includes(body.trigger) ? body.trigger : 'auto';
+  const period = Number(body.periodMinutes);
+  const syncPeriodMinutes = Number.isFinite(period) ? Math.min(MAX_PERIOD, Math.max(MIN_PERIOD, Math.round(period))) : null;
 
+  // 1. Test the browser's session before touching the stored one.
   try {
-    const result = await saveSessionHeaders({ marketplace, headers: body.headers, source: 'extension' });
+    if (marketplace === 'amazon') await fetchUnshippedOrders(body.headers);
+    else await fetchOpenOrders(body.headers);
+  } catch (err) {
+    const status = err.response && err.response.status;
+    const data = err.response && err.response.data;
+    // Only a genuine rejection counts as "not working": a 401 / Myntra's own
+    // "session expired", or Amazon's sign-in response. A bare 403 can also be
+    // bot protection blocking one request (Akamai on Myntra — err.blocked —
+    // or Amazon's flaky 403s) — that says nothing about the session, so it's
+    // treated as "couldn't test, retry later", never as logged out.
+    const amazonSignIn = marketplace === 'amazon' && status === 403 && data && (data.reason === 'sign_in' || /signin|sign-in/i.test(String(data).slice(0, 2000)));
+    const rejected = status === 401 || err.sessionExpired || amazonSignIn || (marketplace === 'myntra' && status === 403 && !err.blocked);
+    if (rejected) {
+      return NextResponse.json(
+        {
+          error: `${label} session in this browser isn't working — log in to ${label} again in THIS Chrome browser. The bot kept its current session.`,
+          reason: 'session-not-working',
+          detail: `HTTP ${status || ''} ${err.message}`.trim(),
+        },
+        { status: 409 }
+      );
+    }
+    // Network / 5xx: says nothing about the session itself — try later.
+    return NextResponse.json(
+      { error: `${label} couldn't be reached to test the session — will retry`, reason: 'probe-failed', detail: err.message },
+      { status: 502 }
+    );
+  }
 
-    let working;
-    let rawError;
+  // 2. It works — store it.
+  try {
+    const result = await saveSessionHeaders({ marketplace, headers: body.headers, source: 'extension', syncPeriodMinutes });
 
     if (trigger === 'manual') {
-      // A person explicitly asked "does this work right now?" — the
-      // ~1-minute poller's last recorded result can be up to a minute
-      // stale (e.g. you logged out of Amazon seconds ago and the poll just
-      // before that still said fine), which is exactly what made a manual
-      // click right after logging out still say "ok", then separately say
-      // "activated" even though the session was already broken. A manual
-      // click is rare enough (nothing like the once-a-minute unattended
-      // cadence) that it's worth a real, live probe against the actual API
-      // instead of trusting that stale status.
-      try {
-        if (marketplace === 'amazon') await fetchUnshippedOrders(body.headers);
-        else await fetchOpenOrders(body.headers);
-        working = true;
-      } catch (err) {
-        working = false;
-        const status = err.response && err.response.status;
-        rawError = `${new Date().toISOString()} HTTP ${status || ''} ${err.message}`;
-      }
-    } else {
-      // Unattended sync: piggyback on the poller's own last recorded result
-      // rather than adding an extra live API call to every retry/period.
-      const db = await getDb();
-      const statusDoc = await db.collection('settings').findOne({ _id: 'status' });
-      rawError = marketplace === 'amazon' ? statusDoc?.amazonLastError : statusDoc?.lastError;
-      working = !rawError;
-    }
-
-    if (!working) {
-      // rawError is a log line (e.g. "2026-09-14T13:08:21.119Z HTTP 403
-      // Request failed with status code 403") meant for the admin page, not
-      // a tiny extension popup row — it gets cut off mid-timestamp there and
-      // reads as gibberish. Translate it into something short and
-      // actionable; the raw line still comes along as `detail` for anyone
-      // who needs it (e.g. a future debugging pass), just not shown by the
-      // extension today.
-      const isAuthFailure = /HTTP 401|HTTP 403/.test(rawError || '');
-      const friendly = isAuthFailure
-        ? `${label} session expired — log in to ${label} in THIS Chrome browser (being logged in elsewhere doesn't count)`
-        : `${label} check failed — see the admin page for details`;
-      return NextResponse.json({ error: friendly, detail: rawError }, { status: 401 });
-    }
-
-    // Genuinely verified working — never announced on the basis of "cookies
-    // were accepted" alone. A manual click that turns out to actually work
-    // is worth telling you about and worth re-arming the expired-alert (so
-    // you're told again if it breaks later). The unattended timer never
-    // does THAT flag-touching announcement itself — the poller's own success
-    // path already resets the alert flag when it finds things working, and
-    // re-announcing it here too on every clean auto-sync is exactly what
-    // caused the earlier spam loop of alternating activated/expired messages.
-    //
-    // A scheduled (never retry) auto-sync still gets its own quiet, flag-free
-    // heartbeat instead — see announceScheduledSyncOk's doc comment for why
-    // that one can't reintroduce the same loop.
-    if (trigger === 'manual') {
+      // A person explicitly asked "does this work?" — confirm it and re-arm
+      // the expired alert (same as always).
+      await clearSessionError(marketplace);
       await announceSessionActivated(marketplace);
-    } else if (body.scheduled) {
-      await announceScheduledSyncOk(marketplace);
+    } else if (trigger === 'recovery') {
+      await markSessionRestored(marketplace);
+    } else {
+      await clearSessionError(marketplace);
+      // Quiet once-per-period heartbeat; never touches the alert flags, so a
+      // retry storm can't turn it into the old activated/expired spam loop.
+      if (body.scheduled) await announceScheduledSyncOk(marketplace);
     }
 
     return NextResponse.json({ ok: true, ...result });

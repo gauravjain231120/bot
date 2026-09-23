@@ -1,21 +1,22 @@
-const countdownEl = document.getElementById('countdown');
-const countdownLabelEl = document.getElementById('countdownLabel');
+const watchEl = document.getElementById('watch');
 const rowsEl = document.getElementById('rows');
 const toggleBtn = document.getElementById('toggle');
 const syncBtn = document.getElementById('sync');
+const periodInputs = { myntra: document.getElementById('periodMyntra'), amazon: document.getElementById('periodAmazon') };
+const periodHuman = { myntra: document.getElementById('periodMyntraHuman'), amazon: document.getElementById('periodAmazonHuman') };
+const saveBtn = document.getElementById('savePeriods');
+const saveStatus = document.getElementById('saveStatus');
+const periodHint = document.getElementById('periodHint');
 
-let nextSyncAt = null; // ms epoch, or null when stopped/unscheduled
-let countdownTimer = null;
+const NAMES = ['myntra', 'amazon'];
+const LABEL = { myntra: 'Myntra', amazon: 'Amazon' };
+
+let nextAt = {}; // marketplace -> ms epoch of its next scheduled sync
+let enabled = true;
 
 // Always 12-hour (e.g. "13 Sep, 6:47 pm") regardless of the system's locale default.
 function formatTime(date) {
-  return date.toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  return date.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 function formatCountdown(ms) {
@@ -24,66 +25,89 @@ function formatCountdown(ms) {
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
 }
 
-// Ticks every second while the popup is open, recomputing from the fixed
-// target time each tick (not just decrementing a counter) so it can never
-// drift out of sync with the real alarm.
-function tickCountdown() {
-  countdownEl.textContent = nextSyncAt ? formatCountdown(nextSyncAt - Date.now()) : '—';
+function humanPeriod(min) {
+  const n = Number(min);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  if (n % 60 === 0) return `= ${n / 60}h`;
+  return n > 60 ? `= ${Math.floor(n / 60)}h ${n % 60}m` : '';
 }
 
-function startCountdownTimer() {
-  clearInterval(countdownTimer);
-  tickCountdown();
-  countdownTimer = setInterval(tickCountdown, 1000);
+function ago(iso) {
+  if (!iso) return '';
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return `${Math.max(0, s)}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  return formatTime(new Date(iso));
 }
 
-// This banner always tracks the main periodic alarm only — retries are now
-// per-marketplace (see render() below), so a failure shows inline on that
-// marketplace's own row instead of hijacking this shared countdown.
-async function renderAutoSyncState() {
-  const { autoSyncEnabled } = await chrome.storage.local.get(['autoSyncEnabled']);
-  const on = autoSyncEnabled !== false;
-  toggleBtn.textContent = on ? 'Stop auto-sync' : 'Start auto-sync';
-  countdownEl.classList.toggle('stopped', !on);
+// Recomputed from fixed target times every second (never a decrementing
+// counter), so it can't drift from the real alarms.
+function tick() {
+  for (const name of NAMES) {
+    const el = document.getElementById(`next-${name}`);
+    if (!el) continue;
+    el.textContent = !enabled ? 'Auto-sync stopped' : nextAt[name] ? `Next sync in ${formatCountdown(nextAt[name] - Date.now())}` : '';
+  }
+}
 
-  if (!on) {
-    countdownLabelEl.textContent = 'Auto-sync is stopped';
-    nextSyncAt = null;
-    clearInterval(countdownTimer);
-    tickCountdown();
+async function renderWatch() {
+  const { autoSyncEnabled, health } = await chrome.storage.local.get(['autoSyncEnabled', 'health']);
+  enabled = autoSyncEnabled !== false;
+  toggleBtn.textContent = enabled ? 'Stop auto-sync' : 'Start auto-sync';
+  watchEl.textContent = '';
+  if (!enabled) {
+    watchEl.textContent = 'Auto-sync is stopped — the session watch is off too.';
     return;
   }
-  countdownLabelEl.textContent = 'Next auto-sync in';
-  const alarm = await chrome.alarms.get('session-sync');
-  nextSyncAt = alarm ? alarm.scheduledTime : null;
-  startCountdownTimer();
+  if (!health) {
+    watchEl.textContent = 'Checking the bot every minute… (first check shortly)';
+    return;
+  }
+  if (health.error) {
+    const bad = document.createElement('span');
+    bad.className = 'bad';
+    bad.textContent = health.error;
+    watchEl.append(bad, ` · ${ago(health.at)}`);
+    return;
+  }
+  const parts = NAMES.map((n) => {
+    const st = health[n] && health[n].state;
+    const span = document.createElement('span');
+    span.className = st === 'ok' ? 'good' : st === 'expired' || st === 'missing' ? 'bad' : '';
+    span.textContent = `${LABEL[n]} ${st === 'ok' ? 'OK' : st === 'expired' ? 'expired' : st === 'missing' ? 'not set up' : st === 'error' ? 'check failing' : '?'}`;
+    return span;
+  });
+  watchEl.append('Bot: ', parts[0], ' · ', parts[1], ` — checked ${ago(health.at)}`);
+  if (health.running === false) watchEl.append(' (bot checks are stopped)');
 }
 
-async function render(lastResult) {
+async function render() {
+  const store = await chrome.storage.local.get(['lastResult', ...NAMES.map((n) => `recovery_${n}`)]);
   const byMarket = {};
-  if (lastResult && lastResult.results) {
-    // Each result already carries its OWN `at` (set the moment that specific
-    // marketplace finished) — must not be overwritten with a shared
-    // "right now" timestamp, or a Myntra-only sync would make Amazon's
-    // untouched, carried-over entry look freshly synced too.
-    for (const r of lastResult.results) byMarket[r.marketplace] = r;
+  for (const r of (store.lastResult && store.lastResult.results) || []) byMarket[r.marketplace] = r;
+
+  nextAt = {};
+  for (const name of NAMES) {
+    const alarm = await chrome.alarms.get(`session-sync-market-${name}`);
+    if (alarm) nextAt[name] = alarm.scheduledTime;
   }
 
   rowsEl.textContent = '';
-  for (const name of ['myntra', 'amazon']) {
-    const r = byMarket[name];
-    const dotClass = !r ? 'unknown' : r.ok ? 'ok' : 'bad';
-    let detail = !r ? 'No sync yet' : r.ok ? `Synced ${formatTime(new Date(r.at))}` : r.error;
+  for (const name of NAMES) {
+    const r = byMarket[name] || byMarket.all;
+    const rec = store[`recovery_${name}`] || {};
+    let dotClass = !r ? 'unknown' : r.ok ? 'ok' : 'bad';
+    let detail = !r ? 'No sync yet' : r.ok ? `Synced ${formatTime(new Date(r.at))}${r.trigger === 'recovery' ? ' (auto-restored)' : ''}` : r.error;
 
-    // A failure with its own retry pending gets that spelled out right here,
-    // since retries are per-marketplace now — Myntra and Amazon can each be
-    // on a completely different backoff schedule.
-    if (r && !r.ok) {
+    if (rec.needsLogin) {
+      dotClass = 'bad';
+      detail = `Logged out — log in to ${LABEL[name]} in this Chrome; it will sync by itself`;
+    } else if (r && !r.ok) {
       const retryAlarm = await chrome.alarms.get(`session-sync-retry-${name}`);
       if (retryAlarm) {
         const mins = Math.max(1, Math.round((retryAlarm.scheduledTime - Date.now()) / 60000));
@@ -91,6 +115,7 @@ async function render(lastResult) {
       }
     }
 
+    const wrap = document.createElement('div');
     const row = document.createElement('div');
     row.className = 'row-item';
 
@@ -102,13 +127,10 @@ async function render(lastResult) {
     nameEl.textContent = name;
 
     const detailEl = document.createElement('span');
-    detailEl.className = r && !r.ok ? 'detail bad' : 'detail';
+    detailEl.className = dotClass === 'bad' ? 'detail bad' : 'detail';
     detailEl.title = detail;
     detailEl.textContent = detail;
 
-    // Lets you retry just this one marketplace on demand — e.g. it just
-    // failed and you fixed the login, no reason to wait for its backoff
-    // timer or re-sync the other one that's already fine.
     const syncOneBtn = document.createElement('button');
     syncOneBtn.className = 'row-sync';
     syncOneBtn.textContent = '↻';
@@ -116,8 +138,13 @@ async function render(lastResult) {
     syncOneBtn.addEventListener('click', () => syncOneMarket(name, syncOneBtn));
 
     row.append(dot, nameEl, detailEl, syncOneBtn);
-    rowsEl.appendChild(row);
+    const next = document.createElement('div');
+    next.className = 'next';
+    next.id = `next-${name}`;
+    wrap.append(row, next);
+    rowsEl.appendChild(wrap);
   }
+  tick();
 }
 
 function setBusyUI(busy) {
@@ -125,13 +152,9 @@ function setBusyUI(busy) {
   for (const btn of rowsEl.querySelectorAll('.row-sync')) btn.disabled = busy;
 }
 
-// The single source of truth for what's on screen: whatever background.js
-// last stored (it already merges per-marketplace results correctly), never
-// reconstructed by hand here — every action below just triggers a sync and
-// then calls this, rather than building its own {results, at} to render.
-function refreshUI() {
-  chrome.storage.local.get(['lastResult'], (v) => render(v.lastResult));
-  renderAutoSyncState();
+async function refreshUI() {
+  await renderWatch();
+  await render();
 }
 
 function syncOneMarket(name, btnEl) {
@@ -143,7 +166,62 @@ function syncOneMarket(name, btnEl) {
   });
 }
 
+function loadPeriods() {
+  chrome.runtime.sendMessage('get-periods', (res) => {
+    if (!res) return;
+    for (const n of NAMES) {
+      periodInputs[n].value = res.periods[n];
+      periodInputs[n].min = res.min;
+      periodInputs[n].max = res.max;
+      periodHuman[n].textContent = humanPeriod(res.periods[n]);
+    }
+    periodHint.textContent = `${res.min}–${res.max} minutes. Default ${res.def} (${res.def / 60} hours).`;
+  });
+}
+
+for (const n of NAMES) {
+  periodInputs[n].addEventListener('input', () => {
+    periodHuman[n].textContent = humanPeriod(periodInputs[n].value);
+    saveStatus.textContent = '';
+  });
+}
+
+saveBtn.addEventListener('click', () => {
+  const periods = {};
+  for (const n of NAMES) {
+    const v = Number(periodInputs[n].value);
+    if (!Number.isFinite(v) || v <= 0) {
+      saveStatus.style.color = 'var(--bad)';
+      saveStatus.textContent = `Enter a number of minutes for ${LABEL[n]}.`;
+      return;
+    }
+    periods[n] = v;
+  }
+  saveBtn.disabled = true;
+  chrome.runtime.sendMessage({ type: 'set-periods', periods }, (res) => {
+    saveBtn.disabled = false;
+    if (!res || !res.ok) {
+      saveStatus.style.color = 'var(--bad)';
+      saveStatus.textContent = 'Could not save.';
+      return;
+    }
+    for (const n of NAMES) {
+      periodInputs[n].value = res.periods[n];
+      periodHuman[n].textContent = humanPeriod(res.periods[n]);
+    }
+    saveStatus.style.color = 'var(--good)';
+    saveStatus.textContent = `Saved ✓ Myntra every ${res.periods.myntra} min, Amazon every ${res.periods.amazon} min.`;
+    refreshUI();
+  });
+});
+
 refreshUI();
+loadPeriods();
+// Ask the bot right away so the watch line is current, not up to a minute old.
+chrome.runtime.sendMessage('check-health-now', () => renderWatch());
+setInterval(tick, 1000);
+// Keep the watch line fresh while the popup stays open.
+setInterval(renderWatch, 15000);
 
 syncBtn.addEventListener('click', () => {
   setBusyUI(true);

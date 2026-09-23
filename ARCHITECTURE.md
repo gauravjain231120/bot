@@ -61,7 +61,7 @@ flowchart TD
   CHECKS --> TELE
   CHECKS -->|"new order"| QUEUE
   CHECKS -->|"cancellation"| LOG
-  EXT -->|"fresh session, every 4h"| BOTAPP
+  EXT -->|"fresh session (default every 4h) + 1-min health check"| BOTAPP
   BOTDASH -->|"log a scanned return"| LOG
   TELE <-->|"commands + alerts"| BOTDASH
   SMDASH --- QUEUE
@@ -168,7 +168,7 @@ same read-only connection as the catalog reads — nothing is written anywhere.
 
 ```mermaid
 flowchart LR
-  A["Seller stays logged<br/>into Myntra in Chrome"] --> B["Extension alarm<br/>fires every 4 hours"]
+  A["Seller stays logged<br/>into Myntra in Chrome"] --> B["Extension alarm<br/>(per marketplace, default 4h)"]
   B --> C["Capture the current<br/>session cookies"]
   C --> D["POST /api/session/sync<br/>&rarr; bot (secret-gated)"]
   D --> E["Every Myntra call the bot<br/>makes uses this saved session"]
@@ -178,6 +178,16 @@ There's no official login API to call instead, so the bot borrows whatever sessi
 own browser already has — this extension is what keeps that borrowed session from ever going
 stale unattended.
 
+**Three layers keep the Myntra session alive (2026-09-23):** (1) the bot saves the refreshed cookies
+Myntra sends back on every call, so its copy keeps rolling like a real browser's instead of aging
+out; (2) every minute the extension asks the bot whether its session works, and if it expired
+while the browser is still logged in, it re-syncs right away — if the browser is logged out it
+doesn't (a logged-out copy can't work) and says "log in"; (3) the regular sync, per marketplace,
+default every 4 hours. The bot tests every synced session before switching to it, so a sync can
+never replace a working session with a broken one. The dashboard no longer calls Myntra/Amazon
+itself — it shows what the 5-minute checks saved — which cut the marketplace traffic by roughly
+10–15x and keeps it looking like normal use.
+
 ## What runs, how often, and why
 
 | What | Runs | Why this rate |
@@ -186,8 +196,9 @@ stale unattended.
 | `/api/check-amazon-orders` | every 5 min | Same, for Amazon |
 | `/api/check-cancellations` | every 5 min | Bounded to recent cancellations only — never re-walks the full history |
 | `/api/check-otc` | every 5 min | Only actually *does* anything inside the 12–1pm IST pickup/return window |
-| Browser extension sync | every 4 hours | Myntra's session outlives this easily — no need to run it more often |
-| Bot dashboard auto-refresh | every 60s, tab open only | Live view for a person watching — never runs when nobody has it open |
+| Browser extension sync | per marketplace, default every 4 hours (set in the popup) | The bot also keeps the Myntra session rolling itself, so this is a backstop |
+| Extension session watch | every 1 min | Asks the **bot** (never Myntra/Amazon) if its session works; re-syncs right away if it expired and the browser is still logged in |
+| Bot dashboard auto-refresh | every 60s, visible tab only | Reads only what the checks saved — makes no Myntra/Amazon calls at all |
 | Packed-order count | on demand only | Hits Myntra live — deliberately kept out of any timer, page load or "Refresh" click only |
 | stock-manager `/api/backup` | daily, ~2am IST | Full database backup to cloud storage |
 

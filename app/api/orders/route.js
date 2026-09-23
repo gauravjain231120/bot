@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { isAuthed } from '../../../lib/adminAuth';
-import { fetchOpenOrders, fetchOrderItems, pickImageUrl } from '../../../lib/myntra';
 import {
-  fetchUnshippedOrders,
   pickAmazonImage,
   amazonOrderDateMs,
   amazonShipByDateMs,
@@ -12,72 +10,56 @@ import {
 } from '../../../lib/amazon';
 import { lookupStock } from '../../../lib/stock';
 import { myntraShipByDateMs } from '../../../lib/dates';
+import { loadSnapshots } from '../../../lib/ordersSnapshot';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-async function loadMyntraOrders(db) {
-  const sessionDoc = await db.collection('settings').findOne({ _id: 'session' });
-  if (!sessionDoc || !sessionDoc.headers) return { orders: [], error: null };
-  const headers = sessionDoc.headers;
+// Reads ONLY what the 5-minute checks already saved (lib/ordersSnapshot.js) —
+// this route makes no Myntra/Amazon calls at all. It used to fetch both live
+// on every 60s dashboard poll, per open tab (1 + one-per-order Myntra calls
+// fired at once, plus Amazon), which dwarfed the alert checks themselves and
+// looked nothing like a person using Seller Central / M-Direct.
+const STALE_MS = 15 * 60 * 1000; // 3 missed 5-min checks
 
-  let orders;
-  try {
-    orders = await fetchOpenOrders(headers);
-  } catch (err) {
-    const status = err.response && err.response.status;
-    return { orders: [], error: `Myntra: failed to load orders${status ? ` (HTTP ${status})` : ''}` };
-  }
-
-  const enriched = await Promise.all(
-    orders.map(async (order) => {
-      let items = [];
-      try {
-        items = await fetchOrderItems(order.orderId, headers);
-      } catch {
-        // leave items empty — the card just shows the bare order without product detail
-      }
-      return {
-        source: 'myntra',
-        orderId: order.orderId,
-        quantity: order.quantity,
-        orderDateMs: order.orderDate,
-        shipByMs: myntraShipByDateMs(order.orderDate),
-        items: await Promise.all(
-          items.map(async (item) => {
-            const sku = item.sellerSkuCode || item.skuCode;
-            return {
-              sku,
-              name: item.productDisplayName,
-              size: item.size,
-              color: item.color,
-              qty: item.qty,
-              image: pickImageUrl(item),
-              stock: await lookupStock(sku),
-            };
-          })
-        ),
-      };
-    })
-  );
-
-  return { orders: enriched, error: null };
+function staleNote(label, snapshot) {
+  if (!snapshot || !snapshot.fetchedAt) return `${label}: no orders saved yet — they appear after the next check runs`;
+  const age = Date.now() - new Date(snapshot.fetchedAt).getTime();
+  if (age <= STALE_MS) return null;
+  const mins = Math.round(age / 60000);
+  return `${label}: showing orders from ${mins} min ago (checks are paused or failing)`;
 }
 
-async function loadAmazonOrders(db) {
-  const sessionDoc = await db.collection('settings').findOne({ _id: 'session_amazon' });
-  if (!sessionDoc || !sessionDoc.headers) return { orders: [], error: null };
-  const headers = sessionDoc.headers;
+async function myntraOrders(snapshot, itemsById) {
+  const orders = (snapshot && snapshot.orders) || [];
+  return Promise.all(
+    orders.map(async (order) => ({
+      source: 'myntra',
+      orderId: order.orderId,
+      quantity: order.quantity,
+      orderDateMs: order.orderDate,
+      shipByMs: myntraShipByDateMs(order.orderDate),
+      items: await Promise.all(
+        (itemsById.get(String(order.orderId)) || []).map(async (item) => {
+          const sku = item.sellerSkuCode || item.skuCode;
+          return {
+            sku,
+            name: item.productDisplayName,
+            size: item.size,
+            color: item.color,
+            qty: item.qty,
+            image: item.image,
+            stock: await lookupStock(sku),
+          };
+        })
+      ),
+    }))
+  );
+}
 
-  let orders;
-  try {
-    orders = await fetchUnshippedOrders(headers);
-  } catch (err) {
-    const status = err.response && err.response.status;
-    return { orders: [], error: `Amazon: failed to load orders${status ? ` (HTTP ${status})` : ''}` };
-  }
-
-  const mapped = await Promise.all(
+async function amazonOrders(snapshot) {
+  const orders = (snapshot && snapshot.orders) || [];
+  return Promise.all(
     orders.map(async (order) => {
       const items = groupAmazonItemsBySku(order.orderItems);
       return {
@@ -103,8 +85,6 @@ async function loadAmazonOrders(db) {
       };
     })
   );
-
-  return { orders: mapped, error: null };
 }
 
 export async function GET() {
@@ -113,10 +93,18 @@ export async function GET() {
   }
 
   const db = await getDb();
-  const [myntra, amazon] = await Promise.all([loadMyntraOrders(db), loadAmazonOrders(db)]);
+  const [{ myntra, amazon, myntraItems }, sessions] = await Promise.all([
+    loadSnapshots(),
+    Promise.all([
+      db.collection('settings').findOne({ _id: 'session' }, { projection: { _id: 1 } }),
+      db.collection('settings').findOne({ _id: 'session_amazon' }, { projection: { _id: 1 } }),
+    ]),
+  ]);
+  const [myntraList, amazonList] = await Promise.all([myntraOrders(myntra, myntraItems), amazonOrders(amazon)]);
 
-  const orders = [...myntra.orders, ...amazon.orders].sort((a, b) => (b.orderDateMs || 0) - (a.orderDateMs || 0));
-  const errors = [myntra.error, amazon.error].filter(Boolean);
+  const orders = [...myntraList, ...amazonList].sort((a, b) => (b.orderDateMs || 0) - (a.orderDateMs || 0));
+  // A marketplace with no session at all isn't set up — say nothing about it.
+  const errors = [sessions[0] && staleNote('Myntra', myntra), sessions[1] && staleNote('Amazon', amazon)].filter(Boolean);
 
   return NextResponse.json({ orders, error: errors.length ? errors.join(' · ') : null });
 }

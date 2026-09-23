@@ -7,6 +7,8 @@ import { toDMY, todayIst } from '../../../lib/telegramCommands';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const PACKED_CACHE_MS = 10 * 60 * 1000;
+
 // Deliberately NOT part of the dashboard's 20s auto-refresh loop (app/page.js
 // only calls this once, on load) — this hits Myntra's live API every time,
 // unlike the other dashboard stats which just read already-stored DB state.
@@ -26,8 +28,19 @@ export async function GET() {
 
   const dayKey = todayIst();
   const dmy = toDMY(dayKey);
+  // Cached for a few minutes: every dashboard tab/page load asks for this,
+  // and each ask was a live Myntra call. Same day + fresh enough = reuse.
+  const cache = await db.collection('settings').findOne({ _id: 'packed_count_cache' });
+  if (cache && cache.dayKey === dayKey && Date.now() - new Date(cache.at).getTime() < PACKED_CACHE_MS) {
+    return NextResponse.json({ count: cache.count, dayKey, cachedAt: cache.at });
+  }
   try {
     const count = await fetchPackedCount(dmy, dmy, sessionDoc.headers);
+    await db.collection('settings').updateOne(
+      { _id: 'packed_count_cache' },
+      { $set: { dayKey, count, at: new Date().toISOString() } },
+      { upsert: true },
+    );
     return NextResponse.json({ count, dayKey });
   } catch (err) {
     const status = err.response && err.response.status;

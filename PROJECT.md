@@ -582,6 +582,9 @@ lib/
   sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
   recipients.js            the `recipients`/`recipientRoleHistory` collections — who gets alerted, who can run bot commands, role-change audit log (§20)
   telegramCommands.js      fetchQueueSummary() (reads stock-manager's `/api/pending/summary`) + one formatXList() per bot command's text — /ship, /make, /myntra(all/left), /amazon(all/left), /ready(all), /notready(all); toDMY()/todayIst() + formatPackedCount() for /packed(all) (added 2026-09-22)
+  myntraCookies.js         rolling-session cookie merge after each Myntra call (§28, added 2026-09-23)
+  ordersSnapshot.js        saved open-orders snapshots + per-order item cache the dashboard reads (§28, added 2026-09-23)
+  sessionLifetimes.js      one row per session death, for measuring real lifetimes (§28, added 2026-09-23)
   returnTypeServer.js      myntraReturnTypeFor()/amazonReturnTypeFor() — server-side return type for the add routes (§27, added 2026-09-23)
   returns.js               addReturnToStockManager() — POSTs a return to stock-manager's own /api/register, same auth pattern as addToReadyToShip(); `channel` defaults to MYNTRA, AMAZON for §26; `returnType` CUSTOMER/RTO/UNKNOWN for §27 (§22, added 2026-09-22)
   spfPaid.js               fetchSpfPaidBreakdown() — splits the SPF paid total into fake/wrong/unclear/gradedOther/notLogged by matching paid claims to stock-manager's return log (§24, added 2026-09-23)
@@ -1308,3 +1311,63 @@ original label with another seller's product, SPF wrong-return claim approved).
 - **Backfill**: `scripts/classify-return-types.js <out.json>` (read-only) classified the 681
   existing returns; stock-manager's `scripts/apply-return-types.ts` applied it (dry run first).
   Myntra 373 customer / 138 RTO / 4 unknown; Amazon 57 / 5 / 97; Flipkart 7 unknown.
+
+## 28. Session keep-alive + marketplace call reduction (added 2026-09-23)
+
+Why sessions "expired" while the seller was still logged in, and why the account's traffic looked
+bot-like — measured live, then fixed in layers. Every layer fails safe (falls back to how things
+worked before).
+
+**Findings (verified live 2026-09-23)**
+- Every successful partnersapi response carries Set-Cookie: `session` gets a NEW value on every
+  call (rolling), `erp.at`/`erp.rt` are re-sent, Akamai's `bm_sv` (~80 min) is re-issued. The bot
+  threw these away and replayed the extension's frozen copy until it aged out. Without `erp.at`
+  Myntra answers `statusCode 101` "Session expired"; Akamai cookies (`ak_bmsc`, `bm_sv`) weren't
+  needed for a call to work.
+- Any HTTP 403 was treated as "session expired" — but Myntra fronts the API with Akamai Bot
+  Manager, whose block is also a 403 (HTML, not Myntra's JSON). A real expiry is a 200 +
+  `statusCode 101`.
+- The dashboard's `/api/orders` called Myntra (1 + one-per-open-order, fired at once) and Amazon
+  (2) LIVE every 60s per open tab, on every dashboard page (the poll lives in the shared layout),
+  even in background tabs — ~11,500 calls/day for one tab left open, 10–15x the alert checks.
+
+**Fixes**
+- `lib/myntraCookies.js` + `myntraGet()` in `lib/myntra.js` (every Myntra call goes through it):
+  merges Set-Cookie back into `settings/session` after each SUCCESSFUL call — only known session
+  cookies, never deletions, never from a soft-expired response, compare-and-set on the exact
+  cookie string sent (a newer sync is never overwritten); records `cookiesRolledAt`. Verified: the
+  stored `session`/`bm_sv` roll and the session keeps working. A bare 403 that isn't Myntra JSON is
+  retried once after 2.5s; if still blocked it's marked `err.blocked`.
+- Dashboard makes **no marketplace calls**: `lib/ordersSnapshot.js`. The Myntra/Amazon order
+  checks save what they fetched (`settings/snapshot_myntra_open`, `settings/snapshot_amazon_unshipped`);
+  Myntra order items are cached per order in `myntraOrderItems` (written by the new-order alert,
+  plus a backfill of ≤3 uncached open orders per check; dropped on cancellation; 45-day prune).
+  `/api/orders` only reads these (same response shape; a note if a snapshot is >15 min old). The
+  dashboard poll pauses while the tab is hidden. `/api/packed-count` is cached 10 min.
+- `GET /api/session/health` (x-sync-secret): DB-only per-marketplace state
+  `ok` / `expired` / `missing` / `error` from the checks' last result — never calls a marketplace.
+- `/api/session/sync` rewritten: **every trigger tests the new session first** (one live call)
+  and only saves it if it works. Refused with 409 `reason: 'session-not-working'` for a genuine
+  rejection (401 / Myntra 101 / non-Akamai 403 / Amazon sign-in); 502 `probe-failed` for
+  network/5xx/bot-protection (retry later). New trigger `'recovery'` → `markSessionRestored()`
+  (clears the error, one quiet "restored automatically" note per outage; never resets the alert
+  flag, so a flaky session can't loop alerts). Verified sync clears the stale error text
+  (`clearSessionError`). Stores the extension's `syncPeriodMinutes`; the stale-sync watchdog now
+  uses max(6h, period + 2h).
+- `sessionLifetimes` collection (`lib/sessionLifetimes.js`): one row per session death (captured /
+  died / lifetime / last cookie refresh / reason), written when the once-per-outage expiry alert
+  fires; last 500 kept — so real lifetimes can be measured.
+
+**Extension 1.1** (`browser-extension/`, must be reloaded once at `chrome://extensions`):
+per-marketplace alarms `session-sync-market-<name>` with intervals set in the popup (15–1440 min,
+default 240; the old shared `session-sync` alarm's countdown is carried over on update); a 1-minute
+`session-health` alarm → if the bot says expired/missing and this browser still has its login
+cookie (Myntra `erp.at`; Amazon `at-acbin`/`session-token`), a `'recovery'` sync — at most every
+10/20/40/60 min (backoff), skipped if a sync succeeded <10 min ago or the bot's checks are stopped;
+if logged out, no sync + "log in" + red badge; a copy the bot rejected isn't re-sent for 2h unless
+the cookies change (new login). `session-not-working` never arms the 1–15 min backoff retries.
+Simulated in Node with a mocked Chrome API (migration, intervals, single recovery, logged-out,
+rejected copy, stopped bot, start/stop, schedules/retries) — all pass.
+
+**Marketplace calls after this** (5 open orders): Myntra ~600/day, Amazon ~1,150/day from the
+timers, regardless of how many dashboard tabs are open (was +~11,500/day per open tab).
