@@ -25,7 +25,7 @@ that actually occur — a new order, a cancellation, a return, and keeping the l
 | **Order Alerts bot** (`myntra-order-alert-web`) | Watches Myntra & Amazon, sends Telegram alerts | Detecting orders/cancellations, the Telegram side, the live Myntra/Amazon session |
 | **stock-manager** | The source of truth for inventory | Ready to Ship queue, Stock Log, Returns, Products, role-based logins |
 | **Browser extension** | Sits in the seller's own Chrome | Quietly re-captures the live Myntra login every few hours |
-| **cron-job.org** | A free external scheduler | The thing that actually "ticks" every 5 minutes, 24/7, forever |
+| **cron-job.org** | A free external scheduler | The thing that actually "ticks" (every 1–30 minutes per check), 24/7, forever |
 
 **The one rule that holds the whole thing together:** stock-manager is the only place quantities
 actually live. The bot never edits stock directly in a database — every stock change goes through
@@ -37,7 +37,7 @@ would trigger.
 ```mermaid
 flowchart TD
   subgraph OUT["Outside the two apps"]
-    CRONJOB["cron-job.org<br/>pings every 5 min, 24/7"]
+    CRONJOB["cron-job.org<br/>pings every 1–30 min, 24/7"]
     MYNTRA["Myntra seller site<br/>(unofficial APIs)"]
     AMAZON["Amazon seller site<br/>(unofficial APIs)"]
     TELE["Telegram"]
@@ -72,7 +72,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  A["cron-job.org<br/>tick, every 5 min"] --> B["/api/check-orders<br/>/api/check-amazon-orders"]
+  A["cron-job.org<br/>tick (Myntra 1 min, Amazon 5 min)"] --> B["/api/check-orders<br/>/api/check-amazon-orders"]
   B --> C{"New order since<br/>the last check?"}
   C -- "No" --> D["Mark seen,<br/>do nothing"]
   C -- "Yes" --> E["Telegram alert<br/>photo + SKU + size + qty"]
@@ -185,7 +185,7 @@ while the browser is still logged in, it re-syncs right away — if the browser 
 doesn't (a logged-out copy can't work) and says "log in"; (3) the regular sync, per marketplace,
 default every 4 hours. The bot tests every synced session before switching to it, so a sync can
 never replace a working session with a broken one. The dashboard no longer calls Myntra/Amazon
-itself — it shows what the 5-minute checks saved — which cut the marketplace traffic by roughly
+itself — it shows what the scheduled checks saved — which cut the marketplace traffic by roughly
 10–15x and keeps it looking like normal use.
 
 **Amazon gets the same keep-alive** (Seller Central also refreshes its `session-token` in every
@@ -196,9 +196,10 @@ self-ship, and searching it on every check was half of all Amazon traffic.
 
 | What | Runs | Why this rate |
 |---|---|---|
-| `/api/check-orders` | every 5 min | New Myntra orders — near-real-time without hammering the session |
-| `/api/check-amazon-orders` | every 5 min | Same, for Amazon |
-| `/api/check-cancellations` | every 5 min | Bounded to recent cancellations only — never re-walks the full history |
+| `/api/check-orders` | every 1 min | New Myntra orders — the fastest alerts; the biggest share of Myntra calls (~1,440/day) |
+| `/api/check-amazon-orders` | every 5 min | New Amazon orders (Easy Ship only) |
+| `/api/check-cancellations` | every 5 min | Myntra cancellations — bounded to recent ones, never re-walks the full history |
+| `/api/check-amazon-cancellations` | every 30 min | Amazon cancellations (Easy Ship only) |
 | `/api/check-otc` | every 5 min | Only actually *does* anything inside the 12–1pm IST pickup/return window |
 | Browser extension sync | per marketplace, default every 4 hours (set in the popup) | The bot also keeps the Myntra session rolling itself, so this is a backstop |
 | Extension session watch | every 1 min | Asks the **bot** (never Myntra/Amazon) if its session works; re-syncs right away if it expired and the browser is still logged in |

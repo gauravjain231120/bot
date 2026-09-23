@@ -89,7 +89,7 @@ site is closed" explanation.
 
 There is **no Vercel Cron** here — Vercel's Hobby plan cron is capped at once/day, far too slow
 for near-real-time alerts, so **cron-job.org** (a free external scheduler) is used instead,
-configured to hit the three `/api/check-*` endpoints directly.
+configured to hit the five `/api/check-*` endpoints directly (schedule in §6).
 
 ## 4. Environment variables (`.env.local` / Vercel project settings)
 
@@ -146,10 +146,17 @@ lives entirely in stock-manager's Ready to Ship queue.
 
 | Endpoint | Suggested frequency | What it does |
 |---|---|---|
-| `GET /api/check-orders?secret=CRON_SECRET` | ~1 min | Poll Myntra open orders, alert + queue new ones |
-| `GET /api/check-amazon-orders?secret=CRON_SECRET` | ~1 min | Poll Amazon unshipped orders, alert + queue new ones |
-| `GET /api/check-cancellations?secret=CRON_SECRET` | ~30 min | Poll Myntra cancellations, alert on new ones |
-| `GET /api/check-otc?secret=CRON_SECRET` | ~5 min | Pickup/return OTC alert — see §19, shape is different from the three below (no seen-collection, time-window + once-per-day gated instead) |
+| `GET /api/check-orders?secret=CRON_SECRET` | **every 1 min** | Poll Myntra open orders, alert + queue new ones |
+| `GET /api/check-amazon-orders?secret=CRON_SECRET` | **every 5 min** | Poll Amazon unshipped orders (Easy Ship), alert + queue new ones |
+| `GET /api/check-cancellations?secret=CRON_SECRET` | **every 5 min** | Poll Myntra cancellations, alert on new ones |
+| `GET /api/check-amazon-cancellations?secret=CRON_SECRET` | **every 30 min** | Poll Amazon cancellations (Easy Ship), alert on new ones |
+| `GET /api/check-otc?secret=CRON_SECRET` | **every 5 min** | Pickup/return OTC alert — see §19, shape is different from the three below (no seen-collection, time-window + once-per-day gated instead) |
+
+Schedule as configured on cron-job.org (2026-09-23). Marketplace calls this produces per day:
+**Myntra ≈ 1,750** (1,440 order checks + 288 cancellation checks + ≤24 OTC, only 12–1 pm) and
+**Amazon ≈ 340** (288 order checks + 48 cancellation checks, Easy Ship only), plus one item-detail
+call per new Myntra order. The Myntra 1-minute order check is by far the largest share — every 2 min
+would halve it, at the cost of alerts up to a minute later.
 
 The first three:
 1. Reject with 401 if `?secret=` doesn't match `CRON_SECRET`.
@@ -1396,8 +1403,8 @@ the bot already has working (same `erp.at`/`erp.rt`, or Amazon's `at-acbin`/`ses
 browser's — it just records `lastSyncedAt`, which the watchdog now reads. The "auto-sync ok"
 heartbeat is sent at most once per marketplace every 4h, however short the interval.
 
-**Marketplace calls after this** (5 open orders): Myntra ~600/day, Amazon ~1,150/day from the
-timers, regardless of how many dashboard tabs are open (was +~11,500/day per open tab).
+**Marketplace calls after this**: only the scheduled checks (§6 — currently Myntra ≈1,750/day,
+Amazon ≈340/day), regardless of how many dashboard tabs are open (was +~11,500/day per open tab).
 
 ## 29. Amazon: keep-alive + half the calls (full review, added 2026-09-23)
 
@@ -1426,6 +1433,6 @@ Verified live, then fixed — all in `lib/amazon.js` and `lib/myntraCookies.js`:
 - Same-login detection for extension syncs (`isSameWorkingLogin`) now compares Amazon's stable
   `at-acbin` / `sess-at-acbin` only — `session-token` changes on every call now.
 
-**Amazon calls/day now**: ~290 order + ~290 cancellation, Easy Ship only ≈ **~580**
-(was ~1,150), plus ≤1 small test per extension sync when the login changed. Stock-manager makes no
+**Amazon calls/day now**: with the §6 schedule (orders every 5 min, cancellations every 30 min),
+Easy Ship only ≈ **~340** (was ~1,150 with both programs and both checks every 5 min), plus ≤1 small test per extension sync when the login changed. Stock-manager makes no
 Myntra/Amazon calls at all (its only cron is the daily backup) — every marketplace call is the bot's.
