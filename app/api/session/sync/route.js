@@ -63,7 +63,10 @@ export async function POST(request) {
   // 0. Scheduled/retry sync of the SAME login the bot already has working:
   // nothing to test or replace (the bot's copy is the fresher one — it keeps
   // rolling). Just note the check-in. Saves a marketplace call per sync.
-  if (trigger === 'auto' && (await isSameWorkingLogin(marketplace, body.headers))) {
+  // A manual ↻ still tests (someone asked), but says "working", not
+  // "activated", when it's the same login.
+  const sameLogin = trigger !== 'recovery' && (await isSameWorkingLogin(marketplace, body.headers));
+  if (trigger === 'auto' && sameLogin) {
     await touchSessionSynced(marketplace, syncPeriodMinutes);
     if (body.scheduled) await announceScheduledSyncOk(marketplace);
     return NextResponse.json({ ok: true, unchanged: true });
@@ -108,7 +111,7 @@ export async function POST(request) {
       // A person explicitly asked "does this work?" — confirm it and re-arm
       // the expired alert (same as always).
       await clearSessionError(marketplace);
-      await announceSessionActivated(marketplace);
+      await announceSessionActivated(marketplace, { alreadyActive: sameLogin });
     } else if (trigger === 'recovery') {
       await markSessionRestored(marketplace);
     } else {

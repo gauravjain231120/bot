@@ -1463,3 +1463,27 @@ Verified live, then fixed — all in `lib/amazon.js` and `lib/myntraCookies.js`:
 **Amazon calls/day now**: with the §6 schedule (orders every 5 min, cancellations every 30 min),
 Easy Ship only ≈ **~340** (was ~1,150 with both programs and both checks every 5 min), plus ≤1 small test per extension sync when the login changed. Stock-manager makes no
 Myntra/Amazon calls at all (its only cron is the daily backup) — every marketplace call is the bot's.
+
+## 30. Full review pass (2026-09-24)
+
+- **An Akamai block no longer reads as "session expired".** `isSessionRejected(err)` in
+  `lib/myntra.js` = 401 (incl. Myntra's soft `statusCode 101`) or a Myntra-JSON 403 — never a
+  request that stayed blocked by Akamai (`err.blocked`). Used by `checkOrders` (the expired alert
+  + `recordSessionDeath`), `checkOtc`, the SPF paid-claims fetch and `lib/spfPaid.js`. A block is
+  written to `status.lastError` as "blocked by Myntra's bot protection (temporary, will retry)"
+  (`describeMyntraError`) — no "HTTP 403" text, so `/api/session/health` reports `error`, not
+  `expired`, and the extension doesn't fire a pointless recovery sync (which would be blocked too).
+- **Manual ↻ wording.** A manual popup sync is still tested live, but if it carries the same login
+  tokens the bot already has working, the Telegram note says "✅ session working — checked now,
+  same login as before" instead of "activated". (For Myntra the bot's own `erp.at`/`erp.rt` roll,
+  so after a while the browser's tokens differ and it says "activated" — the bot then switches to
+  the browser's copy, which is also correct.)
+- **Why a browser logout didn't kill the Myntra bot session (seen 2026-09-24):** logging out in
+  Chrome revokes that browser's tokens, but the bot holds its own refreshed `erp.rt`, which kept
+  working — so no "expired" / "restored" messages were due. Amazon's logout did kill the bot's copy
+  (and the extension restored it in 24s).
+- UI: long ids/URLs wrap (`overflow-wrap: break-word` on `body`) instead of being clipped on phones;
+  small lint fixes. Stock-manager: the ship stock report table scrolls sideways on phones; the
+  products stat row is tighter on small screens.
+- Checked: both apps lint + build clean; the 14 extension scenarios (mocked Chrome) and the SPF
+  edge-case suite pass.

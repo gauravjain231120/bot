@@ -81,7 +81,7 @@ function PaidSummary({ info }) {
       {info.breakdownError && <div className="stat-sub spf-warn">{info.breakdownError}</div>}
       {failed.length > 0 && (
         <div className="stat-sub spf-warn">
-          {failed.length} paid {failed.length === 1 ? 'claim' : 'claims'} couldn't be fetched from Myntra — not in the
+          {failed.length} paid {failed.length === 1 ? 'claim' : 'claims'} couldn&apos;t be fetched from Myntra — not in the
           total
         </div>
       )}
@@ -96,7 +96,7 @@ function PaidReview({ review }) {
     <div className="card">
       <h2>Paid claims to check</h2>
       <p className="muted" style={{ marginTop: 0 }}>
-        Myntra paid these, but stock-manager doesn't have them graded as Fake or Wrong.
+        Myntra paid these, but stock-manager doesn&apos;t have them graded as Fake or Wrong.
       </p>
       {review.map((r) => (
         <div key={r.ticketId} className="spf-review-row">

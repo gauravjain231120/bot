@@ -184,7 +184,8 @@ out; (2) every minute the extension asks the bot whether its session works, and 
 while the browser is still logged in, it re-syncs right away — if the browser is logged out it
 doesn't (a logged-out copy can't work) and says "log in"; (3) the regular sync, per marketplace,
 default every 4 hours. The bot tests every synced session before switching to it, so a sync can
-never replace a working session with a broken one. The dashboard no longer calls Myntra/Amazon
+never replace a working session with a broken one. A request blocked by Myntra's Akamai bot
+protection is treated as a temporary error, never as an expired login. The dashboard no longer calls Myntra/Amazon
 itself — it shows what the scheduled checks saved — which cut the marketplace traffic by roughly
 10–15x and keeps it looking like normal use.
 
