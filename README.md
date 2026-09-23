@@ -50,18 +50,17 @@ See `PROJECT.md` §22–§26 for how each lookup works.
      session cookies straight from Chrome's cookie jar (including the HttpOnly ones DevTools
      needs a manual copy for) and posts them to `POST /api/session/sync` on a timer. See
      `browser-extension/README.md`.
-4. Point an external scheduler (e.g. cron-job.org, every 1–5 minutes) at
+4. Point an external scheduler (e.g. cron-job.org — the real schedule is in `PROJECT.md` §6) at
    `https://<your-deployment>/api/check-orders?secret=<CRON_SECRET>`.
 
 ## Notes
 
 - This uses an unofficial, reverse-engineered internal API — it can break if Myntra changes their
   frontend, and may not be sanctioned by their ToS. Treat it as a best-effort tool.
-- When the session expires, `/api/check-orders` starts returning 401s, the admin page's status
-  shows the error, and you get one (loud) Telegram heads-up. A routine "session activated"
-  confirmation (from a manual paste or the extension) is sent silently by design — only the
-  expiry warning makes noise.
-- **Known gap**: if the stored session is entirely *missing* (not just expired), the alert
-  pipeline currently fails locally without sending a Telegram warning — only a real 401/403 from
-  Myntra triggers the alert today. Worth fixing if this is ever hit in practice (see `PROJECT.md`
-  §12).
+- When the session expires (a 401, Myntra's soft "session expired", or Amazon's sign-in answer),
+  the checks record the error, the dashboard shows it, and you get one (loud) Telegram heads-up per
+  outage — also when no session is saved at all. A request merely blocked by Myntra's Akamai bot
+  protection is a temporary error, not an expiry: no alert. If the browser extension is installed
+  and the seller's Chrome is still logged in, it re-syncs within minutes and a quiet "restored
+  automatically" note follows. "Session activated" / "session working" confirmations are silent by
+  design — only the expiry warning makes noise. Details: `PROJECT.md` §28–§30.
