@@ -1005,6 +1005,13 @@ uses). "Scan a Myntra return" is a card on the dashboard itself, open by default
   through to the real-session lookup, found none, and 401'd. Fixed on stock-manager's side by
   adding `/api/register` to its `SERVICE_API_PREFIXES` — see stock-manager's own `PROJECT.md`.
 
+- **Scanned this session (added 2026-09-23)**: same in-memory list as Scan Packed (§25) — last 10
+  tracking ids scanned in this tab, each with its items' SKU/size and whether each was added (and
+  as which condition); gone on refresh, per device, nothing saved. Also a "already scanned this
+  session" note, and the input clears + refocuses after a lookup (mouse/keyboard devices only) so a
+  USB scanner can scan back-to-back. "Add to Return" now logs against the tracking id that was
+  actually resolved (`resolvedId`), not whatever is in the input box at the time of clicking.
+
 ## 23. Dashboard login accounts — Owner/Viewer roles (`lib/accounts.js`, added 2026-09-22)
 
 Replaces the single shared `ADMIN_PASSWORD` env var (one password, everyone who had it was
