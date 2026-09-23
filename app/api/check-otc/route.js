@@ -6,7 +6,7 @@ import { runCheckOtc } from '../../../lib/checkOtc';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Called by an external scheduler every ~5 minutes. Always ticks, but
+// Called by an external scheduler (cron-job.org, every 2 minutes). Always ticks, but
 // runCheckOtc() itself is a no-op outside 12:00–13:00 IST or once already
 // alerted for the day, so it's harmless to hit more often or outside that
 // window — nothing extra to configure on the scheduler side for correctness,

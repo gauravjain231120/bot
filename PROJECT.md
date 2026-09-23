@@ -150,11 +150,12 @@ lives entirely in stock-manager's Ready to Ship queue.
 | `GET /api/check-amazon-orders?secret=CRON_SECRET` | **every 5 min** | Poll Amazon unshipped orders (Easy Ship), alert + queue new ones |
 | `GET /api/check-cancellations?secret=CRON_SECRET` | **every 5 min** | Poll Myntra cancellations, alert on new ones |
 | `GET /api/check-amazon-cancellations?secret=CRON_SECRET` | **every 30 min** | Poll Amazon cancellations (Easy Ship), alert on new ones |
-| `GET /api/check-otc?secret=CRON_SECRET` | **every 5 min** | Pickup/return OTC alert — see §19, shape is different from the three below (no seen-collection, time-window + once-per-day gated instead) |
+| `GET /api/check-otc?secret=CRON_SECRET` | **every 2 min** (acts only 12–1 pm) | Pickup/return OTC alert — see §19, shape is different from the three below (no seen-collection, time-window + once-per-day gated instead) |
 
 Schedule as configured on cron-job.org (updated 2026-09-24: Myntra orders moved from every 1 min
 to every 2 min). Marketplace calls this produces per day:
-**Myntra ≈ 1,030** (720 order checks + 288 cancellation checks + ≤24 OTC, only 12–1 pm) and
+**Myntra ≈ 1,010–1,070** (720 order checks + 288 cancellation checks + OTC: 2 calls per run, only
+12–1 pm, stopping once the code is found — usually a few, at most 60) and
 **Amazon ≈ 340** (288 order checks + 48 cancellation checks, Easy Ship only), plus one item-detail
 call per new Myntra order. Why 2 min and not 1: Myntra's ship-by is hours away (usually next day),
 so an alert a minute later changes nothing, while a check every single minute around the clock was
@@ -802,7 +803,8 @@ actually goes active for that courier.
 - **Window**: only does anything between **12:00-13:00 IST** — checked in-process
   (`withinWindow()`), not just relied on from the cron-job.org schedule, so a stray or
   misconfigured trigger outside that hour is always a safe, instant no-op (no DB touch, no Myntra
-  API call). The suggested cron-job.org schedule is every ~5 min, all day — see §6.
+  API call). It runs every 2 min on cron-job.org (changed from 5 on 2026-09-24) — see §6. Outside 12–1 pm, or once
+  today's code is found, a tick makes no Myntra call at all.
 - **What one check does**: fetches both trip types for both couriers (4 values total: Pickup MYS,
   Pickup MYE, Return MYS, Return MYE) in one pass.
 - **Alert + stop**: the moment any of those 4 is no longer `null`, sends **one** Telegram message

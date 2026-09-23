@@ -200,7 +200,7 @@ self-ship, and searching it on every check was half of all Amazon traffic.
 | `/api/check-amazon-orders` | every 5 min | New Amazon orders (Easy Ship only) |
 | `/api/check-cancellations` | every 5 min | Myntra cancellations — bounded to recent ones, never re-walks the full history |
 | `/api/check-amazon-cancellations` | every 30 min | Amazon cancellations (Easy Ship only) |
-| `/api/check-otc` | every 5 min | Only actually *does* anything inside the 12–1pm IST pickup/return window |
+| `/api/check-otc` | every 2 min | Only calls Myntra 12–1pm IST, and stops once today's code is found — faster codes, very few calls |
 | Browser extension sync | per marketplace, default every 4 hours (set in the popup) | The bot also keeps the Myntra session rolling itself, so this is a backstop |
 | Extension session watch | every 1 min | Asks the **bot** (never Myntra/Amazon) if its session works; re-syncs right away if it expired and the browser is still logged in |
 | Bot dashboard auto-refresh | every 60s, visible tab only | Reads only what the checks saved — makes no Myntra/Amazon calls at all |
