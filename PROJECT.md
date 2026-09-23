@@ -1413,7 +1413,12 @@ session is fine. Only while a row is waiting for a login, ≤1 attempt/min, and 
 rejected: the "which login is this" fingerprint now uses stable cookies (Myntra `erp.rt`; Amazon
 `at-acbin`/`sess-at-acbin`, not `session-token`, which Amazon changes on nearly every page load and
 would make browsing look like a new login). A healthy bot no longer clears the "needs login" flag —
-only a successful sync does. Simulation: 12 scenarios, all pass.
+only a successful sync does. **1.3.1 review**: the after-login re-sync keeps its wait in storage
+(survives the service worker sleeping) and backs off 1 → 5 → 15 → 30 min when a try fails for a
+non-login reason (marketplace/bot briefly down) — before, an outage could mean a test call every
+minute; and it only ever tries a genuinely NEW login (different fingerprint), never the copy the bot
+refused, with no 2h expiry on that rule — so a login the bot can't use (e.g. a shopping-only Amazon
+login) costs one call, not one every 2h. Simulation: 14 scenarios, all pass.
 
 **Review pass (same day)**: cookie writes throttled to once a minute per server instance, but
 immediate when `erp.at`/`erp.rt` change (the SPF page's ~140 calls no longer mean ~140 writes; a

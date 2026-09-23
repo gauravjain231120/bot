@@ -406,8 +406,11 @@ async function runAutoSync(names = MARKETPLACE_NAMES, scheduled = false) {
 // found it logged out, or the bot rejected its copy. As soon as a working
 // login shows up here, sync it — no need to click ↻ or wait hours for the
 // timer. Only then, so it's one small test per login, nothing more.
-const LOGIN_RESYNC_MIN_GAP_MS = 60 * 1000;
-const loginResyncAt = new Map(); // marketplace -> ms, in-memory throttle
+// Wait between attempts, saved in storage (survives the service worker
+// sleeping): 1 min, then 5, 15, 30 if they keep failing for a reason that
+// isn't the login (Myntra/Amazon briefly down, bot unreachable) — so an
+// outage can't turn into a test call every minute. Reset on success.
+const LOGIN_RESYNC_BACKOFF_MIN = [1, 5, 15, 30];
 
 async function waitingForLogin(m) {
   const key = `recovery_${m}`;
@@ -422,18 +425,26 @@ async function resyncAfterLogin(entry) {
   const m = entry.marketplace;
   if (!(await isEnabled())) return;
   const now = Date.now();
-  if (now - (loginResyncAt.get(m) || 0) < LOGIN_RESYNC_MIN_GAP_MS) return;
   const { waiting, rec } = await waitingForLogin(m);
   if (!waiting) return;
+  // After the 1st failed try wait 1 min, after the 2nd 5 min, then 15, then 30.
+  const wait = LOGIN_RESYNC_BACKOFF_MIN[Math.min(Math.max((rec.resyncCount || 0) - 1, 0), LOGIN_RESYNC_BACKOFF_MIN.length - 1)] * 60000;
+  if (rec.resyncAt && now - rec.resyncAt < wait) return;
   const { loggedIn, fingerprint } = await loginState(entry);
   if (!loggedIn) return;
-  // Still the exact copy the bot turned down — you haven't logged in again yet.
-  if (fingerprint && fingerprint === rec.badFingerprint && rec.badAt && now - rec.badAt < BAD_COPY_HOLD_MS) return;
-  loginResyncAt.set(m, now);
+  // Only a genuinely NEW login is tried here — never the copy the bot turned
+  // down (no time limit on this one: that same login would just be refused
+  // again, costing a Myntra/Amazon call each time).
+  if (fingerprint && fingerprint === rec.badFingerprint) return;
+  const key = `recovery_${m}`;
   const [r] = await syncSome([m], 'auto');
+  const latest = (await chrome.storage.local.get([key]))[key] || {};
   if (r && r.ok) {
+    await chrome.storage.local.set({ [key]: { ...latest, resyncAt: null, resyncCount: 0 } });
     await clearRetry(m);
     await resetSyncAlarm(m);
+  } else {
+    await chrome.storage.local.set({ [key]: { ...latest, resyncAt: now, resyncCount: (rec.resyncCount || 0) + 1 } });
   }
   await updateBadge();
 }
