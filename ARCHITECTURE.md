@@ -189,8 +189,8 @@ itself — it shows what the 5-minute checks saved — which cut the marketplace
 10–15x and keeps it looking like normal use.
 
 **Amazon gets the same keep-alive** (Seller Central also refreshes its `session-token` in every
-reply, which the bot now saves), and its self-ship program — unused for a year — is searched every
-30 minutes instead of every 5, which halves Amazon traffic.
+reply, which the bot now saves), and only Easy Ship is searched — this account doesn't use
+self-ship, and searching it on every check was half of all Amazon traffic.
 
 ## What runs, how often, and why
 
