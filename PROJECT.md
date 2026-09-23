@@ -146,21 +146,24 @@ lives entirely in stock-manager's Ready to Ship queue.
 
 | Endpoint | Suggested frequency | What it does |
 |---|---|---|
-| `GET /api/check-orders?secret=CRON_SECRET` | **every 1 min** | Poll Myntra open orders, alert + queue new ones |
+| `GET /api/check-orders?secret=CRON_SECRET` | **every 2 min** | Poll Myntra open orders, alert + queue new ones |
 | `GET /api/check-amazon-orders?secret=CRON_SECRET` | **every 5 min** | Poll Amazon unshipped orders (Easy Ship), alert + queue new ones |
 | `GET /api/check-cancellations?secret=CRON_SECRET` | **every 5 min** | Poll Myntra cancellations, alert on new ones |
 | `GET /api/check-amazon-cancellations?secret=CRON_SECRET` | **every 30 min** | Poll Amazon cancellations (Easy Ship), alert on new ones |
 | `GET /api/check-otc?secret=CRON_SECRET` | **every 5 min** | Pickup/return OTC alert — see §19, shape is different from the three below (no seen-collection, time-window + once-per-day gated instead) |
 
-Schedule as configured on cron-job.org (2026-09-23). Marketplace calls this produces per day:
-**Myntra ≈ 1,750** (1,440 order checks + 288 cancellation checks + ≤24 OTC, only 12–1 pm) and
+Schedule as configured on cron-job.org (updated 2026-09-24: Myntra orders moved from every 1 min
+to every 2 min). Marketplace calls this produces per day:
+**Myntra ≈ 1,030** (720 order checks + 288 cancellation checks + ≤24 OTC, only 12–1 pm) and
 **Amazon ≈ 340** (288 order checks + 48 cancellation checks, Easy Ship only), plus one item-detail
-call per new Myntra order. The Myntra 1-minute order check is by far the largest share — every 2 min
-would halve it, at the cost of alerts up to a minute later.
+call per new Myntra order. Why 2 min and not 1: Myntra's ship-by is hours away (usually next day),
+so an alert a minute later changes nothing, while a check every single minute around the clock was
+~80% of all Myntra calls and the least human-looking pattern. Nothing in the code depends on the
+cadence (watchdogs use hours, the dashboard's stale note 15 min).
 
 The first three:
 1. Reject with 401 if `?secret=` doesn't match `CRON_SECRET`.
-2. Read `settings/_id:'status'.running` — **if false, return `{ skipped: true, reason: 'stopped' }` immediately and do nothing else.** This is why "Stop" reliably silences everything even though the external scheduler keeps ticking every minute regardless.
+2. Read `settings/_id:'status'.running` — **if false, return `{ skipped: true, reason: 'stopped' }` immediately and do nothing else.** This is why "Stop" reliably silences everything even though the external scheduler keeps ticking regardless (every 1–30 min per check, §6).
 3. If running, fetch from the marketplace, diff against the seen-collection, alert + queue anything new, then mark everything fetched as seen (including things that weren't "new" — a session that expired and got refreshed won't re-alert stale orders it already knew about before the outage... but *will* alert orders it never got the chance to see. See §14.)
 4. On a 401/403 from the marketplace (session expired), sends exactly one Telegram warning (guarded by the `sessionExpiredAlertSent`/`amazonSessionExpiredAlertSent` flag so it doesn't repeat every minute) and records the error for the dashboard.
 
@@ -277,7 +280,7 @@ verbatim into their new homes, not rewriting their logic.
 - **Start** (`POST /api/admin/start`) — sets `running: true`, then immediately runs both Myntra
   and Amazon checks synchronously (so it "catches up" right away instead of waiting up to a
   minute for the next cron tick).
-- **Stop** (`POST /api/admin/stop`) — sets `running: false`. Cron ticks keep firing every minute
+- **Stop** (`POST /api/admin/stop`) — sets `running: false`. Cron ticks keep firing on schedule
   but every one becomes a no-op.
 - **Check now** (`POST /api/admin/check-now`) — runs both checks immediately, **regardless of
   the running flag** (does not check or change it). Useful for testing without toggling Start.
@@ -690,7 +693,7 @@ This has come up repeatedly during testing/debugging. The **only safe procedure*
    again on the next check.
 3. If you don't want that next check to actually fire yet, make sure
    `settings/_id:'status'.running` is `false` first (or call `POST /api/admin/stop`) — otherwise
-   the very next cron tick (within ~1 minute) will immediately re-alert and re-queue everything
+   the very next cron tick (within ~2 minutes) will immediately re-alert and re-queue everything
    currently open, since step 2 just made all of it look new.
 4. Verify: re-query `pendingshipments` (should show only whatever you intentionally kept) and
    confirm `seenOrders`/`seenAmazonOrders` counts are 0.
@@ -1403,7 +1406,7 @@ the bot already has working (same `erp.at`/`erp.rt`, or Amazon's `at-acbin`/`ses
 browser's — it just records `lastSyncedAt`, which the watchdog now reads. The "auto-sync ok"
 heartbeat is sent at most once per marketplace every 4h, however short the interval.
 
-**Marketplace calls after this**: only the scheduled checks (§6 — currently Myntra ≈1,750/day,
+**Marketplace calls after this**: only the scheduled checks (§6 — currently Myntra ≈1,030/day,
 Amazon ≈340/day), regardless of how many dashboard tabs are open (was +~11,500/day per open tab).
 
 ## 29. Amazon: keep-alive + half the calls (full review, added 2026-09-23)

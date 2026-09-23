@@ -8,7 +8,7 @@ import { checkExtensionSyncWatchdog } from '../../../lib/sessionSyncWatchdog';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Called by an external scheduler every ~1 minute. Always ticks, but does nothing
+// Called by an external scheduler (cron-job.org, every 2 minutes). Always ticks, but does nothing
 // while monitoring is stopped — new orders simply stay unseen until Start is pressed,
 // at which point they're picked up as "new" on the next check.
 export async function GET(request) {

@@ -7,7 +7,7 @@ import { checkStoppedWatchdog } from '../../../lib/watchdog';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Called by an external scheduler every ~1 minute, same as /api/check-orders.
+// Called by an external scheduler (cron-job.org, every 5 minutes), like /api/check-orders.
 export async function GET(request) {
   const secret = request.nextUrl.searchParams.get('secret');
   if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
