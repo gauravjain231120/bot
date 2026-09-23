@@ -27,6 +27,8 @@ scanner, or typed):
 - **Amazon Pack** / **Amazon Return** — the same for Amazon, by the label's tracking barcode or by
   the order ID (the camera reads the printed number). Amazon returns log into stock-manager as
   channel AMAZON.
+- Both return pages show whether a scan is a **Customer return** or an **RTO** (never reached
+  the customer), and store that on the stock-manager return row.
 - **SPF Status** (Owner-only) — Myntra SPF claim counts, and the ₹ Myntra actually paid split into
   Fake / Wrong returns.
 

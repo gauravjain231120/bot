@@ -124,6 +124,12 @@ flowchart LR
   F -- "Wrong item / Defective" --> H["DAMAGED bucket<br/>never sold again"]
 ```
 
+**Every return is also tagged Customer return, RTO or Unknown** — a customer return came back
+from the customer; an RTO never reached them (refused, undeliverable) and came back. The scan pages
+work this out from Myntra/Amazon and show it before you add; stock-manager stores it next to the
+condition (an RTO can still come back faked or wrong), with a tag, filter and CSV column on its
+Returns page. Hand-logged returns default to Unknown.
+
 **Amazon returns** have their own page on the bot's dashboard (Amazon Return): scan the return
 label's tracking barcode or read the printed order ID with the camera, the bot looks the return up
 in Amazon Seller Central, and logs it through the same `POST /api/register` — just with channel
@@ -215,6 +221,7 @@ routes. Everything else on stock-manager needs a real logged-in account.
   IST daily.
 - **Ready to Ship queue** — stock-manager's list of orders that have been detected and reserved
   but not yet physically packed and marked shipped.
+- **Return type** — Customer return (sent back by the customer), RTO (never delivered, came back), or Unknown. Stored separately from the condition.
 - **Condition buckets** — A return is logged as Good, Used, Faked, Wrong item, or Defective. The
   first three go back into sellable stock; the last two are parked in a separate, never-resold
   bucket.

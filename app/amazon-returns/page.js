@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { AmazonScanInput, DateRow, ItemCard, StatusBadge, humanize, humanizeReason } from '../../components/AmazonScanShared';
 import { RETURN_CONDITIONS, RETURN_CONDITION_LABELS } from '../../lib/format';
+import { ReturnTypeTag, RETURN_TYPE_HINTS } from '../../components/ReturnTypeTag';
 
 const RECENT_LIMIT = 10;
 const itemKey = (rr, i) => `${rr.returnRequestId}:${i}`;
@@ -49,6 +50,7 @@ export default function AmazonReturnsPage() {
           returnRequestId: rr.returnRequestId,
           orderId: rr.orderId,
           trackingId: rr.trackingId,
+          returnType: rr.returnType,
           items: rr.items.map((it) => `${it.sku || '?'} · ${it.size || '?'}`),
         })),
         ...list.filter((r) => !ids.includes(r.returnRequestId)),
@@ -79,6 +81,7 @@ export default function AmazonReturnsPage() {
           // parcel and what stock-manager's other Amazon returns are logged by.
           trackingId: rr.trackingId || (result.mode === 'tracking' ? result.searched : undefined),
           condition: st.condition || 'GOOD',
+          returnType: rr.returnType || 'UNKNOWN',
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -107,7 +110,8 @@ export default function AmazonReturnsPage() {
         <h1>Amazon Return</h1>
         <p className="muted">
           Scan the return parcel&apos;s tracking barcode, or switch to Order ID and read the printed order number with the
-          camera — shows what&apos;s coming back and logs it into stock-manager as an Amazon return.
+          camera — shows what&apos;s coming back and logs it into stock-manager as an Amazon return. Works for customer
+          returns and RTOs (parcels that never reached the customer); for an RTO, use Order ID.
         </p>
       </div>
 
@@ -126,16 +130,19 @@ export default function AmazonReturnsPage() {
               <div key={rr.returnRequestId} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{rr.orderId}</span>
+                  <ReturnTypeTag type={rr.returnType} />
                   <StatusBadge status={rr.status} />
                   {rr.exchange && <span className="muted" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Exchange</span>}
+                  {rr.cod && <span className="muted" style={{ fontSize: '0.8rem', fontWeight: 600 }}>COD</span>}
                 </div>
+                <div className="muted" style={{ fontSize: '0.8rem' }}>{RETURN_TYPE_HINTS[rr.returnType] || RETURN_TYPE_HINTS.UNKNOWN}</div>
 
                 {rr.items.map((item, i) => {
                   const key = itemKey(rr, i);
                   const st = itemState[key] || {};
                   return (
                     <ItemCard key={key} item={item}>
-                      {item.reason && <div className="muted">Reason: {humanizeReason(item.reason)}</div>}
+                      {item.reason && <div className="muted">Reason: {rr.rto ? item.reason : humanizeReason(item.reason)}</div>}
                       {item.resolution && <div className="muted">Customer wants: {humanize(item.resolution).replace(/^Variational /, '')}</div>}
                       {item.matchError && <div style={{ color: 'var(--bad)' }}>{item.matchError}</div>}
                       {item.matchedSku && !st.added && (
@@ -160,12 +167,15 @@ export default function AmazonReturnsPage() {
 
                 <div style={{ fontSize: '0.88rem' }}>
                   {rr.trackingId && (
-                    <DateRow label="Return tracking">
+                    <DateRow label={rr.rto ? 'Original tracking' : 'Return tracking'}>
                       <span style={{ fontFamily: 'monospace' }}>{rr.trackingId}</span>{rr.carrier ? ` · ${rr.carrier}` : ''}
                     </DateRow>
                   )}
                   <DateRow label="Order received" value={rr.orderDate} />
+                  <DateRow label="Shipped" value={rr.shipDate} />
                   <DateRow label="Return requested" value={rr.requestDate} />
+                  <DateRow label="Returning to you since" value={rr.returningDate} />
+                  <DateRow label="Returned to you" value={rr.returnedDate} />
                   <DateRow label="Closed" value={rr.closeDate} />
                 </div>
               </div>
@@ -183,7 +193,7 @@ export default function AmazonReturnsPage() {
               <div key={r.returnRequestId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.trackingId || r.orderId}</div>
-                  <div className="muted" style={{ fontSize: '0.8rem' }}>{r.orderId} · {r.items.join(', ')}</div>
+                  <div className="muted" style={{ fontSize: '0.8rem' }}>{r.returnType === 'RTO' ? 'RTO' : r.returnType === 'CUSTOMER' ? 'Customer return' : 'Unknown'} · {r.orderId} · {r.items.join(', ')}</div>
                 </div>
                 <span style={{ fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap', color: added.length ? 'var(--good)' : 'var(--text-dim)' }}>
                   {added.length ? `✓ Added (${added.join(', ')})` : 'Not added'}

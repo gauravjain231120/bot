@@ -47,6 +47,7 @@ export async function GET(request) {
           returnReason: item.returnReason,
           returnMode: item.returnMode,
           returnCreatedDate: item.returnCreatedDate,
+          returnType: item.returnType || 'UNKNOWN',
           size: item.size,
           color: item.color,
           matchError: item.sku ? (match ? null : `SKU ${item.sku} isn't in the product catalog.`) : 'Could not resolve a SKU for this item.',

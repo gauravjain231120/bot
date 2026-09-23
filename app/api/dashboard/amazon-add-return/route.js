@@ -22,6 +22,7 @@ export async function POST(request) {
     qty: body.qty,
     trackingId: body.trackingId,
     condition: body.condition,
+    returnType: body.returnType,
     channel: 'AMAZON',
   });
   if (!result.ok) {

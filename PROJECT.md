@@ -570,7 +570,7 @@ lib/
   adminAuth.js            session-token cookie (admin_auth) against the `sessions` collection; getCurrentAccount()/isAuthed()/createSession()/destroySession() (§23, rewritten 2026-09-22 — was a single shared ADMIN_PASSWORD)
   accounts.js             the `accounts` collection — dashboard login accounts, Owner/Viewer roles, scrypt password hashing (§23, added 2026-09-22)
   monitorState.js         getRunning/setRunning on settings/_id:'status'.running
-  myntra.js                Myntra API calls + per-order/per-item Telegram text formatting; fetchPackedCount() (getPostPackedOrders, paginated) for /packed; resolveReturnByTrackingId() (SPF claim -> packed-order lookup) for /api/resolve-return, see §21 (added 2026-09-22); fetchSpfTicketCounts() (spf/v2/getTickets, paginated, page/pageSize) for §24 (added 2026-09-22); fetchSpfPaidClaims() (per-paid-claim compensationAmount + tracking ids) for §24, lookupPackedShipment() (searchPostPackedOrder) for §25 (added 2026-09-23)
+  myntra.js                Myntra API calls + per-order/per-item Telegram text formatting; fetchPackedCount() (getPostPackedOrders, paginated) for /packed; resolveReturnByTrackingId() (SPF claim -> packed-order lookup) for /api/resolve-return, see §21 (added 2026-09-22); fetchSpfTicketCounts() (spf/v2/getTickets, paginated, page/pageSize) for §24 (added 2026-09-22); fetchSpfPaidClaims() (per-paid-claim compensationAmount + tracking ids) for §24, lookupPackedShipment() (searchPostPackedOrder) for §25; myntraReturnType() customer-return-vs-RTO on each resolved return for §27 (added 2026-09-23)
   amazon.js                Amazon API calls + per-order/per-item Telegram text formatting
   checkOrders.js           orchestrates one Myntra poll cycle (fetch → diff → alert → queue)
   checkAmazonOrders.js     same, for Amazon
@@ -582,15 +582,16 @@ lib/
   sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
   recipients.js            the `recipients`/`recipientRoleHistory` collections — who gets alerted, who can run bot commands, role-change audit log (§20)
   telegramCommands.js      fetchQueueSummary() (reads stock-manager's `/api/pending/summary`) + one formatXList() per bot command's text — /ship, /make, /myntra(all/left), /amazon(all/left), /ready(all), /notready(all); toDMY()/todayIst() + formatPackedCount() for /packed(all) (added 2026-09-22)
-  returns.js               addReturnToStockManager() — POSTs a return to stock-manager's own /api/register, same auth pattern as addToReadyToShip(); `channel` defaults to MYNTRA, AMAZON for §26 (§22, added 2026-09-22)
+  returns.js               addReturnToStockManager() — POSTs a return to stock-manager's own /api/register, same auth pattern as addToReadyToShip(); `channel` defaults to MYNTRA, AMAZON for §26; `returnType` CUSTOMER/RTO/UNKNOWN for §27 (§22, added 2026-09-22)
   spfPaid.js               fetchSpfPaidBreakdown() — splits the SPF paid total into fake/wrong/unclear/gradedOther/notLogged by matching paid claims to stock-manager's return log (§24, added 2026-09-23)
-  amazonScan.js            lookupAmazonPacked()/lookupAmazonReturn() for the Amazon Pack/Return pages — orders-api search (qt=tracking-id) + order detail, returns/api search (§26, added 2026-09-23)
+  amazonScan.js            lookupAmazonPacked()/lookupAmazonReturn() for the Amazon Pack/Return pages — orders-api search (qt=tracking-id) + order detail, returns/api search, RTO fallback + returnType (§26, §27, added 2026-09-23)
   DashboardContext.js      DashboardProvider/useDashboard() — every cross-page dashboard state + the single 60s poll loop (§7, added 2026-09-22, was inline in app/page.js)
   format.js                timeAgo/formatMinutes/otcLines/RETURN_CONDITIONS/RETURN_CONDITION_LABELS, shared by multiple pages (§7, added 2026-09-22)
 components/
   BarcodeScanner.js        full-screen camera barcode scanner (@zxing/browser), plain JS/JSX port of what was originally stock-manager's own BarcodeScanner.tsx (§22, added 2026-09-22)
   OrderIdScanner.js        full-screen camera OCR reader (tesseract.js, lazy-loaded) for a printed Amazon order ID — 3-7-7 digit shape, two matching frames required (§26, added 2026-09-23)
   AmazonScanShared.js      Tracking/Order ID toggle + input + camera, status badge, item card — shared by the two Amazon scan pages only (§26, added 2026-09-23)
+  ReturnTypeTag.js         Customer return / RTO / Unknown tag shown on Myntra Return + Amazon Return (§27, added 2026-09-23)
   AppShell.js              sidebar + topbar shell every page renders inside, wired in app/layout.js (§7, added 2026-09-22)
   LoginScreen.js           the login form, rendered by AppShell while not authed (§7, added 2026-09-22)
   icons.js                 every inline SVG icon component, shared across pages/shell (§7, added 2026-09-22)
@@ -643,6 +644,7 @@ app/
 scripts/
   seed-recipients.js         one-off: migrated the 3 hardcoded people into `recipients` at their existing effective roles (§20)
   protect-primary-owner.js   one-off: marked Gaurav's row `protected: true` (§20)
+  classify-return-types.js   one-off, read-only: customer return vs RTO for every existing stock-manager return -> JSON, applied by stock-manager's apply-return-types.ts (§27)
 browser-extension/         Manifest V3 Chrome extension — auto-syncs the session (§18); not part of the Vercel deploy, lives in the user's Chrome
 ```
 
@@ -1257,3 +1259,43 @@ Lookups live in `lib/amazonScan.js` (read-only, saved `session_amazon` headers).
 - **Renamed (2026-09-23)**: the Myntra scan pages are now labelled **Myntra Return** (`/returns`)
   and **Myntra Pack** (`/packed`) in the sidebar and page headings, so they read clearly next to
   Amazon Pack / Amazon Return. Routes/URLs are unchanged.
+- **RTO support on Amazon Return (added 2026-09-23)**: an Amazon RTO (parcel never reached the
+  customer — COD refused / cancelled in transit — and came back) never creates a return request,
+  so Manage Returns has nothing for it (verified on 404-0757348-7486720: 0 return requests,
+  order status `ReturnedToSeller`). When the returns search is empty, `lookupAmazonReturn` now
+  falls back to the order: Order ID mode reads `orders-api/order/<id>`; tracking mode tries the
+  scanned number as the ORIGINAL outbound tracking (`qt=tracking-id`). If the order is
+  `ReturningToSeller` or `ReturnedToSeller` it's shown as an **RTO** (red tag, COD flag,
+  shipped / returning-since / returned dates from `easyship-api/v1/track` events) with the same
+  condition picker + Add to Return, logged under the original tracking. The RTO parcel's own
+  return-label number (e.g. 515230465036) isn't linked to the order anywhere Amazon lets us
+  search, so scanning just that gives a clear "switch to Order ID" message. Delivered orders
+  with no return get "has no customer return and isn't an RTO".
+- **Myntra, for comparison (checked 2026-09-23, no code change)**: Myntra has both kinds too, and
+  Myntra Return already resolves both — a customer return by its return label (MYSR…/MYER…), an
+  RTO by its original outbound label (MYSC…/MYSP…/MYEC…/MYEP…): `fetchNewClaim` accepts the
+  outbound tracking and reports `orderStatus: "RTO"` (some show `"F"`), with no return tracking /
+  return date. The packet's own `packetStatus` stays `SHIPPED` for an RTO. ~137 of stock-manager's
+  Myntra returns are logged under outbound prefixes, i.e. mostly RTOs. Myntra Return doesn't yet
+  *label* which kind a scan is.
+
+## 27. Return type — Customer return vs RTO (added 2026-09-23)
+
+Both return scan pages now show whether a scan is a **Customer return**, an **RTO** (never reached
+the customer, came back) or **Unknown** (`components/ReturnTypeTag.js`), and send it to
+stock-manager as `returnType` (CUSTOMER / RTO / UNKNOWN) on Add to Return — stored on the
+`RETURNED` row (see stock-manager's PROJECT.md). It's independent of the condition: an RTO can
+still come back faked or wrong (real case: MYEP1132530153 — never delivered, came back on its
+original label with another seller's product, SPF wrong-return claim approved).
+- **Myntra** — `lib/myntra.js` `myntraReturnType(claim)`, from the claim record the resolver
+  already fetches (no extra call): return date/reason → CUSTOMER; `orderStatus` `RTO` or `F` →
+  RTO; else UNKNOWN. Verified against all 512 tracked Myntra returns: customer returns are always
+  return labels (MYSR/MYER) with status `C`; RTOs come back on the original label with `RTO` (41)
+  or `F` (96, undocumented by Myntra but always never-delivered + original label).
+- **Amazon** — found in Manage Returns → CUSTOMER; the §26 RTO fallback (order
+  `ReturnedToSeller`/`ReturningToSeller`) → RTO.
+- `lib/returns.js` sends `returnType` (anything unrecognised → UNKNOWN); stock-manager's zod schema
+  strips unknown keys on older deploys, so either app can be deployed first.
+- **Backfill**: `scripts/classify-return-types.js <out.json>` (read-only) classified the 681
+  existing returns; stock-manager's `scripts/apply-return-types.ts` applied it (dry run first).
+  Myntra 373 customer / 138 RTO / 4 unknown; Amazon 57 / 5 / 97; Flipkart 7 unknown.

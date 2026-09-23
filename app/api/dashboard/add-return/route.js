@@ -22,6 +22,7 @@ export async function POST(request) {
     qty: body.qty,
     trackingId: body.trackingId,
     condition: body.condition,
+    returnType: body.returnType,
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 502 });
