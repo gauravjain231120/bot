@@ -32,9 +32,22 @@ function OwnerOnlyNotice() {
 
 const INR = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 
+// How the paid total splits up — see lib/spfPaid.js for how each paid claim
+// is matched to stock-manager's return log. Fake and Wrong always show (even
+// at ₹0, since they're what was asked for); the rest only when non-empty.
+const PAID_SPLIT = [
+  { key: 'fake', label: 'Fake', always: true },
+  { key: 'wrong', label: 'Wrong', always: true },
+  { key: 'unclear', label: 'Fake or wrong (unclear)' },
+  { key: 'gradedOther', label: 'Graded good/used' },
+  { key: 'notLogged', label: 'Not logged in stock-manager' },
+];
+
+const REVIEW_LABELS = Object.fromEntries(PAID_SPLIT.map(({ key, label }) => [key, label]));
+
 // Counts are shown plainly, same as before — the password gate is only for
 // the "paid" card's extra ₹ total, computed on demand by
-// POST /api/spf-status/verify (see lib/myntra.js's fetchSpfPaidTotal — it's
+// POST /api/spf-status/verify (see lib/spfPaid.js's fetchSpfPaidBreakdown — it's
 // not part of the counts this page loads on mount, since the real total costs
 // one extra Myntra call per paid ticket to fetch). All four cards still ask
 // for the confirmation password on a triple-click, but the other three don't
@@ -48,13 +61,68 @@ const STAT_CARDS = [
 
 const MODAL_LABELS = Object.fromEntries(STAT_CARDS.map(({ key, label }) => [key, label]));
 
+function PaidSummary({ info }) {
+  const failed = info.failed || [];
+  return (
+    <>
+      <div className="stat-sub">{INR.format(info.paidTotalAmount || 0)} paid total</div>
+      {info.breakdown && (
+        <div className="spf-split">
+          {PAID_SPLIT.filter(({ key, always }) => always || info.breakdown[key].count > 0).map(({ key, label }) => (
+            <div key={key} className="spf-split-row">
+              <span>{label}</span>
+              <span>
+                {INR.format(info.breakdown[key].amount)} <span className="muted">({info.breakdown[key].count})</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {info.breakdownError && <div className="stat-sub spf-warn">{info.breakdownError}</div>}
+      {failed.length > 0 && (
+        <div className="stat-sub spf-warn">
+          {failed.length} paid {failed.length === 1 ? 'claim' : 'claims'} couldn't be fetched from Myntra — not in the
+          total
+        </div>
+      )}
+    </>
+  );
+}
+
+// Paid claims that aren't cleanly Fake or Wrong — each one with its tracking
+// id so it can be looked up (and re-graded) in stock-manager.
+function PaidReview({ review }) {
+  return (
+    <div className="card">
+      <h2>Paid claims to check</h2>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Myntra paid these, but stock-manager doesn't have them graded as Fake or Wrong.
+      </p>
+      {review.map((r) => (
+        <div key={r.ticketId} className="spf-review-row">
+          <div>
+            <div style={{ fontWeight: 600 }}>{r.trackingId || `Order ${r.orderId}`}</div>
+            <div className="muted" style={{ fontSize: '0.8rem' }}>
+              {REVIEW_LABELS[r.bucket]} — {r.detail}
+              {r.matchedBy ? ` (matched by ${r.matchedBy})` : ''}
+            </div>
+          </div>
+          <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{INR.format(r.amount)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function SpfStatusPage() {
   const { isOwner } = useDashboard();
   const [counts, setCounts] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [revealed, setRevealed] = useState({});
-  const [paidTotal, setPaidTotal] = useState(null);
+  // The whole POST /api/spf-status/verify response for Paid — total, the
+  // fake/wrong split, and which paid claims need a look.
+  const [paidInfo, setPaidInfo] = useState(null);
 
   // The password modal's own state — a single dialog reused for whichever
   // card was triple-clicked (modalKey), not one instance per card.
@@ -120,9 +188,9 @@ export default function SpfStatusPage() {
   // (DashboardContext's promptAccountPassword/promptRolePassword) — checked
   // server-side (app/api/spf-status/verify), never a client-side-only gate.
   // Only for modalKey === 'paid' does the server actually compute anything
-  // (the ₹ total, one extra Myntra call per paid ticket — see
-  // lib/myntra.js's fetchSpfPaidTotal) — that's why this can take a few
-  // seconds for Paid but is instant for the other three.
+  // (the ₹ total and its fake/wrong split, one extra Myntra call per paid
+  // ticket — see lib/spfPaid.js) — that's why this can take a few seconds for
+  // Paid but is instant for the other three.
   async function onModalSubmit(e) {
     e.preventDefault();
     setModalBusy(true);
@@ -138,7 +206,7 @@ export default function SpfStatusPage() {
         setModalError(data.error || `HTTP ${res.status}`);
         return;
       }
-      if (modalKey === 'paid') setPaidTotal(data.paidTotalAmount || 0);
+      if (modalKey === 'paid') setPaidInfo(data);
       setRevealed((prev) => ({ ...prev, [modalKey]: true }));
       setModalKey(null);
       setModalPassword('');
@@ -188,12 +256,14 @@ export default function SpfStatusPage() {
               >
                 <div className="stat-label">{label}</div>
                 <div className="stat-value">{statNumbers[key]}</div>
-                {key === 'paid' && revealed.paid && (
-                  <div className="stat-sub">{INR.format(paidTotal || 0)} paid total</div>
-                )}
+                {key === 'paid' && revealed.paid && paidInfo && <PaidSummary info={paidInfo} />}
               </button>
             ))}
           </div>
+
+          {revealed.paid && paidInfo && paidInfo.review && paidInfo.review.length > 0 && (
+            <PaidReview review={paidInfo.review} />
+          )}
 
           {breakdown.length > 0 && (
             <div className="card">
@@ -228,7 +298,7 @@ export default function SpfStatusPage() {
               <h2>Confirm to reveal “{MODAL_LABELS[modalKey]}”</h2>
               <p className="muted">
                 {modalKey === 'paid'
-                  ? 'Enter the confirmation password to calculate and show the total amount paid.'
+                  ? 'Enter the confirmation password to calculate the total amount paid and how much of it was fake or wrong returns.'
                   : 'Enter the confirmation password to continue.'}
               </p>
               <label htmlFor="spf-modal-password">Confirmation password</label>

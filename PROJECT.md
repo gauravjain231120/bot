@@ -1130,11 +1130,71 @@ the secret itself to client JS).
   production: all 72 paid tickets resolved (61 by `returnId`, 11 more via the `orderId`
   fallback), totalling ₹68,899.66 (~2.5s at concurrency 8).
 - **Deliberately not part of `fetchSpfTicketCounts()`** — too heavy (72 extra live calls) to run
-  on every page load/Refresh. `POST /api/spf-status/verify` only calls `fetchSpfPaidTotal()` when
+  on every page load/Refresh. `POST /api/spf-status/verify` only calls `fetchSpfPaidBreakdown()` when
   `body.key === 'paid'`; the other 3 cards' password check is a no-op beyond validating the
   password, per the original request: "make all other also clickable and ask for passsword but
   just show real number on paid on other do nothing."
+- **Fake / Wrong split under the Paid total (added 2026-09-23)** — `lib/spfPaid.js`'s
+  `fetchSpfPaidBreakdown()`. `lib/myntra.js`'s `fetchSpfPaidTotal()` was split into
+  `fetchSpfPaidClaims()` (every paid claim's `amount`, `issueCategory`, `skuId`,
+  `meta.returnTrackingId`, original `trackingId` + a `failed[]` list with reasons) and a thin
+  `fetchSpfPaidTotal()` on top. Hardened at the same time: a claim is only accepted if its own
+  `ticketId` matches (the old `|| rows[0]` fallback could have counted another ticket's payout),
+  the `orderId` lookup is retried when the `returnId` one doesn't contain the ticket, a 401/403 /
+  soft session-expiry aborts the whole call instead of being swallowed per ticket (it used to
+  read ₹0), and tickets that fail go into `failed[]` (shown on the card) instead of vanishing.
+  - **Why stock-manager, not Myntra**: checked live, Myntra's own `issueCategory` (it IS on the
+    `getTickets` list rows) is `WRONG_RETURNS_RECEIVED_OTHER_SELLERS_PRODUCT` for 70 of 72 paid
+    claims (+1 `STAINED_RETURN`, 1 `WRONG_RETURNS_RECEIVED_OWN_PRODUCT`) — no fake category at all.
+    Fake vs wrong only exists as the `condition` stock-manager graded the return with.
+  - **Matching** (`lookupReturnsByTracking()` in `lib/stock.js`, read-only, `RETURNED` rows of
+    `stockmovements`, tracking ids normalised exactly like stock-manager's `normalizeTracking`,
+    legacy `condition: null` treated as GOOD like its `editEntry()` does): return tracking id
+    first, then the original shipment tracking id (14 of 72 paid claims have no return tracking
+    id; 11 of those were logged under the original label — verified live). Claims sharing one
+    tracking id share its rows, consumed **one unit at a time** (a `qty` 2 row covers two claims,
+    a qty 1 row can't be counted twice). When there's a choice (several claims, or mixed
+    conditions), the claim's seller SKU is resolved via `fetchPackedOrderByTracking` (cached per
+    tracking id, only for those cases) and rows are narrowed by SKU suffix. FAKED/WRONG beats
+    GOOD/USED on the same parcel (a paid claim is for the bad unit — real case: a qty-2 shipment
+    with one GOOD and one WRONG unit of the same SKU); FAKED **and** WRONG left → `unclear`.
+  - **Buckets**: `fake`, `wrong`, `unclear`, `gradedOther` (GOOD/USED/DEFECTIVE — Myntra paid it,
+    so probably mis-graded), `notLogged`. Summed in paise; if buckets ever don't add up to the
+    total the split is withheld (`breakdownError`) rather than shown wrong. If stock-manager's DB
+    is unreachable the total still shows, with `breakdownError`. Every non-fake/wrong claim is
+    returned in `review[]` and listed on the page ("Paid claims to check") with its tracking id,
+    so it can be re-graded in stock-manager.
+  - **Verified against production** (2026-09-23): 72/72 paid claims resolved, ₹68,899.66 =
+    Fake ₹24,066.05 (26) + Wrong ₹35,193.28 (34) + Graded good/used ₹7,652.86 (9) + Not logged
+    ₹1,987.47 (3). ~3s. Edge cases (multi-item SKU split, unclear, over-claimed tracking id, qty
+    2 rows, fallback key, no tracking, stock-manager down, auth error mid-lookup) checked with a
+    synthetic run.
 - **Why a password check here even for the 3 cards that reveal nothing extra**: their counts are
   already visible on the page (this isn't an access-control boundary for them), it's the same
   friction-on-an-already-authenticated-Owner pattern §23 documents for account changes. For Paid,
   the password check also gates a real, non-trivial computation from running unauthenticated.
+
+## 25. Scan packed / picked (`app/packed/page.js`, added 2026-09-23)
+
+Sidebar item **Scan Packed**, right below Scan Return, visible to Owners and Viewers alike (same
+as Scan Return). Scan a shipping label with the camera (`components/BarcodeScanner.js`, same as
+Scan Return), a USB/Bluetooth scanner, or type it — shows the packet's status (Packed / Picked /
+Shipped), packed/picked/shipped times (IST), and per item: photo, product name, seller SKU, size,
+color, qty, selling price/MRP. Read-only, one live Myntra call per scan, never on a timer.
+
+- **Endpoint**: `lookupPackedShipment()` in `lib/myntra.js` → `searchPostPackedOrder` (the same
+  endpoint §21's return resolver uses for step 2). NOT the `getPostPackedOrders` date-range list
+  the packed count uses — that one only carries `skuId` per line item, no name/SKU/size/color/
+  image; the search endpoint has all of it (`productDisplayName`, `sellerSkuCode`, `size`,
+  `color`, `images[]`, `mrp`, `finalAmount`) plus `packedOn`/`pickedOn`/`shippedOn`/`packetStatus`.
+- **Verified live quirks**: the id must be uppercase — a lowercased tracking number is an HTTP 500,
+  same as an unknown one, so input is uppercased and stripped to A–Z/0–9 first. An unknown id or a
+  return label (MYSR…/MYER…, not an outbound packet) comes back as HTTP 500 "Error in APIGATEWAY",
+  not an empty list — treated as "not found" (404 from `GET /api/dashboard/packed-lookup`, with a
+  "use Scan Return" hint for MYSR/MYER). An all-digits code is looked up as the packet id
+  (`searchOn=storePacketId`, also verified); `orderId`/`packetId` aren't valid search keys.
+  Session expiry (soft or 401/403) → 401 "refresh it on the Sessions page".
+- **Scanner ergonomics**: the input re-focuses after each lookup on mouse/keyboard devices only
+  (`pointer: fine`), so a USB scanner can scan back-to-back; on phones that would pop the keyboard
+  after every camera scan. A "Scanned this session" list (last 10, in memory only) and a note when
+  the same label is scanned twice. Multi-item packets show every line item.

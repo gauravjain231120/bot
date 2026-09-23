@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
 import { requireOwner } from '../../../../lib/adminAuth';
-import { fetchSpfPaidTotal } from '../../../../lib/myntra';
+import { fetchSpfPaidBreakdown } from '../../../../lib/spfPaid';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,9 +17,12 @@ export const dynamic = 'force-dynamic';
 //
 // The Paid card's ₹ total is different: it's genuinely not computed until
 // here. finalAmount isn't on the getTickets list Overview already fetched
-// (see lib/myntra.js's fetchSpfPaidTotal) — it costs one extra Myntra call
+// (see lib/myntra.js's fetchSpfPaidClaims) — it costs one extra Myntra call
 // per paid ticket, so it only runs once the password is verified and only
-// when `key === 'paid'`, not on every page load.
+// when `key === 'paid'`, not on every page load. The same call also splits
+// that total into fake / wrong / etc. by matching each paid claim against
+// stock-manager's return log (lib/spfPaid.js) — if stock-manager can't be
+// read, the total still comes back, just with `breakdownError` set.
 export async function POST(request) {
   const check = await requireOwner();
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -37,8 +40,8 @@ export async function POST(request) {
   }
 
   try {
-    const { paidTotalAmount } = await fetchSpfPaidTotal(sessionDoc.headers);
-    return NextResponse.json({ ok: true, paidTotalAmount });
+    const paid = await fetchSpfPaidBreakdown(sessionDoc.headers);
+    return NextResponse.json({ ok: true, ...paid });
   } catch (err) {
     const status = err.response && err.response.status;
     return NextResponse.json({ error: err.message }, { status: status === 401 || status === 403 ? 401 : 500 });

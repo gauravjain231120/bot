@@ -7,7 +7,7 @@ import { useDashboard } from '../lib/DashboardContext';
 import { LoginScreen } from './LoginScreen';
 import {
   SunIcon, MoonIcon, BellIcon, PlayIcon, StopIcon, RefreshIcon, MenuIcon, CloseIcon,
-  HomeIcon, ScanIcon, KeyIcon, UsersIcon, ShieldIcon, ChartIcon, LogoutIcon,
+  HomeIcon, ScanIcon, BoxIcon, KeyIcon, UsersIcon, ShieldIcon, ChartIcon, LogoutIcon,
 } from './icons';
 
 // No standalone Orders nav entry — the orders grid is shown directly on
@@ -18,6 +18,7 @@ import {
 const NAV_ITEMS = [
   { href: '/', label: 'Overview', Icon: HomeIcon },
   { href: '/returns', label: 'Scan Return', Icon: ScanIcon },
+  { href: '/packed', label: 'Scan Packed', Icon: BoxIcon },
   { href: '/sessions', label: 'Sessions', Icon: KeyIcon },
   { href: '/recipients', label: 'Recipients', Icon: UsersIcon, ownerOnly: true },
   { href: '/team', label: 'Team', Icon: ShieldIcon, ownerOnly: true },

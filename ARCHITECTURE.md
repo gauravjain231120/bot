@@ -133,6 +133,25 @@ and a reason. Getting the real seller SKU and size means following that claim to
 shipment's own packed-order record — the bot does both automatically instead of a person looking
 each one up by hand on Myntra's site.
 
+## Flow: splitting the SPF paid total into fake / wrong
+
+```mermaid
+flowchart LR
+  A["Owner reveals the Paid card<br/>on the SPF Status page"] --> B["Bot fetches every paid<br/>claim's payout from Myntra"]
+  B --> C["Match each claim to its return<br/>in stock-manager's log, by tracking ID"]
+  C --> D{"Graded as"}
+  D -- "Faked" --> E["Fake ₹"]
+  D -- "Wrong item" --> F["Wrong ₹"]
+  D -- "Good / Used / Defective,<br/>or not logged at all" --> G["Listed for review"]
+```
+
+Myntra itself can't tell these apart — almost every paid claim carries the same "received another
+seller's product" reason, counterfeit or not. The difference only exists in how the parcel was
+graded when it was scanned back in, so **the condition picked on a return is what decides which
+bucket its payout lands in.** Matched on the return's own tracking ID first, then the original
+shipment's tracking ID (some returns are logged under that). A read of stock-manager's database,
+same read-only connection as the catalog reads — nothing is written anywhere.
+
 ## Flow: keeping the Myntra login alive
 
 ```mermaid
@@ -177,7 +196,7 @@ routes. Everything else on stock-manager needs a real logged-in account.
 | `DELETE /api/pending/[id]` | Bot → stock-manager | Shared service token |
 | `POST /api/pending/unship-cancelled` | Bot → stock-manager | Shared service token |
 | `POST /api/register` | Bot → stock-manager | Shared service token |
-| Product / stock catalog reads | Bot → stock-manager's database | Read-only database connection, no writes possible |
+| Product / stock catalog reads, return-log reads (SPF paid split) | Bot → stock-manager's database | Read-only database connection, no writes possible |
 | `POST /api/session/sync` | Extension → bot | Separate shared secret |
 | Telegram webhook & commands | Telegram → bot | Bot token + per-person role (Owner-only for commands) |
 | Bot dashboard itself | Person → bot | Real login — Owner / Viewer accounts (added 2026-09-22); Alert recipients, Role change history and the Team list are Owner-only, enforced server-side too, not just hidden in the UI |
