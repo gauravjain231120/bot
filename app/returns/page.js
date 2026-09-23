@@ -4,10 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import { BarcodeScanner } from '../../components/BarcodeScanner';
 import { RETURN_CONDITIONS, RETURN_CONDITION_LABELS } from '../../lib/format';
 import { ReturnTypeTag } from '../../components/ReturnTypeTag';
+import { useDashboard } from '../../lib/DashboardContext';
 
 const RECENT_LIMIT = 10;
 
 export default function ReturnsPage() {
+  // Customer return vs RTO is Owner-only (the API also leaves it out for others).
+  const { isOwner } = useDashboard();
   const [myntraScanId, setMyntraScanId] = useState('');
   const [myntraResolving, setMyntraResolving] = useState(false);
   const [myntraResolveError, setMyntraResolveError] = useState('');
@@ -179,7 +182,7 @@ export default function ReturnsPage() {
                   />
                 ) : null}
                 <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem' }}>
-                  <div style={{ marginBottom: 4 }}><ReturnTypeTag type={c.returnType} /></div>
+                  {isOwner && <div style={{ marginBottom: 4 }}><ReturnTypeTag type={c.returnType} /></div>}
                   <div style={{ fontWeight: 600 }}>{c.productName ?? c.resolvedSku}</div>
                   <div className="muted" style={{ fontFamily: 'monospace' }}>{c.matchedSku ?? c.resolvedSku}</div>
                   {c.size && (
@@ -234,7 +237,7 @@ export default function ReturnsPage() {
                 <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.trackingId}</div>
                 <div className="muted" style={{ fontSize: '0.8rem' }}>
                   {r.items.length
-                    ? `${r.items[0].returnType === 'RTO' ? 'RTO' : r.items[0].returnType === 'CUSTOMER' ? 'Customer return' : 'Unknown'} · ` +
+                    ? (isOwner ? `${r.items[0].returnType === 'RTO' ? 'RTO' : r.items[0].returnType === 'CUSTOMER' ? 'Customer return' : 'Unknown'} · ` : '') +
                       r.items.map((it) => `${it.sku || '?'} · ${it.size || '?'}`).join(', ')
                     : 'No item found'}
                 </div>

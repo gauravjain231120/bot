@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { isAuthed } from '../../../../lib/adminAuth';
+import { isAuthed, getCurrentAccount } from '../../../../lib/adminAuth';
+import { amazonReturnTypeFor } from '../../../../lib/returnTypeServer';
 import { addReturnToStockManager } from '../../../../lib/returns';
 
 export const runtime = 'nodejs';
@@ -17,12 +18,17 @@ export async function POST(request) {
   if (!body.sku) {
     return NextResponse.json({ error: 'sku is required' }, { status: 400 });
   }
+  // Worked out server-side (Owner-only info — see lib/returnTypeServer.js).
+  const account = await getCurrentAccount();
+  const isOwner = !!account && account.role === 'OWNER';
+  const returnType = await amazonReturnTypeFor(body.trackingId, body.returnType, isOwner);
+
   const result = await addReturnToStockManager({
     sku: body.sku,
     qty: body.qty,
     trackingId: body.trackingId,
     condition: body.condition,
-    returnType: body.returnType,
+    returnType,
     channel: 'AMAZON',
   });
   if (!result.ok) {

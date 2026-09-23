@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
-import { isAuthed } from '../../../../lib/adminAuth';
+import { isAuthed, getCurrentAccount } from '../../../../lib/adminAuth';
 import { lookupAmazonReturn } from '../../../../lib/amazonScan';
 import { lookupProductBySku } from '../../../../lib/stock';
 
@@ -33,6 +33,16 @@ export async function GET(request) {
         item.matchedSku = match ? match.sku : null;
         item.catalogName = match ? match.name : null;
         item.matchError = item.sku ? (match ? null : `SKU ${item.sku} isn't in the product catalog.`) : 'No SKU on this return item.';
+      }
+    }
+    // Customer return vs RTO is Owner-only — strip it (and the RTO flag) for
+    // anyone else; the add route works it out again server-side.
+    const account = await getCurrentAccount();
+    if (!account || account.role !== 'OWNER') {
+      for (const rr of result.returns) {
+        if (rr.rto) for (const item of rr.items) item.reason = null;
+        delete rr.returnType;
+        delete rr.rto;
       }
     }
     return NextResponse.json(result);

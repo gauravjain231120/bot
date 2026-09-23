@@ -582,6 +582,7 @@ lib/
   sessionStore.js          shared save-a-session logic (§18) — used by both session routes below
   recipients.js            the `recipients`/`recipientRoleHistory` collections — who gets alerted, who can run bot commands, role-change audit log (§20)
   telegramCommands.js      fetchQueueSummary() (reads stock-manager's `/api/pending/summary`) + one formatXList() per bot command's text — /ship, /make, /myntra(all/left), /amazon(all/left), /ready(all), /notready(all); toDMY()/todayIst() + formatPackedCount() for /packed(all) (added 2026-09-22)
+  returnTypeServer.js      myntraReturnTypeFor()/amazonReturnTypeFor() — server-side return type for the add routes (§27, added 2026-09-23)
   returns.js               addReturnToStockManager() — POSTs a return to stock-manager's own /api/register, same auth pattern as addToReadyToShip(); `channel` defaults to MYNTRA, AMAZON for §26; `returnType` CUSTOMER/RTO/UNKNOWN for §27 (§22, added 2026-09-22)
   spfPaid.js               fetchSpfPaidBreakdown() — splits the SPF paid total into fake/wrong/unclear/gradedOther/notLogged by matching paid claims to stock-manager's return log (§24, added 2026-09-23)
   amazonScan.js            lookupAmazonPacked()/lookupAmazonReturn() for the Amazon Pack/Return pages — orders-api search (qt=tracking-id) + order detail, returns/api search, RTO fallback + returnType (§26, §27, added 2026-09-23)
@@ -591,7 +592,7 @@ components/
   BarcodeScanner.js        full-screen camera barcode scanner (@zxing/browser), plain JS/JSX port of what was originally stock-manager's own BarcodeScanner.tsx (§22, added 2026-09-22)
   OrderIdScanner.js        full-screen camera OCR reader (tesseract.js, lazy-loaded) for a printed Amazon order ID — 3-7-7 digit shape, two matching frames required (§26, added 2026-09-23)
   AmazonScanShared.js      Tracking/Order ID toggle + input + camera, status badge, item card — shared by the two Amazon scan pages only (§26, added 2026-09-23)
-  ReturnTypeTag.js         Customer return / RTO / Unknown tag shown on Myntra Return + Amazon Return (§27, added 2026-09-23)
+  ReturnTypeTag.js         Customer return / RTO / Unknown tag shown on Myntra Return + Amazon Return, Owner-only (§27, added 2026-09-23)
   AppShell.js              sidebar + topbar shell every page renders inside, wired in app/layout.js (§7, added 2026-09-22)
   LoginScreen.js           the login form, rendered by AppShell while not authed (§7, added 2026-09-22)
   icons.js                 every inline SVG icon component, shared across pages/shell (§7, added 2026-09-22)
@@ -1296,6 +1297,14 @@ original label with another seller's product, SPF wrong-return claim approved).
   `ReturnedToSeller`/`ReturningToSeller`) → RTO.
 - `lib/returns.js` sends `returnType` (anything unrecognised → UNKNOWN); stock-manager's zod schema
   strips unknown keys on older deploys, so either app can be deployed first.
+- **Owner-only (2026-09-23)**: the tag (and the RTO note/reason, and the type in "Scanned this
+  session") is shown to Owners only. Server-side too: `/api/dashboard/resolve-return` and
+  `/api/dashboard/amazon-return-lookup` strip `returnType` (and `rto` + the RTO reason) for
+  non-Owners; the add routes don't trust the browser — `lib/returnTypeServer.js` re-derives the
+  type from the same Myntra/Amazon lookup (falls back to the browser's value only for an Owner,
+  else UNKNOWN), so a Viewer's adds are still stored with the right type and can't spoof it.
+  Verified live: customer/RTO/multi-item RTO all derived correctly for a viewer; a viewer sending
+  "RTO" for a customer return is stored as CUSTOMER.
 - **Backfill**: `scripts/classify-return-types.js <out.json>` (read-only) classified the 681
   existing returns; stock-manager's `scripts/apply-return-types.ts` applied it (dry run first).
   Myntra 373 customer / 138 RTO / 4 unknown; Amazon 57 / 5 / 97; Flipkart 7 unknown.

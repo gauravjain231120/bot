@@ -128,7 +128,8 @@ flowchart LR
 from the customer; an RTO never reached them (refused, undeliverable) and came back. The scan pages
 work this out from Myntra/Amazon and show it before you add; stock-manager stores it next to the
 condition (an RTO can still come back faked or wrong), with a tag, filter and CSV column on its
-Returns page. Hand-logged returns default to Unknown.
+Returns page. Hand-logged returns default to Unknown. The return type — and the Faked / Used
+conditions — are **Owner-only**, enforced on the server in both apps, not just hidden on screen.
 
 **Amazon returns** have their own page on the bot's dashboard (Amazon Return): scan the return
 label's tracking barcode or read the printed order ID with the camera, the bot looks the return up

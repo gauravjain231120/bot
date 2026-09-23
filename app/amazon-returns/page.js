@@ -4,11 +4,14 @@ import { useState } from 'react';
 import { AmazonScanInput, DateRow, ItemCard, StatusBadge, humanize, humanizeReason } from '../../components/AmazonScanShared';
 import { RETURN_CONDITIONS, RETURN_CONDITION_LABELS } from '../../lib/format';
 import { ReturnTypeTag, RETURN_TYPE_HINTS } from '../../components/ReturnTypeTag';
+import { useDashboard } from '../../lib/DashboardContext';
 
 const RECENT_LIMIT = 10;
 const itemKey = (rr, i) => `${rr.returnRequestId}:${i}`;
 
 export default function AmazonReturnsPage() {
+  // Customer return vs RTO is Owner-only (the API also leaves it out for others).
+  const { isOwner } = useDashboard();
   const [looking, setLooking] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
@@ -130,12 +133,12 @@ export default function AmazonReturnsPage() {
               <div key={rr.returnRequestId} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{rr.orderId}</span>
-                  <ReturnTypeTag type={rr.returnType} />
+                  {isOwner && <ReturnTypeTag type={rr.returnType} />}
                   <StatusBadge status={rr.status} />
                   {rr.exchange && <span className="muted" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Exchange</span>}
                   {rr.cod && <span className="muted" style={{ fontSize: '0.8rem', fontWeight: 600 }}>COD</span>}
                 </div>
-                <div className="muted" style={{ fontSize: '0.8rem' }}>{RETURN_TYPE_HINTS[rr.returnType] || RETURN_TYPE_HINTS.UNKNOWN}</div>
+                {isOwner && <div className="muted" style={{ fontSize: '0.8rem' }}>{RETURN_TYPE_HINTS[rr.returnType] || RETURN_TYPE_HINTS.UNKNOWN}</div>}
 
                 {rr.items.map((item, i) => {
                   const key = itemKey(rr, i);
@@ -167,7 +170,7 @@ export default function AmazonReturnsPage() {
 
                 <div style={{ fontSize: '0.88rem' }}>
                   {rr.trackingId && (
-                    <DateRow label={rr.rto ? 'Original tracking' : 'Return tracking'}>
+                    <DateRow label={rr.rto ? 'Original tracking' : 'Tracking'}>
                       <span style={{ fontFamily: 'monospace' }}>{rr.trackingId}</span>{rr.carrier ? ` · ${rr.carrier}` : ''}
                     </DateRow>
                   )}
@@ -193,7 +196,7 @@ export default function AmazonReturnsPage() {
               <div key={r.returnRequestId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.trackingId || r.orderId}</div>
-                  <div className="muted" style={{ fontSize: '0.8rem' }}>{r.returnType === 'RTO' ? 'RTO' : r.returnType === 'CUSTOMER' ? 'Customer return' : 'Unknown'} · {r.orderId} · {r.items.join(', ')}</div>
+                  <div className="muted" style={{ fontSize: '0.8rem' }}>{isOwner ? `${r.returnType === 'RTO' ? 'RTO' : r.returnType === 'CUSTOMER' ? 'Customer return' : 'Unknown'} · ` : ''}{r.orderId} · {r.items.join(', ')}</div>
                 </div>
                 <span style={{ fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap', color: added.length ? 'var(--good)' : 'var(--text-dim)' }}>
                   {added.length ? `✓ Added (${added.join(', ')})` : 'Not added'}

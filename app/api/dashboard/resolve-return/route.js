@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
-import { isAuthed } from '../../../../lib/adminAuth';
+import { isAuthed, getCurrentAccount } from '../../../../lib/adminAuth';
 import { resolveReturnByTrackingId } from '../../../../lib/myntra';
 import { lookupProductBySku } from '../../../../lib/stock';
 
@@ -55,6 +55,9 @@ export async function GET(request) {
       }),
     );
 
+    // Customer return vs RTO is Owner-only.
+    const account = await getCurrentAccount();
+    if (!account || account.role !== 'OWNER') for (const c of candidates) delete c.returnType;
     return NextResponse.json({ candidates });
   } catch (err) {
     const status = err.response && err.response.status;
