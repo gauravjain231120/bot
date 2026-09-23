@@ -1391,7 +1391,7 @@ timers, regardless of how many dashboard tabs are open (was +~11,500/day per ope
 
 ## 29. Amazon: keep-alive + half the calls (full review, added 2026-09-23)
 
-Verified live, then fixed — all in `lib/amazon.js`, `lib/amazonPrograms.js`, `lib/myntraCookies.js`:
+Verified live, then fixed — all in `lib/amazon.js` and `lib/myntraCookies.js`:
 - **Rolling session for Amazon too.** A successful Seller Central call re-issues `session-token`
   (new value, 1-year cookie) via Set-Cookie; the bot discarded it — the most likely cause of the
   long-standing "Amazon session dies in minutes-to-hours" (§12). `persistAmazonCookies()` saves it
