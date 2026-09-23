@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAuthed, getCurrentAccount } from '../../../../lib/adminAuth';
 import { amazonReturnTypeFor } from '../../../../lib/returnTypeServer';
+import { normalizeOrderId } from '../../../../lib/amazonScan';
 import { addReturnToStockManager } from '../../../../lib/returns';
 
 export const runtime = 'nodejs';
@@ -29,6 +30,8 @@ export async function POST(request) {
     trackingId: body.trackingId,
     condition: body.condition,
     returnType,
+    // The Amazon order id, if the page had one — only a real 3-7-7 id is passed on.
+    orderId: normalizeOrderId(body.orderId) || undefined,
     channel: 'AMAZON',
   });
   if (!result.ok) {

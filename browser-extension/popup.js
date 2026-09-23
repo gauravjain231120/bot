@@ -161,22 +161,54 @@ function syncOneMarket(name, btnEl) {
   setBusyUI(true);
   btnEl.textContent = '…';
   chrome.runtime.sendMessage({ type: 'sync-now', marketplace: name }, () => {
+    void chrome.runtime.lastError; // no answer = older background; nothing to do
     refreshUI();
     setBusyUI(false);
   });
 }
 
-function loadPeriods() {
+// Same limits/default as background.js. The boxes are filled straight from
+// storage (240 = 4h until you change it), so they're never blank — even if
+// the background part is still an older version that doesn't answer yet.
+const MIN_PERIOD = 15;
+const MAX_PERIOD = 1440;
+const DEFAULT_PERIOD = 240;
+const clampPeriod = (v) => Math.min(MAX_PERIOD, Math.max(MIN_PERIOD, Math.round(Number(v))));
+let backgroundUpToDate = true;
+
+async function loadPeriods() {
+  const stored = await chrome.storage.local.get(NAMES.map((n) => `syncPeriod_${n}`));
+  for (const n of NAMES) {
+    const v = stored[`syncPeriod_${n}`] ? clampPeriod(stored[`syncPeriod_${n}`]) : DEFAULT_PERIOD;
+    periodInputs[n].value = v;
+    periodInputs[n].min = MIN_PERIOD;
+    periodInputs[n].max = MAX_PERIOD;
+    periodHuman[n].textContent = humanPeriod(v);
+  }
+  periodHint.textContent = `${MIN_PERIOD}–${MAX_PERIOD} minutes. Default ${DEFAULT_PERIOD} (4 hours).`;
+  // An older background (before 1.1) doesn't answer this — then the new
+  // timers/health watch aren't running yet and the extension needs a reload.
   chrome.runtime.sendMessage('get-periods', (res) => {
-    if (!res) return;
-    for (const n of NAMES) {
-      periodInputs[n].value = res.periods[n];
-      periodInputs[n].min = res.min;
-      periodInputs[n].max = res.max;
-      periodHuman[n].textContent = humanPeriod(res.periods[n]);
-    }
-    periodHint.textContent = `${res.min}–${res.max} minutes. Default ${res.def} (${res.def / 60} hours).`;
+    void chrome.runtime.lastError;
+    backgroundUpToDate = !!(res && res.periods);
+    showReloadNote();
   });
+}
+
+function showReloadNote() {
+  let el = document.getElementById('reloadNote');
+  if (backgroundUpToDate) {
+    if (el) el.remove();
+    return;
+  }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'reloadNote';
+    el.className = 'watch';
+    el.style.cssText = 'color:#dc2626;font-weight:600;margin-top:6px';
+    watchEl.parentElement.appendChild(el);
+  }
+  el.textContent = 'Update not finished: open chrome://extensions and click ⟳ Reload on this extension.';
 }
 
 for (const n of NAMES) {
@@ -198,11 +230,20 @@ saveBtn.addEventListener('click', () => {
     periods[n] = v;
   }
   saveBtn.disabled = true;
-  chrome.runtime.sendMessage({ type: 'set-periods', periods }, (res) => {
+  chrome.runtime.sendMessage({ type: 'set-periods', periods }, async (res) => {
+    void chrome.runtime.lastError;
     saveBtn.disabled = false;
     if (!res || !res.ok) {
+      // Older background: still save the numbers, so they apply the moment
+      // the extension is reloaded.
+      const clamped = Object.fromEntries(NAMES.map((n) => [n, clampPeriod(periods[n])]));
+      await chrome.storage.local.set(Object.fromEntries(NAMES.map((n) => [`syncPeriod_${n}`, clamped[n]])));
+      for (const n of NAMES) {
+        periodInputs[n].value = clamped[n];
+        periodHuman[n].textContent = humanPeriod(clamped[n]);
+      }
       saveStatus.style.color = 'var(--bad)';
-      saveStatus.textContent = 'Could not save.';
+      saveStatus.textContent = 'Saved — reload the extension (chrome://extensions → ⟳) for it to take effect.';
       return;
     }
     for (const n of NAMES) {
@@ -218,7 +259,10 @@ saveBtn.addEventListener('click', () => {
 refreshUI();
 loadPeriods();
 // Ask the bot right away so the watch line is current, not up to a minute old.
-chrome.runtime.sendMessage('check-health-now', () => renderWatch());
+chrome.runtime.sendMessage('check-health-now', () => {
+  void chrome.runtime.lastError;
+  renderWatch().then(showReloadNote);
+});
 setInterval(tick, 1000);
 // Keep the watch line fresh while the popup stays open.
 setInterval(renderWatch, 15000);
@@ -227,6 +271,7 @@ syncBtn.addEventListener('click', () => {
   setBusyUI(true);
   syncBtn.textContent = 'Syncing…';
   chrome.runtime.sendMessage('sync-now', () => {
+    void chrome.runtime.lastError;
     refreshUI();
     setBusyUI(false);
     syncBtn.textContent = 'Sync now';
@@ -236,6 +281,7 @@ syncBtn.addEventListener('click', () => {
 toggleBtn.addEventListener('click', () => {
   toggleBtn.disabled = true;
   chrome.runtime.sendMessage(toggleBtn.textContent === 'Stop auto-sync' ? 'stop-auto-sync' : 'start-auto-sync', () => {
+    void chrome.runtime.lastError;
     refreshUI();
     toggleBtn.disabled = false;
   });

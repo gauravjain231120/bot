@@ -85,6 +85,7 @@ export default function AmazonReturnsPage() {
           trackingId: rr.trackingId || (result.mode === 'tracking' ? result.searched : undefined),
           condition: st.condition || 'GOOD',
           returnType: rr.returnType || 'UNKNOWN',
+          orderId: rr.orderId || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));

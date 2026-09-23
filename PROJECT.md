@@ -1256,7 +1256,8 @@ Lookups live in `lib/amazonScan.js` (read-only, saved `session_amazon` headers).
   carrier, dates, and per item SKU/title/image/qty/reason/resolution. Items are matched to
   stock-manager's catalog (`lookupProductBySku`), and "Add to Return" posts via
   `POST /api/dashboard/amazon-add-return` → stock-manager `/api/register`, `channel: 'AMAZON'`,
-  logged under the return label's tracking id.
+  logged under the return label's tracking id, **with the Amazon order id** (validated 3-7-7,
+  added 2026-09-23 — stock-manager stores it on the return row).
 - Expired Amazon session is HTTP 403 `{"reason":"sign_in"}` → a clear "refresh the session"
   error; a bare 403/429/5xx is retried once (Amazon's one-off bot blocks, see lib/amazon.js).
 - Same "Scanned this session" list / repeat-scan note / USB-scanner focus as the Myntra pages.
