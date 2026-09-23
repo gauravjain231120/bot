@@ -36,6 +36,9 @@ adjustable in the popup — for as long as Chrome is running. No further clicks 
   "Logged out — log in…", the icon shows a red "!", and it syncs by itself as soon as you log in.
 - **Auto-sync every (minutes)**: set Myntra and Amazon separately (15–1440, default 240) and
   Save. A shorter interval takes effect right away; a longer one from the next cycle.
+- **Logged out = no sync at all**: every sync first checks this browser's login; if you're logged out
+  it doesn't send anything (so no Myntra/Amazon call is spent testing a dead copy) — the row just
+  says "Logged out — log in…" until you do.
 - **The bot tests every session before using it**: a copy that doesn't work (logged out, stale)
   is refused and the bot keeps its current, working session — syncing can never break it.
 - **Sync now** always works immediately, regardless of the timer or the Stop/Start state below.
@@ -70,7 +73,7 @@ affect any other.
 | Which marketplaces it syncs / their cookie domain | the `MARKETPLACES` array in `background.js` |
 | App URL / secret | the extension's own options page (not a file) |
 
-**Updating to 1.1**: reload it once at `chrome://extensions` (⟳). Your current countdown carries
+**Updating to 1.1 / 1.2**: reload it once at `chrome://extensions` (⟳). Your current countdown carries
 over to both marketplaces' new timers; nothing needs re-entering.
 
 After editing any `.js`/`.html`/`.json` file here, reload the extension at `chrome://extensions`

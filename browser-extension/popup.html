@@ -32,20 +32,6 @@
         padding: 12px;
         margin-bottom: 10px;
       }
-      .countdown-label {
-        font-size: 10px;
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-      .countdown {
-        font-size: 21px;
-        font-weight: 700;
-        font-variant-numeric: tabular-nums;
-        margin-top: 2px;
-        color: var(--brand-dark);
-      }
-      .countdown.stopped { color: var(--muted); font-size: 15px; }
       .rows { display: flex; flex-direction: column; gap: 10px; }
       /* flex-start (not center) because .detail can now wrap onto more than
          one line for a long error message — center would look pinned to the
@@ -90,6 +76,7 @@
       button:disabled { opacity: 0.5; cursor: default; }
       .btn-primary { background: var(--brand); color: white; }
       .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); margin-top: 8px; }
+      .section-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
       .next { font-size: 11px; color: var(--muted); margin: 2px 0 0 16px; }
       .watch { font-size: 12px; margin-top: 4px; }
       .watch .bad { color: var(--bad); font-weight: 600; }
@@ -111,7 +98,7 @@
     <div class="subtitle">Myntra &amp; Amazon, kept fresh automatically</div>
 
     <div class="card">
-      <div class="countdown-label" id="countdownLabel">Session watch</div>
+      <div class="section-label">Session watch</div>
       <div class="watch" id="watch">—</div>
     </div>
 

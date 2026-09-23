@@ -173,13 +173,51 @@ async function loginState(entry) {
 // alarm itself (never a retry), for the server's quiet once-per-period
 // heartbeat. The server TESTS the session before saving it and answers
 // reason 'session-not-working' if it doesn't work (logged out / stale).
+// The bot answers well within this (its own limit is 30s); without one, a
+// hung request would sit until Chrome killed the service worker.
+const SYNC_TIMEOUT_MS = 45000;
+
 async function syncOne(entry, appUrl, syncSecret, trigger, scheduled, periodMinutes) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), SYNC_TIMEOUT_MS);
   try {
+    // Logged out in this browser: say so right here. Sending the copy would
+    // only make the bot spend a Myntra/Amazon call testing a session that
+    // can't work.
+    const login = await loginState(entry);
+    if (!login.loggedIn) {
+      return {
+        marketplace: entry.marketplace,
+        ok: false,
+        error: `Logged out — log in to ${entry.marketplace === 'amazon' ? 'Amazon Seller Central' : 'Myntra'} in this Chrome`,
+        reason: 'logged-out',
+        at: new Date().toISOString(),
+        trigger,
+      };
+    }
+    // An unattended sync never re-sends a copy the bot rejected recently (a
+    // manual click still can — you may know something changed).
+    if (trigger !== 'manual') {
+      const key = `recovery_${entry.marketplace}`;
+      const rec = (await chrome.storage.local.get([key]))[key] || {};
+      if (login.fingerprint && login.fingerprint === rec.badFingerprint && rec.badAt && Date.now() - rec.badAt < BAD_COPY_HOLD_MS) {
+        return {
+          marketplace: entry.marketplace,
+          ok: false,
+          error: 'This login was just rejected by the bot — log in again in this Chrome',
+          reason: 'session-not-working',
+          at: new Date().toISOString(),
+          trigger,
+          skipped: true,
+        };
+      }
+    }
     const headers = await buildHeaders(entry);
     const res = await fetch(`${appUrl}/api/session/sync`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-sync-secret': syncSecret },
       body: JSON.stringify({ marketplace: entry.marketplace, headers, trigger, scheduled: !!scheduled, periodMinutes }),
+      signal: ctrl.signal,
     });
     const data = await res.json().catch(() => ({}));
     const at = new Date().toISOString();
@@ -187,7 +225,10 @@ async function syncOne(entry, appUrl, syncSecret, trigger, scheduled, periodMinu
       ? { marketplace: entry.marketplace, ok: true, headerCount: data.headerCount, at, trigger }
       : { marketplace: entry.marketplace, ok: false, error: data.error || `HTTP ${res.status}`, reason: data.reason || null, at, trigger };
   } catch (err) {
-    return { marketplace: entry.marketplace, ok: false, error: err.message, reason: null, at: new Date().toISOString(), trigger };
+    const error = err && err.name === 'AbortError' ? "The bot didn't answer in time — will retry" : err.message;
+    return { marketplace: entry.marketplace, ok: false, error, reason: null, at: new Date().toISOString(), trigger };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -237,7 +278,9 @@ async function noteLoginResults(results) {
     const rec = (await chrome.storage.local.get([key]))[key] || {};
     if (r.ok) {
       await chrome.storage.local.set({ [key]: { ...rec, needsLogin: false, badFingerprint: null } });
-    } else if (r.reason === 'session-not-working') {
+    } else if (r.reason === 'logged-out') {
+      await chrome.storage.local.set({ [key]: { ...rec, needsLogin: true } });
+    } else if (r.reason === 'session-not-working' && !r.skipped) {
       const { fingerprint } = await loginState(entry);
       await chrome.storage.local.set({ [key]: { ...rec, needsLogin: true, badFingerprint: fingerprint, badAt: Date.now() } });
     }
@@ -315,7 +358,7 @@ async function pendingRetries() {
 // up again as soon as you've logged in (new cookies).
 async function updateRetriesFor(results, enabled) {
   for (const r of results) {
-    if (r.ok || !enabled || r.reason === 'session-not-working') await clearRetry(r.marketplace);
+    if (r.ok || !enabled || r.reason === 'session-not-working' || r.reason === 'logged-out') await clearRetry(r.marketplace);
     else await scheduleRetry(r.marketplace);
   }
 }

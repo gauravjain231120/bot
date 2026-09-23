@@ -727,7 +727,9 @@ extension automates *harvesting a session from a browser that's already logged i
 - It POSTs `{ marketplace, headers: { cookie, ...a few static headers, user-agent } }` to
   `POST /api/session/sync` with `x-sync-secret: EXTENSION_SYNC_SECRET`, which calls the same
   `lib/sessionStore.js#saveSession()` the admin page's manual paste uses (§7).
-- `chrome.alarms` fires this every `SYNC_PERIOD_MINUTES` (currently 240 = 4h — Myntra's access
+- **Superseded 2026-09-23 (§28)** — `chrome.alarms` used to fire this every `SYNC_PERIOD_MINUTES` (240 = 4h) on one shared
+  `session-sync` alarm; it's now one alarm per marketplace (`session-sync-market-<name>`), interval set in the popup (default
+  240), plus a 1-minute bot health check. Original note: (currently 240 = 4h — Myntra's access
   token is ~3h but the *effective* session (via `session`/`erp.rt`) has been observed lasting up
   to ~24h in practice, so 4h is comfortable headroom either way).
 - **Gotcha already hit and fixed**: naively recreating the alarm on every `chrome.runtime.
@@ -761,7 +763,8 @@ lasting only ~12h (down from the usual 3-4 days) since this extension started se
 barer header set than a manually-pasted session ever had.
 
 **Scheduled heartbeat (added 2026-09-20)**: the `chrome.alarms.onAlarm` handler now tells
-`runAutoSync()` whether THIS firing was the main `SYNC_ALARM` (`scheduled: true`) or a
+`runAutoSync()` whether THIS firing was the main sync alarm (`SYNC_ALARM`, now the per-marketplace
+`session-sync-market-<name>` — §28) (`scheduled: true`) or a
 per-marketplace backoff retry (`scheduled: false`, the default everywhere else — installs,
 `online` reconnects, the Start button). That flag rides along in the POST body to
 `/api/session/sync`, and only `trigger: 'auto'` + `scheduled: true` + a verified-working sync
@@ -1375,6 +1378,13 @@ if logged out, no sync + "log in" + red badge; a copy the bot rejected isn't re-
 the cookies change (new login). `session-not-working` never arms the 1–15 min backoff retries.
 Simulated in Node with a mocked Chrome API (migration, intervals, single recovery, logged-out,
 rejected copy, stopped bot, start/stop, schedules/retries) — all pass.
+
+**Extension 1.2 (full review, same day)**: every sync — scheduled, retry, recovery and manual —
+first checks this browser's login cookie; if logged out it stops right there ("Logged out — log
+in…", `reason: 'logged-out'`, red badge, no backoff retry) instead of sending a copy the bot would
+spend a Myntra/Amazon call testing. Unattended syncs also never re-send a copy the bot rejected in
+the last 2h (a manual click still can; a skip doesn't extend the hold). The sync request has a 45s
+timeout (bot's limit is 30s). Leftover countdown CSS removed. Simulation: 10 scenarios, all pass.
 
 **Review pass (same day)**: cookie writes throttled to once a minute per server instance, but
 immediate when `erp.at`/`erp.rt` change (the SPF page's ~140 calls no longer mean ~140 writes; a
