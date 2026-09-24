@@ -8,7 +8,7 @@ import {
   extractVariant,
   groupAmazonItemsBySku,
 } from '../../../lib/amazon';
-import { lookupStock } from '../../../lib/stock';
+import { lookupStockMany } from '../../../lib/stock';
 import { myntraShipByDateMs } from '../../../lib/dates';
 import { loadSnapshots } from '../../../lib/ordersSnapshot';
 
@@ -30,61 +30,53 @@ function staleNote(label, snapshot) {
   return `${label}: showing orders from ${mins} min ago (checks are paused or failing)`;
 }
 
-async function myntraOrders(snapshot, itemsById) {
+function myntraOrders(snapshot, itemsById, stockBySku) {
   const orders = (snapshot && snapshot.orders) || [];
-  return Promise.all(
-    orders.map(async (order) => ({
-      source: 'myntra',
-      orderId: order.orderId,
-      quantity: order.quantity,
-      orderDateMs: order.orderDate,
-      shipByMs: myntraShipByDateMs(order.orderDate),
-      items: await Promise.all(
-        (itemsById.get(String(order.orderId)) || []).map(async (item) => {
-          const sku = item.sellerSkuCode || item.skuCode;
-          return {
-            sku,
-            name: item.productDisplayName,
-            size: item.size,
-            color: item.color,
-            qty: item.qty,
-            image: item.image,
-            stock: await lookupStock(sku),
-          };
-        })
-      ),
-    }))
-  );
+  return orders.map((order) => ({
+    source: 'myntra',
+    orderId: order.orderId,
+    quantity: order.quantity,
+    orderDateMs: order.orderDate,
+    shipByMs: myntraShipByDateMs(order.orderDate),
+    items: (itemsById.get(String(order.orderId)) || []).map((item) => {
+      const sku = item.sellerSkuCode || item.skuCode;
+      return {
+        sku,
+        name: item.productDisplayName,
+        size: item.size,
+        color: item.color,
+        qty: item.qty,
+        image: item.image,
+        stock: stockBySku.get(sku) ?? null,
+      };
+    }),
+  }));
 }
 
-async function amazonOrders(snapshot) {
+function amazonOrders(snapshot, stockBySku) {
   const orders = (snapshot && snapshot.orders) || [];
-  return Promise.all(
-    orders.map(async (order) => {
-      const items = groupAmazonItemsBySku(order.orderItems);
-      return {
-        source: 'amazon',
-        orderId: order.amazonOrderId,
-        quantity: items.reduce((sum, item) => sum + (item.qty || 1), 0),
-        orderDateMs: amazonOrderDateMs(order),
-        shipByMs: amazonShipByDateMs(order),
-        items: await Promise.all(
-          items.map(async (item) => {
-            const { size, color } = extractVariant(item);
-            return {
-              sku: item.sellerSku,
-              name: item.productName || item.extendedTitle,
-              size,
-              color,
-              qty: item.qty,
-              image: pickAmazonImage(item),
-              stock: await lookupStock(item.sellerSku),
-            };
-          })
-        ),
-      };
-    })
-  );
+  return orders.map((order) => {
+    const items = groupAmazonItemsBySku(order.orderItems);
+    return {
+      source: 'amazon',
+      orderId: order.amazonOrderId,
+      quantity: items.reduce((sum, item) => sum + (item.qty || 1), 0),
+      orderDateMs: amazonOrderDateMs(order),
+      shipByMs: amazonShipByDateMs(order),
+      items: items.map((item) => {
+        const { size, color } = extractVariant(item);
+        return {
+          sku: item.sellerSku,
+          name: item.productName || item.extendedTitle,
+          size,
+          color,
+          qty: item.qty,
+          image: pickAmazonImage(item),
+          stock: stockBySku.get(item.sellerSku) ?? null,
+        };
+      }),
+    };
+  });
 }
 
 export async function GET() {
@@ -100,7 +92,15 @@ export async function GET() {
       db.collection('settings').findOne({ _id: 'session_amazon' }, { projection: { _id: 1 } }),
     ]),
   ]);
-  const [myntraList, amazonList] = await Promise.all([myntraOrders(myntra, myntraItems), amazonOrders(amazon)]);
+  // Every SKU on the grid's stock in ONE read (was one full-collection scan
+  // per item, every refresh).
+  const skus = [
+    ...((myntra && myntra.orders) || []).flatMap((o) => (myntraItems.get(String(o.orderId)) || []).map((i) => i.sellerSkuCode || i.skuCode)),
+    ...((amazon && amazon.orders) || []).flatMap((o) => (o.orderItems || []).map((i) => i.sellerSku)),
+  ];
+  const stockBySku = await lookupStockMany(skus);
+  const myntraList = myntraOrders(myntra, myntraItems, stockBySku);
+  const amazonList = amazonOrders(amazon, stockBySku);
 
   const orders = [...myntraList, ...amazonList].sort((a, b) => (b.orderDateMs || 0) - (a.orderDateMs || 0));
   // A marketplace with no session at all isn't set up — say nothing about it.

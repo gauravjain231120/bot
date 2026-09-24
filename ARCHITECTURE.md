@@ -195,7 +195,12 @@ never replace a working session with a broken one. A request blocked by Myntra's
 protection is treated as a temporary error, never as an expired login (a block lasting ~30 min sends
 one "Myntra is blocking" note); the same goes for Amazon's one-off 403s, unless they last ~30 min. The
 SPF page reuses what it already fetched (ticket list 15 min, paid claims kept for good), so it no longer
-re-walks Myntra on every view. The dashboard no longer calls Myntra/Amazon
+re-walks Myntra on every view.
+Stock numbers in the bot's alerts and dashboard follow stock-manager's own "shares stock with" links
+(a bundle shows the stock it really draws from), are read in one batch, and a stock-manager outage is
+reported as "couldn't check", never as a missing product. stock-manager refuses a second return with
+the same tracking number and product unless you confirm it, and linking a bundle to another product's
+stock carries the bundle's existing units across. The dashboard no longer calls Myntra/Amazon
 itself — it shows what the scheduled checks saved — which cut the marketplace traffic by roughly
 10–15x and keeps it looking like normal use.
 

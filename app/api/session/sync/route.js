@@ -8,8 +8,7 @@ import {
   isSameWorkingLogin,
   touchSessionSynced,
 } from '../../../../lib/sessionStore';
-import { probeAmazonSession, isSignIn } from '../../../../lib/amazon';
-import { fetchOpenOrders } from '../../../../lib/myntra';
+import { testSession } from '../../../../lib/sessionProbe';
 
 export const runtime = 'nodejs';
 // Testing a dead Amazon session can take ~10s+ (Amazon's 403s are retried) —
@@ -72,32 +71,24 @@ export async function POST(request) {
     return NextResponse.json({ ok: true, unchanged: true });
   }
 
-  // 1. Test the browser's session before touching the stored one.
-  try {
-    if (marketplace === 'amazon') await probeAmazonSession(body.headers);
-    else await fetchOpenOrders(body.headers);
-  } catch (err) {
-    const status = err.response && err.response.status;
-    // Only a genuine rejection counts as "not working": a 401 / Myntra's own
-    // "session expired", or Amazon's sign-in response. A bare 403 can also be
-    // bot protection blocking one request (Akamai on Myntra — err.blocked —
-    // or Amazon's flaky 403s) — that says nothing about the session, so it's
-    // treated as "couldn't test, retry later", never as logged out.
-    const amazonSignIn = marketplace === 'amazon' && status === 403 && isSignIn(err);
-    const rejected = status === 401 || err.sessionExpired || amazonSignIn || (marketplace === 'myntra' && status === 403 && !err.blocked);
-    if (rejected) {
-      return NextResponse.json(
-        {
-          error: `${label} session in this browser isn't working — log in to ${label} again in THIS Chrome browser. The bot kept its current session.`,
-          reason: 'session-not-working',
-          detail: `HTTP ${status || ''} ${err.message}`.trim(),
-        },
-        { status: 409 }
-      );
-    }
-    // Network / 5xx: says nothing about the session itself — try later.
+  // 1. Test the browser's session before touching the stored one. Only a
+  // genuine rejection counts as "not working" (lib/sessionProbe.js); a bot-
+  // protection block or network error says nothing about the session, so it's
+  // "couldn't test, retry later", never "logged out".
+  const probe = await testSession(marketplace, body.headers);
+  if (probe.rejected) {
     return NextResponse.json(
-      { error: `${label} couldn't be reached to test the session — will retry`, reason: 'probe-failed', detail: err.message },
+      {
+        error: `${label} session in this browser isn't working — log in to ${label} again in THIS Chrome browser. The bot kept its current session.`,
+        reason: 'session-not-working',
+        detail: probe.detail,
+      },
+      { status: 409 }
+    );
+  }
+  if (probe.unreachable) {
+    return NextResponse.json(
+      { error: `${label} couldn't be reached to test the session — will retry`, reason: 'probe-failed', detail: probe.detail },
       { status: 502 }
     );
   }

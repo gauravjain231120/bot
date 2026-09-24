@@ -1626,3 +1626,57 @@ very faint 1 → 22. Full scanner (frames + voting, real drawing code): **125/12
 
 `@zxing/browser` removed (unused — zxing's core `@zxing/library` is used directly). Flash
 (useTorch, §31) unchanged.
+
+## 35. Full line-by-line review of bot + extension + stock-manager (2026-09-24)
+
+Every file read; live data checked read-only; fixes tested offline (fake Telegram / Myntra /
+Amazon / DB) and, for stock-manager, on a throwaway local MongoDB replica set.
+
+**Bot fixes**
+- **Database connects recover** (`lib/db.js`, `lib/stock.js`): a failed first connect used to be
+  cached as a rejected promise, breaking every request on that warm instance until it recycled —
+  for the stock DB that showed as "SKU isn't in the product catalog" / "⚠️ not found in stock
+  manager" for products that exist. Now cleared on failure; 8 s server selection (was 30 s).
+- **"Couldn't check" ≠ "not found"** (`lib/stock.js`): every stock-manager read retries once
+  (`withStockDb`); `lookupProductBySku` THROWS `stockUnavailable` on failure (return pages say
+  "Couldn't reach stock-manager — try again"), `lookupStock` returns `{ unavailable, level:'unknown' }`
+  ("Stock: ⚠️ couldn't check stock-manager right now").
+- **Stock follows stock-manager's real links**: lookups now use a cached (60 s) catalog index —
+  exact SKU / brand-prefix-free suffix / category / active / **`sharesStockWith`** (92 linked
+  variants; the old hardcoded 012→002 map missed them, so bundle alerts showed the bundle's own
+  empty pile). A catalog product with no stock row reads 0, not "not found". `lookupStockMany` =
+  one read for many SKUs: `/api/orders` went from one full-collection regex scan per item (453
+  SKUs: 22.5 s) to one indexed read (0.7 s). Verified against the old method on all 453 live SKUs:
+  only bundle / 012 differences, each explained.
+- **Telegram can't reject an alert over a product name** (`lib/html.js`): every dynamic value
+  (names, SKUs, colours, categories, error text, command text) is HTML-escaped; if Telegram still
+  answers "can't parse entities" the message is re-sent as plain text (`postToChat`). Before, a
+  single "&" (e.g. "Black & White") lost the whole alert.
+- **No call can hang**: timeouts on Myntra (20 s), Amazon (20 s), stock-manager (20 s), Telegram
+  (15 s). A request with **no answer at all** (connection reset/timeout) is retried once (Myntra,
+  Amazon, Amazon scan) — read-only GETs; real 401s are still never retried.
+- Myntra return lookup: the original shipment answering 500 (Myntra's "not found") no longer fails
+  the whole scan — the claim shows with "no SKU".
+- SPF: claims already fetched are saved before a session error aborts; ticket cap 20 → 100 pages
+  (5,000); a paid claim's resolved seller SKU is stored with it (no repeat Myntra call per reveal).
+- **Return type reused from the scan** (`lib/returnLookupCache.js`, 30 min, server-only): "Add to
+  Return" no longer repeats the Myntra (2 calls) / Amazon (1–3) lookup — half the calls per return.
+- **Manual session paste is tested first** (`lib/sessionProbe.js`, shared with `/api/session/sync`):
+  a genuinely rejected paste is refused and the working session kept; unreachable = saved with a
+  warning.
+- **Duplicate returns**: stock-manager now refuses a second return with the same tracking + product
+  (409 `duplicate`); both return pages show "Log it again anyway" (resends `allowDuplicate`). Myntra
+  Return also keeps "✓ Added" on a rescan (Amazon already did).
+- Dashboard buttons (Check now / Start-Stop / roles / OTC scope / Clear) can't get stuck on a
+  network error; OTC config no longer polled every minute.
+- Telegram `/ship@YourBot` (group chats) works; constant-time password compare; expired login
+  sessions cleaned up on login.
+
+**Extension**: reviewed line by line — no change (1.3.1).
+
+**Tests**: new offline suite (escaping + plain fallback, Myntra/Amazon network retry, 401 not
+retried, return-500 handling, return-type cache, session-test classification) + every earlier
+suite (block handling, OTC window, 14 extension scenarios, SPF cache, SPF edge cases) pass.
+
+**Found, needs the owner's decision (not changed)** — see stock-manager PROJECT.md for data items:
+- Viewer accounts can Start/Stop alerts, "Check now" and paste sessions (UI + API allow it).

@@ -60,7 +60,14 @@ export default function ReturnsPage() {
         setMyntraResolveError(data.error || `HTTP ${res.status}`);
         return;
       }
-      const candidates = (data.candidates || []).map((c) => ({ ...c, condition: 'GOOD', adding: false, added: false, addError: '' }));
+      // A rescan of a parcel already added this session shows it as added
+      // (same as Amazon Return) instead of offering "Add" again — a second
+      // tap used to log the same return twice.
+      const earlier = recent.find((r) => r.trackingId === id);
+      const candidates = (data.candidates || []).map((c, i) => {
+        const addedCondition = earlier && earlier.items[i] ? earlier.items[i].addedCondition : null;
+        return { ...c, condition: addedCondition || 'GOOD', adding: false, added: !!addedCondition, addedCondition, addError: '' };
+      });
       setMyntraCandidates(candidates);
       setResolvedId(id);
       setMyntraScanId('');
@@ -91,22 +98,25 @@ export default function ReturnsPage() {
     setMyntraCandidates((list) => list.map((c, i) => (i === index ? { ...c, condition } : c)));
   }
 
-  async function addReturnCandidate(index) {
+  // allowDuplicate: stock-manager refuses a second return with the same
+  // tracking id + SKU; "Log it again anyway" (a genuine second unit) resends
+  // with this set.
+  async function addReturnCandidate(index, allowDuplicate = false) {
     const candidate = myntraCandidates[index];
     if (!candidate || !candidate.matchedSku || candidate.adding || candidate.added) return;
-    setMyntraCandidates((list) => list.map((c, i) => (i === index ? { ...c, adding: true, addError: '' } : c)));
+    setMyntraCandidates((list) => list.map((c, i) => (i === index ? { ...c, adding: true, addError: '', duplicate: false } : c)));
     try {
       const res = await fetch('/api/dashboard/add-return', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sku: candidate.matchedSku, qty: 1, trackingId: resolvedId, condition: candidate.condition, returnType: candidate.returnType, orderId: candidate.orderId }),
+        body: JSON.stringify({ sku: candidate.matchedSku, qty: 1, trackingId: resolvedId, condition: candidate.condition, returnType: candidate.returnType, orderId: candidate.orderId, allowDuplicate }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setMyntraCandidates((list) => list.map((c, i) => (i === index ? { ...c, adding: false, addError: data.error || `HTTP ${res.status}` } : c)));
+        setMyntraCandidates((list) => list.map((c, i) => (i === index ? { ...c, adding: false, addError: data.error || `HTTP ${res.status}`, duplicate: !!data.duplicate } : c)));
         return;
       }
-      setMyntraCandidates((list) => list.map((c, i) => (i === index ? { ...c, adding: false, added: true } : c)));
+      setMyntraCandidates((list) => list.map((c, i) => (i === index ? { ...c, adding: false, added: true, addedCondition: candidate.condition } : c)));
       setRecent((list) => list.map((r) => (r.trackingId === resolvedId
         ? { ...r, items: r.items.map((it, i) => (i === index ? { ...it, addedCondition: candidate.condition } : it)) }
         : r)));
@@ -220,8 +230,17 @@ export default function ReturnsPage() {
                       </button>
                     </div>
                   )}
-                  {c.added && <div style={{ marginTop: 8, color: 'var(--good)', fontWeight: 600 }}>✓ Added</div>}
+                  {c.added && (
+                    <div style={{ marginTop: 8, color: 'var(--good)', fontWeight: 600 }}>
+                      ✓ Added{c.addedCondition ? ` (${RETURN_CONDITION_LABELS[c.addedCondition] || c.addedCondition})` : ''}
+                    </div>
+                  )}
                   {c.addError && <div style={{ marginTop: 6, color: 'var(--bad)' }}>{c.addError}</div>}
+                  {c.duplicate && !c.added && (
+                    <button type="button" className="secondary" style={{ marginTop: 6 }} onClick={() => addReturnCandidate(i, true)} disabled={c.adding}>
+                      Log it again anyway
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

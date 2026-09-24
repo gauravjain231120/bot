@@ -29,10 +29,13 @@ export async function POST(request) {
     trackingId: body.trackingId,
     condition: body.condition,
     returnType,
+    allowDuplicate: body.allowDuplicate === true,
     // Myntra's order number from the return lookup — digits only, else dropped.
     orderId: /^\d{6,24}$/.test(String(body.orderId || '')) ? String(body.orderId) : undefined,
   });
   if (!result.ok) {
+    // Already logged: 409 so the page can offer "Log it again anyway".
+    if (result.duplicate) return NextResponse.json({ error: result.error, duplicate: true }, { status: 409 });
     return NextResponse.json({ error: result.error }, { status: 502 });
   }
   return NextResponse.json({ ok: true });

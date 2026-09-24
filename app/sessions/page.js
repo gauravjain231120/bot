@@ -14,7 +14,7 @@ export default function SessionsPage() {
     setMsg('Saving...');
     try {
       const data = await saveSession({ curl, marketplace });
-      setMsg(`Saved ${data.headerCount} headers.`);
+      setMsg(data.warning || `Saved ${data.headerCount} headers — tested and working.`);
       setText('');
     } catch (err) {
       setMsg(`Error: ${err.message}`);

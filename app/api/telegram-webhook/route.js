@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { replyToChat, sendTelegramMessage } from '../../../lib/telegram';
 import { recordSeen } from '../../../lib/recipients';
+import { escapeHtml } from '../../../lib/html';
 import { fetchPackedCount, fetchOtc } from '../../../lib/myntra';
 import {
   fetchQueueSummary,
@@ -135,7 +136,8 @@ export async function POST(request) {
   // splitting on whitespace up front avoids the old startsWith-prefix chain,
   // where e.g. "/myntraleft" also matched as a prefix of checking "/myntra".
   const [rawCommand, ...rest] = text.split(/\s+/);
-  const command = (rawCommand || '').toLowerCase();
+  // In a group chat Telegram sends "/ship@YourBot" — the @bot part is dropped.
+  const command = (rawCommand || '').toLowerCase().replace(/@\w+$/, '');
   const dateArg = rest.join(' ');
 
   try {
@@ -143,7 +145,7 @@ export async function POST(request) {
     if (DATE_CAPABLE.has(command) && dateArg) {
       dateFilter = parseShortDate(dateArg);
       if (!dateFilter) {
-        await replyToChat(chatId, `Couldn't understand the date "${dateArg}". Try formats like 5aug, 6aug, 8nov, 10dec.`);
+        await replyToChat(chatId, `Couldn't understand the date "${escapeHtml(dateArg)}". Try formats like 5aug, 6aug, 8nov, 10dec.`);
         return NextResponse.json({ ok: true });
       }
     }
@@ -271,7 +273,7 @@ export async function POST(request) {
     }
   } catch (err) {
     console.error('telegram-webhook command failed:', err.message);
-    await replyToChat(chatId, `⚠️ Could not fetch that right now: ${err.message}`).catch(() => {});
+    await replyToChat(chatId, `⚠️ Could not fetch that right now: ${escapeHtml(err.message)}`).catch(() => {});
   }
 
   return NextResponse.json({ ok: true });

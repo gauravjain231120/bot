@@ -2,15 +2,19 @@ import { NextResponse } from 'next/server';
 import { parseCurl } from '../../../lib/curl';
 import { isAuthed } from '../../../lib/adminAuth';
 import { saveSession } from '../../../lib/sessionStore';
+import { testSession } from '../../../lib/sessionProbe';
 
 export const runtime = 'nodejs';
+// Testing an Amazon session can take ~10s (its 403s are retried).
+export const maxDuration = 30;
 
 export async function POST(request) {
   if (!(await isAuthed())) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  const { curl, marketplace } = await request.json();
+  const { curl, marketplace: rawMarketplace } = await request.json().catch(() => ({}));
+  const marketplace = rawMarketplace === 'amazon' ? 'amazon' : 'myntra';
   if (!curl) {
     return NextResponse.json({ error: 'missing curl text' }, { status: 400 });
   }
@@ -29,6 +33,22 @@ export async function POST(request) {
     );
   }
 
+  // Tested before it replaces the working session — a stale or logged-out
+  // paste used to be saved as-is and silently stop every alert until the
+  // extension happened to recover it. A genuine rejection is refused; if the
+  // marketplace simply couldn't be reached, the paste is saved (a person
+  // deliberately pasted it) with a note that it couldn't be checked.
+  const probe = await testSession(marketplace, headers);
+  const label = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
+  if (probe.rejected) {
+    return NextResponse.json(
+      {
+        error: `That ${label} session doesn't work (${probe.detail}) — it was NOT saved and the current session was kept. Copy a fresh request from a logged-in ${label} tab.`,
+      },
+      { status: 409 }
+    );
+  }
+
   const result = await saveSession({ marketplace, headers, source: 'manual' });
-  return NextResponse.json({ ok: true, ...result });
+  return NextResponse.json({ ok: true, ...result, tested: !!probe.ok, warning: probe.unreachable ? `Saved, but ${label} couldn't be reached to test it (${probe.detail}).` : null });
 }

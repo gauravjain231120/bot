@@ -3,6 +3,7 @@ import { getDb } from '../../../../lib/db';
 import { isAuthed, getCurrentAccount } from '../../../../lib/adminAuth';
 import { lookupAmazonReturn } from '../../../../lib/amazonScan';
 import { lookupProductBySku } from '../../../../lib/stock';
+import { rememberReturnLookup } from '../../../../lib/returnLookupCache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,12 +30,31 @@ export async function GET(request) {
     if (result.error) return NextResponse.json({ error: result.error }, { status: result.status || 400 });
     for (const rr of result.returns) {
       for (const item of rr.items) {
-        const match = item.sku ? await lookupProductBySku(item.sku) : null;
+        // "Couldn't check" (stock-manager unreachable) is NOT "not in the
+        // catalog" — see lookupProductBySku.
+        let match = null;
+        let catalogError = null;
+        if (item.sku) {
+          try {
+            match = await lookupProductBySku(item.sku);
+          } catch (err) {
+            catalogError = err.message;
+          }
+        }
         item.matchedSku = match ? match.sku : null;
         item.catalogName = match ? match.name : null;
-        item.matchError = item.sku ? (match ? null : `SKU ${item.sku} isn't in the product catalog.`) : 'No SKU on this return item.';
+        item.matchError = !item.sku
+          ? 'No SKU on this return item.'
+          : catalogError || (match ? null : `SKU ${item.sku} isn't in the product catalog.`);
       }
     }
+    // "Add to Return" reuses this answer (keyed by the tracking id the add
+    // will send) instead of calling Amazon again.
+    for (const rr of result.returns) {
+      const ids = [rr.trackingId, result.searched && mode === 'tracking' ? result.searched : null];
+      await rememberReturnLookup('amazon', ids, [{ returnType: rr.returnType || 'UNKNOWN' }]);
+    }
+
     // Customer return vs RTO is Owner-only — strip it (and the RTO flag) for
     // anyone else; the add route works it out again server-side.
     const account = await getCurrentAccount();

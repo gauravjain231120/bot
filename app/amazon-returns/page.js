@@ -67,12 +67,13 @@ export default function AmazonReturnsPage() {
     }
   }
 
-  async function addItem(rr, i) {
+  // allowDuplicate: see the Myntra Return page — "Log it again anyway".
+  async function addItem(rr, i, allowDuplicate = false) {
     const key = itemKey(rr, i);
     const item = rr.items[i];
     const st = itemState[key] || {};
     if (!item.matchedSku || st.adding || st.added) return;
-    patchItem(key, { adding: true, addError: '' });
+    patchItem(key, { adding: true, addError: '', duplicate: false });
     try {
       const res = await fetch('/api/dashboard/amazon-add-return', {
         method: 'POST',
@@ -86,11 +87,12 @@ export default function AmazonReturnsPage() {
           condition: st.condition || 'GOOD',
           returnType: rr.returnType || 'UNKNOWN',
           orderId: rr.orderId || undefined,
+          allowDuplicate,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        patchItem(key, { adding: false, addError: data.error || `HTTP ${res.status}` });
+        patchItem(key, { adding: false, addError: data.error || `HTTP ${res.status}`, duplicate: !!data.duplicate });
         return;
       }
       patchItem(key, { adding: false, added: true, addedCondition: st.condition || 'GOOD' });
@@ -165,6 +167,11 @@ export default function AmazonReturnsPage() {
                         </div>
                       )}
                       {st.addError && <div style={{ marginTop: 6, color: 'var(--bad)' }}>{st.addError}</div>}
+                      {st.duplicate && !st.added && (
+                        <button type="button" className="secondary" style={{ marginTop: 6 }} onClick={() => addItem(rr, i, true)} disabled={st.adding}>
+                          Log it again anyway
+                        </button>
+                      )}
                     </ItemCard>
                   );
                 })}

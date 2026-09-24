@@ -30,11 +30,14 @@ export async function POST(request) {
     trackingId: body.trackingId,
     condition: body.condition,
     returnType,
+    allowDuplicate: body.allowDuplicate === true,
     // The Amazon order id, if the page had one — only a real 3-7-7 id is passed on.
     orderId: normalizeOrderId(body.orderId) || undefined,
     channel: 'AMAZON',
   });
   if (!result.ok) {
+    // Already logged: 409 so the page can offer "Log it again anyway".
+    if (result.duplicate) return NextResponse.json({ error: result.error, duplicate: true }, { status: 409 });
     return NextResponse.json({ error: result.error }, { status: 502 });
   }
   return NextResponse.json({ ok: true });

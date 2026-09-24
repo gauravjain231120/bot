@@ -3,6 +3,7 @@ import { getDb } from '../../../../lib/db';
 import { isAuthed, getCurrentAccount } from '../../../../lib/adminAuth';
 import { resolveReturnByTrackingId } from '../../../../lib/myntra';
 import { lookupProductBySku } from '../../../../lib/stock';
+import { rememberReturnLookup } from '../../../../lib/returnLookupCache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,7 +39,17 @@ export async function GET(request) {
 
     const candidates = await Promise.all(
       items.map(async (item) => {
-        const match = item.sku ? await lookupProductBySku(item.sku) : null;
+        // "Couldn't check" (stock-manager unreachable) is NOT "not in the
+        // catalog" — see lookupProductBySku.
+        let match = null;
+        let catalogError = null;
+        if (item.sku) {
+          try {
+            match = await lookupProductBySku(item.sku);
+          } catch (err) {
+            catalogError = err.message;
+          }
+        }
         return {
           resolvedSku: item.sku,
           matchedSku: match ? match.sku : null,
@@ -51,10 +62,15 @@ export async function GET(request) {
           orderId: item.orderId || null,
           size: item.size,
           color: item.color,
-          matchError: item.sku ? (match ? null : `SKU ${item.sku} isn't in the product catalog.`) : 'Could not resolve a SKU for this item.',
+          matchError: !item.sku
+            ? 'Could not resolve a SKU for this item.'
+            : catalogError || (match ? null : `SKU ${item.sku} isn't in the product catalog.`),
         };
       }),
     );
+
+    // "Add to Return" reuses this answer instead of calling Myntra again.
+    await rememberReturnLookup('myntra', [trackingId], items.map((i) => ({ sku: i.sku || null, returnType: i.returnType || 'UNKNOWN' })));
 
     // Customer return vs RTO is Owner-only.
     const account = await getCurrentAccount();
