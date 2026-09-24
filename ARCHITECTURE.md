@@ -149,6 +149,9 @@ each one up by hand on Myntra's site.
 The phone camera scanners switch the flashlight on by themselves when the picture is too dark to
 scan (auto flash — on/off in the scanner, remembered on each phone). 🔦 On is remembered too: every scan
 then starts with the flash on; 🔦 Off hands it back to auto flash.
+Both scanners clean up each frame before reading it — faint ink is contrast-stretched to black, the
+barcode is tried at every angle, and a tilted order ID is straightened first — and an order ID is
+only accepted once several frames agree, so a faint digit can't turn into a wrong number.
 ## Flow: splitting the SPF paid total into fake / wrong
 
 ```mermaid

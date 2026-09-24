@@ -1586,3 +1586,43 @@ times are set on the Overview page's **Pickup/Return OTC** card:
 - Tested offline (fake DB + Myntra): default window at 12:30 → alerted; window 14:00–15:30 → 0
   Myntra calls at 12:30 and 15:30, alerted at 14:00, skipped after; countdown/edge minutes (start
   inclusive, end exclusive, near midnight) correct; bad stored window → default.
+
+## 34. Faster, more accurate scanning: faint print, any angle, no wrong order ids (added 2026-09-24)
+
+Both camera scanners were rebuilt and **measured offline** before and after (generated labels:
+real Code 128 barcodes and label-style order-id text, at 4 ink levels from normal to very faint,
+many tilts, camera-like noise/blur/uneven light). New shared code: `components/scanImage.js`
+(clean-ups + trust rules, DOM-free) and `components/scanDraw.js` (frame drawing); the offline tests
+ran these exact files, the drawing through a real canvas implementation.
+
+**Barcode (`BarcodeScanner.js`)** — per camera frame:
+1. The phone's own reader (`BarcodeDetector`, Android Chrome) when present — fast, any angle; it
+   is also shown the cleaned-up picture for faint prints.
+2. zxing on the **whole frame** (a 62% band used to cut off every vertical barcode) at full
+   resolution (long side ≤ 1920), turned to 12 angles (every 15° over 180°; a 1D reader also reads
+   upside down), plain first for all angles, then **contrast-stretched** (1st→99th percentile grey
+   stretched to black→white: faint ink becomes dark), then **smoothed along the bars** + stretched
+   (averages out camera speckle, the main thing hiding a very faint print).
+3. A 70 ms budget per frame; the next frame carries on where the last stopped. Upright reads on
+   the first attempt; any angle within 12 attempts.
+4. Trust: Code 128 / EAN / UPC (check digit) count on the first read; Code 39 / ITF (no check
+   digit) only when the same text comes out twice in a row (`createBarcodeConfirmer`).
+Measured (single frame, 12 angles each): old — tilted labels 3/15 even at normal print, faint prints
+0/15; new — normal / light / faint **12/12**, very faint **11/12** (every angle incl. vertical).
+
+**Order id OCR (`OrderIdScanner.js`)** — per frame:
+1. Guide-box band, contrast-stretched; its **tilt is measured** (`estimateSkew`, projection
+   profile, ±12°) and the band re-drawn straightened — tilt, not faintness, was the main failure
+   (old: 2/24 read at 7° tilt).
+2. Tesseract, digits only; the id is matched **one line at a time with no digit touching it** — the
+   old regex glued the id onto the date on the next line ("280-4187546-2309120").
+3. Nothing found → the next frame is tried upside down (and back).
+4. Trust (`createOrderIdVoter`): the same id 3× in the last 6 frames, or 2× with per-digit
+   confidence ≥ 80 from both sizes (frames alternate normal / 1.5×). tesseract.js 6 reports 0
+   confidence for the first character of each word, so that position is skipped.
+Measured on 128 labels (single frame, old → new): normal 9 → 31 /32, light 11 → 31, faint 13 → 32,
+very faint 1 → 22. Full scanner (frames + voting, real drawing code): **125/128 accepted, 0 wrong**,
+~3.3 frames each.
+
+`@zxing/browser` removed (unused — zxing's core `@zxing/library` is used directly). Flash
+(useTorch, §31) unchanged.

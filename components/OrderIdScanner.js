@@ -2,46 +2,37 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useTorch, TorchButtons, lowLightHint } from './useTorch';
+import { stretchGray, estimateSkew, readOrderId, orderIdConfidence, createOrderIdVoter } from './scanImage';
+import { drawBand } from './scanDraw';
 
 // Amazon order ids are printed on labels/invoices as text, not a barcode, so
 // BarcodeScanner can't read them — this reads the printed digits with OCR
 // (tesseract.js, loaded only when this opens; its first use downloads the
 // engine + English data, a few MB, then the browser caches it).
 //
-// Misreads are the real risk with OCR, so a read only counts once:
-//   1. it matches the Amazon order-id shape 3-7-7 digits, and
-//   2. the SAME order id comes out of two frames in a row.
-// Anything else on the label (tracking numbers, pin codes, phone numbers) has
-// a different digit pattern and is ignored.
-const ORDER_ID_RE = /(\d{3})[\s\-–—]*(\d{7})[\s\-–—]*(\d{7})/;
-const TICK_MS = 700;
-
-function readOrderId(text) {
-  const m = String(text || '').replace(/[Oo]/g, '0').match(ORDER_ID_RE);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
-}
-
-// Crop the middle band of the frame (where the on-screen guide box is),
-// scale it up 2x and grey/contrast it — small printed text OCRs much better
-// larger and flattened to black-on-white.
-function drawBand(video, canvas) {
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-  const sw = Math.round(vw * 0.9);
-  const sh = Math.round(vh * 0.3);
-  const sx = Math.round((vw - sw) / 2);
-  const sy = Math.round((vh - sh) / 2);
-  canvas.width = sw * 2;
-  canvas.height = sh * 2;
-  const ctx = canvas.getContext('2d');
-  ctx.filter = 'grayscale(1) contrast(1.6) brightness(1.1)';
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-}
+// Each camera frame (measured offline on 128 generated labels — PROJECT.md
+// §34 — old method read 9/32 normal and 13/32 faint prints correctly, and
+// only 2/24 tilted 7°; this reads 31/32, 32/32 and 24/24):
+//   1. the middle band (the guide box) is contrast-stretched, so faint grey
+//      digits become black (scanImage.stretchGray);
+//   2. its tilt is measured (scanImage.estimateSkew, ±12°) and the band is
+//      re-drawn straightened — tilt, not faintness, was the main reason reads
+//      failed;
+//   3. the text reader runs on it, digits only.
+// If a frame finds nothing, the next one is tried upside down (a label held
+// the other way up), and so on alternately.
+//
+// Misreads are the real risk, so a read only counts once it's trustworthy
+// (scanImage.createOrderIdVoter): the same 3-7-7 id read 3 times in the last
+// 6 frames, or twice with high per-digit confidence from two different
+// clean-ups (normal size / 1.5x). In the offline run that accepted 121 of 128
+// labels and never a wrong id. Only a 3-7-7 digit group on ONE line with no
+// digit touching it counts, so tracking numbers, pin codes and dates are ignored.
+const PAUSE_MS = 60;
 
 /**
  * Full-screen camera reader for a printed Amazon order id. Calls
- * onDetected('###-#######-#######') once confident; the caller shows it in the
- * input so it can still be checked before searching.
+ * onDetected('###-#######-#######') once confident.
  */
 export function OrderIdScanner({ onDetected, onClose }) {
   const videoRef = useRef(null);
@@ -61,14 +52,16 @@ export function OrderIdScanner({ onDetected, onClose }) {
     let cancelled = false;
     let stream = null;
     let worker = null;
-    let intervalId = null;
-    let busy = false;
-    let previous = null;
+    let timer = null;
     const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const vote = createOrderIdVoter();
+    let frameNo = 0;
+    let upsideDown = false;
 
     function stop() {
-      if (intervalId) clearInterval(intervalId);
-      intervalId = null;
+      if (timer) clearTimeout(timer);
+      timer = null;
       if (stream) {
         stream.getTracks().forEach((t) => t.stop());
         stream = null;
@@ -77,6 +70,39 @@ export function OrderIdScanner({ onDetected, onClose }) {
         worker.terminate().catch(() => {});
         worker = null;
       }
+    }
+
+    async function readOneFrame() {
+      const video = videoRef.current;
+      if (cancelled || !worker || !video || !video.videoWidth) return;
+      const base = upsideDown ? 180 : 0;
+      // Measure the tilt on a cleaned-up band, then re-draw it straightened.
+      const skew = estimateSkew(stretchGray(drawBand(video, canvas, ctx, base, 1)));
+      const variant = frameNo++ % 2 === 0 ? 'A' : 'B';
+      const img = stretchGray(drawBand(video, canvas, ctx, base - skew, variant === 'B' ? 1.5 : 1));
+      ctx.putImageData(img, 0, 0);
+      const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
+      if (cancelled) return;
+      const id = readOrderId(data && data.text);
+      if (!id) {
+        upsideDown = !upsideDown; // nothing here — try the other way up next
+        return;
+      }
+      setLastSeen(id);
+      const accepted = vote({ id, confidence: orderIdConfidence(data, id) ?? 0, variant });
+      if (accepted) {
+        stop();
+        onDetectedRef.current(accepted);
+      }
+    }
+
+    async function loop() {
+      try {
+        await readOneFrame();
+      } catch {
+        // One bad frame — try the next.
+      }
+      if (!cancelled && worker) timer = setTimeout(loop, PAUSE_MS);
     }
 
     async function start() {
@@ -116,29 +142,8 @@ export function OrderIdScanner({ onDetected, onClose }) {
         return;
       }
 
-      setStatus('Hold the order ID inside the box');
-      intervalId = setInterval(async () => {
-        const video = videoRef.current;
-        if (busy || cancelled || !worker || !video || !video.videoWidth) return;
-        busy = true;
-        try {
-          drawBand(video, canvas);
-          const { data } = await worker.recognize(canvas);
-          if (cancelled) return;
-          const found = readOrderId(data && data.text);
-          setLastSeen(found);
-          if (found && found === previous) {
-            stop();
-            onDetectedRef.current(found);
-            return;
-          }
-          previous = found;
-        } catch {
-          // One bad frame — try the next.
-        } finally {
-          busy = false;
-        }
-      }, TICK_MS);
+      setStatus('Hold the order ID inside the box — any way up, faint print is fine');
+      loop();
     }
 
     start();
@@ -147,6 +152,7 @@ export function OrderIdScanner({ onDetected, onClose }) {
       stop();
     };
   }, [attachTorch]);
+
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', flexDirection: 'column', background: '#000' }}>
@@ -171,7 +177,7 @@ export function OrderIdScanner({ onDetected, onClose }) {
           <>
             {status}
             {lowLightHint(torch) && <div style={{ marginTop: 4, color: '#fbbf24' }}>{lowLightHint(torch)}</div>}
-            {lastSeen && <div style={{ marginTop: 4, fontFamily: 'monospace', color: '#fff' }}>Reading: {lastSeen}… hold still</div>}
+            {lastSeen && <div style={{ marginTop: 4, fontFamily: 'monospace', color: '#fff' }}>Reading: {lastSeen}… hold still, checking it</div>}
           </>
         )}
       </div>
