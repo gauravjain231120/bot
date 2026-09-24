@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MultiFormatReader, BarcodeFormat, DecodeHintType, BinaryBitmap, HybridBinarizer, RGBLuminanceSource } from '@zxing/library';
 import { useTorch, TorchButtons, lowLightHint } from './useTorch';
+import { SoundButton } from './scanSound';
 import { stretchGray, smoothAlongBars, createBarcodeConfirmer } from './scanImage';
 import { drawTurnedCrop } from './scanDraw';
 
@@ -230,6 +231,7 @@ export function BarcodeScanner({ onDetected, onClose }) {
         <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>Scan barcode</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginLeft: 'auto' }}>
           <TorchButtons torch={torch} />
+          <SoundButton />
           <button type="button" onClick={onClose} aria-label="Close scanner">
             ✕
           </button>

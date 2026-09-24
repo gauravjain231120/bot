@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BarcodeScanner } from './BarcodeScanner';
 import { OrderIdScanner } from './OrderIdScanner';
+import { unlockScanSound } from './scanSound';
 
 // Shared pieces of the Amazon Pack / Amazon Return scan pages. The Myntra
 // scan pages don't use any of this — they're left exactly as they were.
@@ -122,6 +123,7 @@ export function AmazonScanInput({ pageKey, busy, onLookup, trackingPlaceholder }
   async function submit(override) {
     const v = (override ?? value).trim();
     if (!v || busy) return;
+    unlockScanSound();
     setValue(v);
     const ok = await onLookup(mode, v);
     if (ok) setValue('');
@@ -162,7 +164,7 @@ export function AmazonScanInput({ pageKey, busy, onLookup, trackingPlaceholder }
       <button
         type="button"
         className="secondary"
-        onClick={() => setCamera(mode === 'order' ? 'ocr' : 'barcode')}
+        onClick={() => { unlockScanSound(); setCamera(mode === 'order' ? 'ocr' : 'barcode'); }}
         disabled={busy}
         style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
       >

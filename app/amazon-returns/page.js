@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { AmazonScanInput, DateRow, ItemCard, StatusBadge, humanize, humanizeReason } from '../../components/AmazonScanShared';
+import { playScanError, playScanSuccess } from '../../components/scanSound';
 import { RETURN_CONDITIONS, RETURN_CONDITION_LABELS } from '../../lib/format';
 import { ReturnTypeTag, RETURN_TYPE_HINTS } from '../../components/ReturnTypeTag';
 import { useDashboard } from '../../lib/DashboardContext';
@@ -31,9 +32,11 @@ export default function AmazonReturnsPage() {
       const res = await fetch(`/api/dashboard/amazon-return-lookup?mode=${mode}&id=${encodeURIComponent(value)}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        playScanError();
         setError(data.error || `HTTP ${res.status}`);
         return false;
       }
+      playScanSuccess();
       const ids = data.returns.map((r) => r.returnRequestId);
       setRepeatScan(recent.some((r) => ids.includes(r.returnRequestId)));
       // A rescan keeps what was already added from it this session.
@@ -58,6 +61,7 @@ export default function AmazonReturnsPage() {
       ].slice(0, RECENT_LIMIT));
       return true;
     } catch (err) {
+      playScanError();
       setError(err.message);
       return false;
     } finally {

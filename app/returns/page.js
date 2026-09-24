@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BarcodeScanner } from '../../components/BarcodeScanner';
+import { playScanError, playScanSuccess, unlockScanSound } from '../../components/scanSound';
 import { RETURN_CONDITIONS, RETURN_CONDITION_LABELS } from '../../lib/format';
 import { ReturnTypeTag } from '../../components/ReturnTypeTag';
 import { useDashboard } from '../../lib/DashboardContext';
@@ -48,6 +49,7 @@ export default function ReturnsPage() {
   async function resolveMyntraReturn(idOverride) {
     const id = (idOverride ?? myntraScanId).trim().toUpperCase();
     if (!id || myntraResolving) return;
+    unlockScanSound();
     setMyntraScanId(id);
     setMyntraResolving(true);
     setMyntraResolveError('');
@@ -58,6 +60,7 @@ export default function ReturnsPage() {
       const res = await fetch(`/api/dashboard/resolve-return?trackingId=${encodeURIComponent(id)}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        playScanError();
         setMyntraResolveError(data.error || `HTTP ${res.status}`);
         return;
       }
@@ -73,6 +76,7 @@ export default function ReturnsPage() {
       setMyntraCandidates(candidates);
       setResolvedId(id);
       setMyntraScanId('');
+      playScanSuccess();
       setRecent((list) => {
         const previous = list.find((r) => r.trackingId === id);
         const items = candidates.map((c) => ({
@@ -86,6 +90,7 @@ export default function ReturnsPage() {
         return [{ trackingId: id, items }, ...list.filter((r) => r.trackingId !== id)].slice(0, RECENT_LIMIT);
       });
     } catch (err) {
+      playScanError();
       setMyntraResolveError(err.message);
     } finally {
       setMyntraResolving(false);
@@ -169,7 +174,7 @@ export default function ReturnsPage() {
         <button
           type="button"
           className="secondary"
-          onClick={() => setCameraOpen(true)}
+          onClick={() => { unlockScanSound(); setCameraOpen(true); }}
           disabled={myntraResolving}
           style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
         >

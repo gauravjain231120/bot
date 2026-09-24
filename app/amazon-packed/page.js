@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { AmazonScanInput, DateRow, ItemCard, StatusBadge } from '../../components/AmazonScanShared';
+import { playScanError, playScanSuccess } from '../../components/scanSound';
 
 const RECENT_LIMIT = 10;
 
@@ -60,9 +61,11 @@ export default function AmazonPackedPage() {
       const res = await fetch(`/api/dashboard/amazon-packed-lookup?mode=${mode}&id=${encodeURIComponent(value)}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        playScanError();
         setError(data.error || `HTTP ${res.status}`);
         return false;
       }
+      playScanSuccess();
       const orderIds = data.orders.map((o) => o.orderId);
       setRepeatScan(recent.some((r) => orderIds.includes(r.orderId)));
       setResult(data);
@@ -77,6 +80,7 @@ export default function AmazonPackedPage() {
       ].slice(0, RECENT_LIMIT));
       return true;
     } catch (err) {
+      playScanError();
       setError(err.message);
       return false;
     } finally {

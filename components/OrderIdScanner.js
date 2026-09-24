@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useTorch, TorchButtons, lowLightHint } from './useTorch';
+import { SoundButton } from './scanSound';
 import { stretchGray, estimateSkew, readOrderId, orderIdConfidence, createOrderIdVoter } from './scanImage';
 import { drawBand } from './scanDraw';
 
@@ -160,6 +161,7 @@ export function OrderIdScanner({ onDetected, onClose }) {
         <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>Read order ID</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginLeft: 'auto' }}>
           <TorchButtons torch={torch} />
+          <SoundButton />
           <button type="button" onClick={onClose} aria-label="Close scanner">✕</button>
         </div>
       </div>

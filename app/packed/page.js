@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BarcodeScanner } from '../../components/BarcodeScanner';
+import { playScanError, playScanSuccess, unlockScanSound } from '../../components/scanSound';
 
 // Myntra's packetStatus values seen on real packets, most to least advanced.
 // Anything else still shows, just as its raw value.
@@ -58,6 +59,7 @@ export default function PackedScanPage() {
   async function lookup(idOverride) {
     const id = (idOverride ?? scanId).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!id || looking) return;
+    unlockScanSound();
     setScanId(id);
     setLooking(true);
     setError('');
@@ -67,9 +69,11 @@ export default function PackedScanPage() {
       const res = await fetch(`/api/dashboard/packed-lookup?id=${encodeURIComponent(id)}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        playScanError();
         setError(data.error || `HTTP ${res.status}`);
         return;
       }
+      playScanSuccess();
       setPacket(data.packet);
       setRecent((list) => [
         data.packet,
@@ -78,6 +82,7 @@ export default function PackedScanPage() {
       // Ready for the next scan straight away.
       setScanId('');
     } catch (err) {
+      playScanError();
       setError(err.message);
     } finally {
       setLooking(false);
@@ -118,7 +123,7 @@ export default function PackedScanPage() {
         <button
           type="button"
           className="secondary"
-          onClick={() => setCameraOpen(true)}
+          onClick={() => { unlockScanSound(); setCameraOpen(true); }}
           disabled={looking}
           style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
         >
