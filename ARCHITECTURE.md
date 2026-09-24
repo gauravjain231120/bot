@@ -145,6 +145,9 @@ and a reason. Getting the real seller SKU and size means following that claim to
 shipment's own packed-order record — the bot does both automatically instead of a person looking
 each one up by hand on Myntra's site.
 
+
+The phone camera scanners switch the flashlight on by themselves when the picture is too dark to
+scan (auto flash — on/off in the scanner, remembered on each phone), and a tap on 🔦 overrides it.
 ## Flow: splitting the SPF paid total into fake / wrong
 
 ```mermaid

@@ -1027,6 +1027,7 @@ uses). "Scan a Myntra return" is a card on the dashboard itself, open by default
     real extra light is the most reliable fix for a genuinely faint print that software contrast
     boosting alone can't fully recover. Hidden entirely on devices/browsers that don't support it
     (most laptops, some iOS versions).
+    Since 2026-09-24 also **auto flash** — see §31.
   - Media stream is now stopped manually (`stream.getTracks().forEach(t => t.stop())`) on unmount
     and on a successful detection, since this no longer goes through `@zxing/browser`'s own
     `controls.stop()` continuous-decode helper.
@@ -1487,3 +1488,28 @@ Myntra/Amazon calls at all (its only cron is the daily backup) — every marketp
   products stat row is tighter on small screens.
 - Checked: both apps lint + build clean; the 14 extension scenarios (mocked Chrome) and the SPF
   edge-case suite pass.
+
+## 31. Auto flash in low light (camera scanners, added 2026-09-24)
+
+Every camera scan on the dashboard — Myntra Pack / Myntra Return / Amazon Pack / Amazon Return,
+barcode or the Amazon order-ID reader — shares `components/useTorch.js`:
+- **Auto flash**: twice a second a tiny 48×27 copy of the live frame is averaged to one brightness
+  value (Rec.709 luma, 0–255). Below 75 for 3 samples in a row (~1.5 s) = low light → the flash
+  switches on (`track.applyConstraints({ advanced: [{ torch: true }] })`). The first 1.2 s are
+  skipped while the phone's auto-exposure settles; a brief shadow (one or two dark samples) does
+  nothing.
+- Once auto has switched it on it **stays on until the scanner closes** — the flash lights the
+  picture itself, so brightness can't tell whether the room got lighter; switching off again would
+  only flicker. It's tried once per scan (a browser that rejects it isn't retried every tick).
+- **Manual 🔦 always wins** for the rest of that scan (auto stops deciding).
+- **⚡ Auto on / Auto off** button in the scanner header. The choice is **saved on the phone**
+  (`localStorage` key `scanAutoFlash`, default on) and used by every scanner from then on.
+  Turning auto off while it had lit the flash turns the flash off; turning it on re-arms it.
+- **Phones without flash control** (iPhone Safari doesn't let web pages use the flash; most laptops
+  have none): the buttons are hidden and the footer says "Low light — move to a brighter spot".
+  With auto off it says "tap 🔦 to turn the flash on".
+- Cost: one tiny `drawImage` + `getImageData` per 500 ms — negligible next to the decoder. No server
+  calls.
+- The decision is a pure function (`lightStep`) and was tested: bright room → never on; dark → on
+  after ~1.5 s, once; brief shadow → nothing; auto off / no torch / user tapped → never auto-on,
+  hint shown instead.

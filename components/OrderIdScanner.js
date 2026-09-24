@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTorch, TorchButtons, lowLightHint } from './useTorch';
 
 // Amazon order ids are printed on labels/invoices as text, not a barcode, so
 // BarcodeScanner can't read them — this reads the printed digits with OCR
@@ -44,13 +45,13 @@ function drawBand(video, canvas) {
  */
 export function OrderIdScanner({ onDetected, onClose }) {
   const videoRef = useRef(null);
-  const trackRef = useRef(null);
   const onDetectedRef = useRef(onDetected);
   const [status, setStatus] = useState('Starting camera…');
   const [error, setError] = useState(null);
   const [lastSeen, setLastSeen] = useState(null);
-  const [torchSupported, setTorchSupported] = useState(false);
-  const [torchOn, setTorchOn] = useState(false);
+  // Flashlight: manual 🔦 + auto flash in low light (components/useTorch.js).
+  const torch = useTorch(videoRef);
+  const attachTorch = torch.attach;
 
   useEffect(() => {
     onDetectedRef.current = onDetected;
@@ -92,10 +93,7 @@ export function OrderIdScanner({ onDetected, onClose }) {
         const video = videoRef.current;
         video.srcObject = stream;
         await video.play();
-        const track = stream.getVideoTracks()[0];
-        trackRef.current = track;
-        const caps = track.getCapabilities ? track.getCapabilities() : {};
-        if (caps.torch) setTorchSupported(true);
+        attachTorch(stream.getVideoTracks()[0]);
       } catch (e) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : 'Could not start the camera.';
@@ -148,29 +146,14 @@ export function OrderIdScanner({ onDetected, onClose }) {
       cancelled = true;
       stop();
     };
-  }, []);
-
-  async function toggleTorch() {
-    if (!trackRef.current) return;
-    const next = !torchOn;
-    try {
-      await trackRef.current.applyConstraints({ advanced: [{ torch: next }] });
-      setTorchOn(next);
-    } catch {
-      // Torch reported but rejected at runtime — leave it as it was.
-    }
-  }
+  }, [attachTorch]);
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', flexDirection: 'column', background: '#000' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, padding: 16 }}>
         <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>Read order ID</span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {torchSupported && (
-            <button type="button" onClick={toggleTorch} aria-label={torchOn ? 'Turn off flashlight' : 'Turn on flashlight'}>
-              {torchOn ? '🔦 On' : '🔦 Off'}
-            </button>
-          )}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginLeft: 'auto' }}>
+          <TorchButtons torch={torch} />
           <button type="button" onClick={onClose} aria-label="Close scanner">✕</button>
         </div>
       </div>
@@ -187,6 +170,7 @@ export function OrderIdScanner({ onDetected, onClose }) {
         {error ?? (
           <>
             {status}
+            {lowLightHint(torch) && <div style={{ marginTop: 4, color: '#fbbf24' }}>{lowLightHint(torch)}</div>}
             {lastSeen && <div style={{ marginTop: 4, fontFamily: 'monospace', color: '#fff' }}>Reading: {lastSeen}… hold still</div>}
           </>
         )}

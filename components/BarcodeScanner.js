@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTorch, TorchButtons, lowLightHint } from './useTorch';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 
@@ -74,11 +75,11 @@ function drawRotatedFrame(video, canvas, angleDeg) {
  */
 export function BarcodeScanner({ onDetected, onClose }) {
   const videoRef = useRef(null);
-  const trackRef = useRef(null);
   const onDetectedRef = useRef(onDetected);
   const [error, setError] = useState(null);
-  const [torchSupported, setTorchSupported] = useState(false);
-  const [torchOn, setTorchOn] = useState(false);
+  // Flashlight: manual 🔦 + auto flash in low light (components/useTorch.js).
+  const torch = useTorch(videoRef);
+  const attachTorch = torch.attach;
 
   // Refs must not be written during render — keep the latest callback synced
   // via its own effect instead.
@@ -128,10 +129,7 @@ export function BarcodeScanner({ onDetected, onClose }) {
         video.srcObject = stream;
         await video.play();
 
-        const track = stream.getVideoTracks()[0];
-        trackRef.current = track;
-        const caps = track.getCapabilities ? track.getCapabilities() : {};
-        if (caps.torch) setTorchSupported(true);
+        attachTorch(stream.getVideoTracks()[0]);
 
         // 120ms (not the earlier 75ms) — each tick now tries up to 4
         // rotations instead of 1, so this keeps typical CPU load similar
@@ -170,20 +168,9 @@ export function BarcodeScanner({ onDetected, onClose }) {
       stop();
     };
     // Runs exactly once per mount — onDetected is read via a ref so a new
-    // inline function passed in from the caller never restarts the camera.
-  }, []);
-
-  async function toggleTorch() {
-    if (!trackRef.current) return;
-    const next = !torchOn;
-    try {
-      await trackRef.current.applyConstraints({ advanced: [{ torch: next }] });
-      setTorchOn(next);
-    } catch {
-      // Some browsers report torch as a capability but still reject the
-      // constraint at runtime — leave the toggle as it was, nothing to show.
-    }
-  }
+    // inline function passed in from the caller never restarts the camera
+    // (attachTorch is a stable callback, it never changes either).
+  }, [attachTorch]);
 
   return (
     <div
@@ -191,19 +178,10 @@ export function BarcodeScanner({ onDetected, onClose }) {
         position: 'fixed', inset: 0, zIndex: 100, display: 'flex', flexDirection: 'column', background: '#000',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, padding: 16 }}>
         <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>Scan barcode</span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {torchSupported && (
-            <button
-              type="button"
-              onClick={toggleTorch}
-              aria-label={torchOn ? 'Turn off flashlight' : 'Turn on flashlight — helps with a faint or light print'}
-              title="Flashlight — helps scan a faint or lightly-printed barcode"
-            >
-              {torchOn ? '🔦 On' : '🔦 Off'}
-            </button>
-          )}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginLeft: 'auto' }}>
+          <TorchButtons torch={torch} />
           <button type="button" onClick={onClose} aria-label="Close scanner">
             ✕
           </button>
@@ -224,7 +202,7 @@ export function BarcodeScanner({ onDetected, onClose }) {
         />
       </div>
       <div style={{ padding: 16, textAlign: 'center', fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)' }}>
-        {error ?? 'Point the camera at the tracking barcode — any angle works. Faint print? Try the flashlight.'}
+        {error ?? lowLightHint(torch) ?? 'Point the camera at the tracking barcode — any angle works. Faint print? Try the flashlight.'}
       </div>
     </div>
   );
