@@ -8,7 +8,7 @@ import {
   isSameWorkingLogin,
   touchSessionSynced,
 } from '../../../../lib/sessionStore';
-import { probeAmazonSession } from '../../../../lib/amazon';
+import { probeAmazonSession, isSignIn } from '../../../../lib/amazon';
 import { fetchOpenOrders } from '../../../../lib/myntra';
 
 export const runtime = 'nodejs';
@@ -78,13 +78,12 @@ export async function POST(request) {
     else await fetchOpenOrders(body.headers);
   } catch (err) {
     const status = err.response && err.response.status;
-    const data = err.response && err.response.data;
     // Only a genuine rejection counts as "not working": a 401 / Myntra's own
     // "session expired", or Amazon's sign-in response. A bare 403 can also be
     // bot protection blocking one request (Akamai on Myntra — err.blocked —
     // or Amazon's flaky 403s) — that says nothing about the session, so it's
     // treated as "couldn't test, retry later", never as logged out.
-    const amazonSignIn = marketplace === 'amazon' && status === 403 && data && (data.reason === 'sign_in' || /signin|sign-in/i.test(String(data).slice(0, 2000)));
+    const amazonSignIn = marketplace === 'amazon' && status === 403 && isSignIn(err);
     const rejected = status === 401 || err.sessionExpired || amazonSignIn || (marketplace === 'myntra' && status === 403 && !err.blocked);
     if (rejected) {
       return NextResponse.json(

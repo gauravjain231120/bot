@@ -1513,3 +1513,41 @@ barcode or the Amazon order-ID reader — shares `components/useTorch.js`:
 - The decision is a pure function (`lightStep`) and was tested: bright room → never on; dark → on
   after ~1.5 s, once; brief shadow → nothing; auto off / no torch / user tapped → never auto-on,
   hint shown instead.
+
+## 32. SPF cache + Amazon/Myntra block handling (API review, added 2026-09-24)
+
+Full review of every Myntra/Amazon call (rated 9/10 overall); the two weak spots fixed:
+
+**SPF page — cached, gentler** (`lib/spfCache.js`)
+- It used to re-walk Myntra on every view: the ticket list (1 call / 50 tickets) on open, and one
+  claim-detail call per paid ticket (~140, **8 in parallel**) on every Paid reveal — the biggest,
+  least human-looking burst the bot sent.
+- Ticket list cached **15 min** (`settings/cache_spf_tickets`); the page's **Refresh** re-fetches
+  (`GET /api/spf-status?fresh=1`, `fresh: true` on verify) and the header shows "Updated h:mm".
+- A **paid claim never changes**, so each resolved one is stored for good (collection
+  `spfPaidClaims`, `_id` = ticketId) and only paid tickets not stored yet are fetched
+  (`fetchSpfPaidClaims(headers, { tickets, claimStore })`). Failed lookups aren't stored → retried.
+  First reveal ~140 calls once; afterwards only newly paid claims. The fake/wrong split is still
+  recomputed against stock-manager on every reveal, so a re-grade shows immediately.
+- Concurrency **8 → 3** (paid claims and tracking lookups); verify route `maxDuration` 120 s.
+- Tested offline (mocked Myntra): 20 paid → 20 calls, max 3 in flight; again → 0 calls; 3 newly
+  paid → 3 calls.
+
+**Amazon — a plain 403 is temporary** (`lib/checkAmazonOrders.js`, `isSignIn` in `lib/amazon.js`)
+- Only Amazon's real sign-out answers count as expired: 401, 403 `{"reason":"sign_in"}`, or a
+  sign-in HTML page (`isSignIn`, now also used by `/api/session/sync`). Any other 403 is
+  Amazon's one-off request block: recorded as "blocked by Amazon (temporary, will retry — n in a
+  row)" — no "HTTP 403" text, so health says `error`, not `expired` (no pointless re-sync), and
+  no alert.
+- If it keeps happening **6 checks in a row (~30 min)** it's treated as expired after all
+  (`status.amazonBlockedStreak`): the expiry alert fires and health says `expired`, so the
+  extension re-syncs — a real outage in an unexpected shape still gets caught. A good check resets
+  the streak.
+
+**Myntra — a long Akamai block is reported** (`lib/checkOrders.js`)
+- A block is never an expiry (§30), but a block that lasts **15 checks (~30 min)** means orders
+  aren't being checked at all: one owner alert "Myntra is blocking the bot's requests"
+  (`status.myntraBlockedStreak` / `myntraBlockedAlertSent`, reset by the next good check).
+- Tested offline with a fake DB: Amazon plain 403 ×5 → no alert, health `error`; 6th → alert,
+  `expired`; sign_in 403 / 401 → alert at once; Myntra blocked ×16 → exactly one "blocking" note,
+  never an expiry alert; real Myntra 401 still alerts.

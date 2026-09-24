@@ -134,11 +134,13 @@ export default function SpfStatusPage() {
   // Deliberately only fires here, on this page — never wired into the main
   // dashboard's poll loop. Fetching this paginates every SPF ticket, a
   // heavier live Myntra call than the other dashboard stats.
-  const load = useCallback(async () => {
+  // Opening the page uses the server's 15-min cached ticket list; Refresh
+  // (fresh = true) asks Myntra again.
+  const load = useCallback(async (fresh = false) => {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/spf-status');
+      const res = await fetch(fresh === true ? '/api/spf-status?fresh=1' : '/api/spf-status');
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error || `HTTP ${res.status}`);
@@ -234,9 +236,20 @@ export default function SpfStatusPage() {
     <>
       <div className="page-header">
         <h1>SPF Claim Status</h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <p className="muted" style={{ margin: 0 }}>Total claims, and where each one stands.</p>
-          <button type="button" className="secondary" onClick={load} disabled={loading}>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <p className="muted" style={{ margin: 0 }}>
+            Total claims, and where each one stands.
+            {counts && counts.fetchedAt && (
+              <> Updated {new Date(counts.fetchedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })}.</>
+            )}
+          </p>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => load(true)}
+            disabled={loading}
+            title="Fetch the latest from Myntra (otherwise the list is reused for 15 minutes)"
+          >
             {loading ? 'Loading…' : 'Refresh'}
           </button>
         </div>

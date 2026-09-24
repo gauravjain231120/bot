@@ -2,9 +2,12 @@ import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
 import { requireOwner } from '../../../../lib/adminAuth';
 import { fetchSpfPaidBreakdown } from '../../../../lib/spfPaid';
+import { loadSpfTickets, paidClaimStore } from '../../../../lib/spfCache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// The first-ever Paid reveal walks every paid claim, 3 at a time — give it room.
+export const maxDuration = 120;
 
 // The SPF Status page already loads total/approved/paid/rejected counts
 // client-side as soon as an Owner opens it — for those, this route isn't a
@@ -40,7 +43,11 @@ export async function POST(request) {
   }
 
   try {
-    const paid = await fetchSpfPaidBreakdown(sessionDoc.headers);
+    // Cached ticket list + stored paid claims (lib/spfCache.js): only claims
+    // paid since the last reveal cost a Myntra call.
+    const { tickets, at } = await loadSpfTickets(sessionDoc.headers, { fresh: !!body.fresh });
+    const paid = await fetchSpfPaidBreakdown(sessionDoc.headers, { tickets, claimStore: paidClaimStore });
+    paid.ticketsFetchedAt = at;
     return NextResponse.json({ ok: true, ...paid });
   } catch (err) {
     const status = err.response && err.response.status;

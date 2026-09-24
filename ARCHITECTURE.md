@@ -188,7 +188,10 @@ while the browser is still logged in, it re-syncs right away — if the browser 
 doesn't (a logged-out copy can't work) and says "log in"; (3) the regular sync, per marketplace,
 default every 4 hours. The bot tests every synced session before switching to it, so a sync can
 never replace a working session with a broken one. A request blocked by Myntra's Akamai bot
-protection is treated as a temporary error, never as an expired login. The dashboard no longer calls Myntra/Amazon
+protection is treated as a temporary error, never as an expired login (a block lasting ~30 min sends
+one "Myntra is blocking" note); the same goes for Amazon's one-off 403s, unless they last ~30 min. The
+SPF page reuses what it already fetched (ticket list 15 min, paid claims kept for good), so it no longer
+re-walks Myntra on every view. The dashboard no longer calls Myntra/Amazon
 itself — it shows what the scheduled checks saved — which cut the marketplace traffic by roughly
 10–15x and keeps it looking like normal use.
 
