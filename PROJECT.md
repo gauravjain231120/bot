@@ -1502,6 +1502,15 @@ barcode or the Amazon order-ID reader — shares `components/useTorch.js`:
   picture itself, so brightness can't tell whether the room got lighter; switching off again would
   only flicker. It's tried once per scan (a browser that rejects it isn't retried every tick).
 - **Manual 🔦 always wins** for the rest of that scan (auto stops deciding).
+- **🔦 is saved too (2026-09-24)** — `localStorage` key `scanFlashOn`, default off. Tap 🔦 **On** →
+  every scanner (Myntra/Amazon Pack & Return, barcode and order-ID) opens with the flash on and
+  keeps it on (one retry after 600 ms if the phone rejects the torch right after the camera
+  starts). Tap 🔦 **Off** → the flash starts off and auto flash (if ⚡ Auto is on) decides. Turning
+  it off mid-scan also stops auto for the rest of that scan (it would otherwise relight it against
+  you); the next scan, auto works again. ⚡ Auto off + 🔦 Off = the flash is never switched on.
+  Simulated (fake camera + storage): default off; On → lit + saved; next scan opens lit; a
+  first-try rejection retried → lit; Off → saved; next scan off with auto deciding; Auto off
+  while a saved-on flash is lit keeps it lit.
 - **⚡ Auto on / Auto off** button in the scanner header. The choice is **saved on the phone**
   (`localStorage` key `scanAutoFlash`, default on) and used by every scanner from then on.
   Turning auto off while it had lit the flash turns the flash off; turning it on re-arms it.

@@ -19,14 +19,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // whether the room got lighter — turning it off again would just flicker.
 // A tap on 🔦 always wins for the rest of that scan (auto stops deciding).
 //
-// The Auto on/off choice is saved on this device (localStorage) and used by
-// every scanner from then on. Default: on.
+// Both choices are saved on this device (localStorage) and used by every
+// scanner from then on:
+//  - 🔦 On / Off (scanFlashOn, default off). On = every scanner opens with the
+//    flash on and keeps it on. Off = the flash starts off and auto flash (if
+//    on) takes over.
+//  - ⚡ Auto on / off (scanAutoFlash, default on).
+// Turning 🔦 off during a scan also stops auto for the rest of THAT scan (it
+// would otherwise fight you by relighting it); the next scan, auto works again.
 //
 // Browsers: Android Chrome supports the torch constraint on most phones;
 // iPhone Safari doesn't let web pages control the flash at all — there the
 // flash buttons are hidden and a low-light hint is shown instead.
 
 const PREF_KEY = 'scanAutoFlash';
+const FLASH_ON_KEY = 'scanFlashOn';
 const SAMPLE_MS = 500;
 const WARMUP_MS = 1200;
 const DARK_LUMA = 75;
@@ -48,6 +55,22 @@ function readAutoPref() {
     return window.localStorage.getItem(PREF_KEY) !== 'off';
   } catch {
     return true; // storage blocked — default on
+  }
+}
+
+function readFlashOnPref() {
+  try {
+    return window.localStorage.getItem(FLASH_ON_KEY) === 'on';
+  } catch {
+    return false;
+  }
+}
+
+function saveFlashOnPref(on) {
+  try {
+    window.localStorage.setItem(FLASH_ON_KEY, on ? 'on' : 'off');
+  } catch {
+    // storage blocked — not remembered next time
   }
 }
 
@@ -94,13 +117,24 @@ export function useTorch(videoRef) {
     }
   }, []);
 
-  const attach = useCallback((track) => {
-    trackRef.current = track;
-    attachedAtRef.current = Date.now();
-    const caps = track && track.getCapabilities ? track.getCapabilities() : {};
-    supportedRef.current = !!caps.torch;
-    setSupported(!!caps.torch);
-  }, []);
+  const attach = useCallback(
+    (track) => {
+      trackRef.current = track;
+      attachedAtRef.current = Date.now();
+      const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+      supportedRef.current = !!caps.torch;
+      setSupported(!!caps.torch);
+      // Saved "🔦 On": light it straight away. Some Android phones reject the
+      // torch for a moment right after the camera starts — one retry.
+      if (caps.torch && readFlashOnPref()) {
+        manualRef.current = true; // a pinned choice — auto doesn't decide
+        apply(true).then((ok) => {
+          if (!ok) setTimeout(() => apply(true), 600);
+        });
+      }
+    },
+    [apply]
+  );
 
   useEffect(() => {
     const canvas = document.createElement('canvas');
@@ -153,9 +187,12 @@ export function useTorch(videoRef) {
     return () => clearInterval(id);
   }, [videoRef, apply]);
 
+  // 🔦: saved for next time too (On = every scan starts lit; Off = auto decides).
   const toggle = useCallback(() => {
     manualRef.current = true;
-    apply(!onRef.current);
+    const next = !onRef.current;
+    saveFlashOnPref(next);
+    apply(next);
   }, [apply]);
 
   const setAuto = useCallback(
@@ -187,7 +224,7 @@ export function TorchButtons({ torch }) {
         type="button"
         onClick={() => torch.setAuto(!torch.auto)}
         aria-pressed={torch.auto}
-        title="Auto flash: switches the flashlight on by itself when it's too dark to scan. Saved on this phone."
+        title="Auto flash: when 🔦 is off, switches the flashlight on by itself if it's too dark to scan. Saved on this phone."
       >
         {torch.auto ? '⚡ Auto on' : '⚡ Auto off'}
       </button>
@@ -196,7 +233,7 @@ export function TorchButtons({ torch }) {
         onClick={torch.toggle}
         aria-pressed={torch.on}
         aria-label={torch.on ? 'Turn off flashlight' : 'Turn on flashlight — helps with a faint print or low light'}
-        title="Flashlight"
+        title="Flashlight — On stays on for every scan (saved on this phone); Off lets auto flash decide"
       >
         {torch.on ? '🔦 On' : '🔦 Off'}
       </button>

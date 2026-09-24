@@ -147,7 +147,8 @@ each one up by hand on Myntra's site.
 
 
 The phone camera scanners switch the flashlight on by themselves when the picture is too dark to
-scan (auto flash — on/off in the scanner, remembered on each phone), and a tap on 🔦 overrides it.
+scan (auto flash — on/off in the scanner, remembered on each phone). 🔦 On is remembered too: every scan
+then starts with the flash on; 🔦 Off hands it back to auto flash.
 ## Flow: splitting the SPF paid total into fake / wrong
 
 ```mermaid
