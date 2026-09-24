@@ -5,6 +5,7 @@ import { BarcodeScanner } from '../../components/BarcodeScanner';
 import { RETURN_CONDITIONS, RETURN_CONDITION_LABELS } from '../../lib/format';
 import { ReturnTypeTag } from '../../components/ReturnTypeTag';
 import { useDashboard } from '../../lib/DashboardContext';
+import { myntraUnits } from '../../lib/returnUnits';
 
 const RECENT_LIMIT = 10;
 
@@ -64,8 +65,9 @@ export default function ReturnsPage() {
       // (same as Amazon Return) instead of offering "Add" again — a second
       // tap used to log the same return twice.
       const earlier = recent.find((r) => r.trackingId === id);
-      const candidates = (data.candidates || []).map((c, i) => {
-        const addedCondition = earlier && earlier.items[i] ? earlier.items[i].addedCondition : null;
+      const addedBefore = (key) => (earlier && (earlier.items.find((it) => it.unitKey === key) || {}).addedCondition) || null;
+      const candidates = myntraUnits(data.candidates || []).map((c) => {
+        const addedCondition = addedBefore(c.unitKey);
         return { ...c, condition: addedCondition || 'GOOD', adding: false, added: !!addedCondition, addedCondition, addError: '' };
       });
       setMyntraCandidates(candidates);
@@ -73,12 +75,13 @@ export default function ReturnsPage() {
       setMyntraScanId('');
       setRecent((list) => {
         const previous = list.find((r) => r.trackingId === id);
-        const items = candidates.map((c, i) => ({
+        const items = candidates.map((c) => ({
+          unitKey: c.unitKey,
           returnType: c.returnType,
           sku: c.matchedSku ?? c.resolvedSku,
           size: c.size,
           // A rescan keeps what was already added from this tracking id.
-          addedCondition: previous && previous.items[i] ? previous.items[i].addedCondition : null,
+          addedCondition: (previous && (previous.items.find((it) => it.unitKey === c.unitKey) || {}).addedCondition) || null,
         }));
         return [{ trackingId: id, items }, ...list.filter((r) => r.trackingId !== id)].slice(0, RECENT_LIMIT);
       });
@@ -109,7 +112,18 @@ export default function ReturnsPage() {
       const res = await fetch('/api/dashboard/add-return', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sku: candidate.matchedSku, qty: 1, trackingId: resolvedId, condition: candidate.condition, returnType: candidate.returnType, orderId: candidate.orderId, allowDuplicate }),
+        // One claim = one unit (qty 1). expectedUnits = how many units of this
+        // product the parcel holds, so a genuine 2nd unit logs normally.
+        body: JSON.stringify({
+          sku: candidate.matchedSku,
+          qty: 1,
+          trackingId: resolvedId,
+          condition: candidate.condition,
+          returnType: candidate.returnType,
+          orderId: candidate.orderId,
+          expectedUnits: candidate.unitsOfSku || 1,
+          allowDuplicate,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -118,7 +132,7 @@ export default function ReturnsPage() {
       }
       setMyntraCandidates((list) => list.map((c, i) => (i === index ? { ...c, adding: false, added: true, addedCondition: candidate.condition } : c)));
       setRecent((list) => list.map((r) => (r.trackingId === resolvedId
-        ? { ...r, items: r.items.map((it, i) => (i === index ? { ...it, addedCondition: candidate.condition } : it)) }
+        ? { ...r, items: r.items.map((it) => (it.unitKey === candidate.unitKey ? { ...it, addedCondition: candidate.condition } : it)) }
         : r)));
     } catch (err) {
       setMyntraCandidates((list) => list.map((c, i) => (i === index ? { ...c, adding: false, addError: err.message } : c)));
@@ -211,6 +225,11 @@ export default function ReturnsPage() {
                         Size: {c.size}
                       </span>
                       {c.color ? <span className="muted"> · {c.color}</span> : ''}
+                    </div>
+                  )}
+                  {c.unitsOfSku > 1 && (
+                    <div style={{ marginTop: 4, fontWeight: 600 }}>
+                      Unit {c.unitN} of {c.unitsOfSku} of this product in the parcel — grade and add each one
                     </div>
                   )}
                   {c.orderId && <div className="muted">Order: <span style={{ fontFamily: 'monospace' }}>{c.orderId}</span></div>}

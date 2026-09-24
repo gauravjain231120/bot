@@ -5,9 +5,9 @@ import { AmazonScanInput, DateRow, ItemCard, StatusBadge, humanize, humanizeReas
 import { RETURN_CONDITIONS, RETURN_CONDITION_LABELS } from '../../lib/format';
 import { ReturnTypeTag, RETURN_TYPE_HINTS } from '../../components/ReturnTypeTag';
 import { useDashboard } from '../../lib/DashboardContext';
+import { amazonUnits } from '../../lib/returnUnits';
 
 const RECENT_LIMIT = 10;
-const itemKey = (rr, i) => `${rr.returnRequestId}:${i}`;
 
 export default function AmazonReturnsPage() {
   // Customer return vs RTO is Owner-only (the API also leaves it out for others).
@@ -16,8 +16,8 @@ export default function AmazonReturnsPage() {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [repeatScan, setRepeatScan] = useState(false);
-  // Per-item UI state, keyed by returnRequestId + item index, so a
-  // multi-item return can be added one item at a time.
+  // Per-unit UI state (see unitsOf), so a multi-item return is graded and
+  // added one unit at a time.
   const [itemState, setItemState] = useState({});
   const [recent, setRecent] = useState([]);
 
@@ -40,10 +40,7 @@ export default function AmazonReturnsPage() {
       setItemState((prev) => {
         const next = {};
         for (const rr of data.returns) {
-          rr.items.forEach((_, i) => {
-            const k = itemKey(rr, i);
-            next[k] = prev[k] && prev[k].added ? prev[k] : { condition: 'GOOD' };
-          });
+          for (const { key } of amazonUnits(rr)) next[key] = prev[key] && prev[key].added ? prev[key] : { condition: 'GOOD' };
         }
         return { ...prev, ...next };
       });
@@ -54,7 +51,8 @@ export default function AmazonReturnsPage() {
           orderId: rr.orderId,
           trackingId: rr.trackingId,
           returnType: rr.returnType,
-          items: rr.items.map((it) => `${it.sku || '?'} · ${it.size || '?'}`),
+          items: rr.items.map((it) => `${it.sku || '?'} · ${it.size || '?'}${Number(it.quantity) > 1 ? ` ×${it.quantity}` : ''}`),
+          unitKeys: amazonUnits(rr).map((u) => u.key),
         })),
         ...list.filter((r) => !ids.includes(r.returnRequestId)),
       ].slice(0, RECENT_LIMIT));
@@ -67,10 +65,10 @@ export default function AmazonReturnsPage() {
     }
   }
 
-  // allowDuplicate: see the Myntra Return page — "Log it again anyway".
-  async function addItem(rr, i, allowDuplicate = false) {
-    const key = itemKey(rr, i);
-    const item = rr.items[i];
+  // One unit at a time (qty 1). allowDuplicate: see the Myntra Return page —
+  // "Log it again anyway".
+  async function addUnit(rr, unit, allowDuplicate = false) {
+    const { key, item } = unit;
     const st = itemState[key] || {};
     if (!item.matchedSku || st.adding || st.added) return;
     patchItem(key, { adding: true, addError: '', duplicate: false });
@@ -80,7 +78,10 @@ export default function AmazonReturnsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sku: item.matchedSku,
-          qty: item.quantity || 1,
+          qty: 1,
+          // How many units of this product the return holds — a genuine 2nd
+          // unit logs without a duplicate warning.
+          expectedUnits: unit.unitsOfSku || 1,
           // The return label's own tracking id — what's physically on the
           // parcel and what stock-manager's other Amazon returns are logged by.
           trackingId: rr.trackingId || (result.mode === 'tracking' ? result.searched : undefined),
@@ -103,8 +104,8 @@ export default function AmazonReturnsPage() {
 
   function addedSummary(r) {
     const conds = [];
-    for (let i = 0; i < r.items.length; i++) {
-      const st = itemState[`${r.returnRequestId}:${i}`];
+    for (const key of r.unitKeys || []) {
+      const st = itemState[key];
       if (st && st.added) conds.push(RETURN_CONDITION_LABELS[st.addedCondition] || st.addedCondition);
     }
     return conds;
@@ -143,11 +144,16 @@ export default function AmazonReturnsPage() {
                 </div>
                 {isOwner && <div className="muted" style={{ fontSize: '0.8rem' }}>{RETURN_TYPE_HINTS[rr.returnType] || RETURN_TYPE_HINTS.UNKNOWN}</div>}
 
-                {rr.items.map((item, i) => {
-                  const key = itemKey(rr, i);
+                {amazonUnits(rr).map((unit) => {
+                  const { key, item } = unit;
                   const st = itemState[key] || {};
                   return (
-                    <ItemCard key={key} item={item}>
+                    <ItemCard key={key} item={{ ...item, quantity: 1 }}>
+                      {unit.unitsOfSku > 1 && (
+                        <div style={{ marginTop: 4, fontWeight: 600 }}>
+                          Unit {unit.n} of {unit.unitsOfSku} of this product — grade and add each one
+                        </div>
+                      )}
                       {item.reason && <div className="muted">Reason: {rr.rto ? item.reason : humanizeReason(item.reason)}</div>}
                       {item.resolution && <div className="muted">Customer wants: {humanize(item.resolution).replace(/^Variational /, '')}</div>}
                       {item.matchError && <div style={{ color: 'var(--bad)' }}>{item.matchError}</div>}
@@ -156,7 +162,7 @@ export default function AmazonReturnsPage() {
                           <select value={st.condition || 'GOOD'} onChange={(e) => patchItem(key, { condition: e.target.value })} disabled={st.adding}>
                             {RETURN_CONDITIONS.map((k) => <option key={k} value={k}>{RETURN_CONDITION_LABELS[k]}</option>)}
                           </select>
-                          <button type="button" onClick={() => addItem(rr, i)} disabled={st.adding}>
+                          <button type="button" onClick={() => addUnit(rr, unit)} disabled={st.adding}>
                             {st.adding ? 'Adding…' : 'Add to Return'}
                           </button>
                         </div>
@@ -168,7 +174,7 @@ export default function AmazonReturnsPage() {
                       )}
                       {st.addError && <div style={{ marginTop: 6, color: 'var(--bad)' }}>{st.addError}</div>}
                       {st.duplicate && !st.added && (
-                        <button type="button" className="secondary" style={{ marginTop: 6 }} onClick={() => addItem(rr, i, true)} disabled={st.adding}>
+                        <button type="button" className="secondary" style={{ marginTop: 6 }} onClick={() => addUnit(rr, unit, true)} disabled={st.adding}>
                           Log it again anyway
                         </button>
                       )}

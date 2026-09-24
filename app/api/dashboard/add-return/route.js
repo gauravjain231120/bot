@@ -30,6 +30,8 @@ export async function POST(request) {
     condition: body.condition,
     returnType,
     allowDuplicate: body.allowDuplicate === true,
+    // How many units of this product the scanned parcel holds.
+    expectedUnits: Number(body.expectedUnits) || undefined,
     // Myntra's order number from the return lookup — digits only, else dropped.
     orderId: /^\d{6,24}$/.test(String(body.orderId || '')) ? String(body.orderId) : undefined,
   });

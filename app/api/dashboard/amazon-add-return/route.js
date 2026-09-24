@@ -31,6 +31,8 @@ export async function POST(request) {
     condition: body.condition,
     returnType,
     allowDuplicate: body.allowDuplicate === true,
+    // How many units of this product the scanned parcel holds.
+    expectedUnits: Number(body.expectedUnits) || undefined,
     // The Amazon order id, if the page had one — only a real 3-7-7 id is passed on.
     orderId: normalizeOrderId(body.orderId) || undefined,
     channel: 'AMAZON',
