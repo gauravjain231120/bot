@@ -207,7 +207,7 @@ self-ship, and searching it on every check was half of all Amazon traffic.
 | `/api/check-amazon-orders` | every 5 min | New Amazon orders (Easy Ship only) |
 | `/api/check-cancellations` | every 5 min | Myntra cancellations — bounded to recent ones, never re-walks the full history |
 | `/api/check-amazon-cancellations` | every 30 min | Amazon cancellations (Easy Ship only) |
-| `/api/check-otc` | every 2 min | Only calls Myntra 12–1pm IST, and stops once today's code is found — faster codes, very few calls |
+| `/api/check-otc` | every 2 min, all day | Only calls Myntra inside the OTC window (set on the dashboard in India time, default 12–1pm IST), and stops once today's code is found — faster codes, very few calls |
 | Browser extension sync | per marketplace, default every 4 hours (set in the popup) | The bot also keeps the Myntra session rolling itself, so this is a backstop |
 | Extension session watch | every 1 min | Asks the **bot** (never Myntra/Amazon) if its session works; re-syncs right away if it expired and the browser is still logged in |
 | Bot dashboard auto-refresh | every 60s, visible tab only | Reads only what the checks saved — makes no Myntra/Amazon calls at all |
@@ -241,8 +241,8 @@ routes. Everything else on stock-manager needs a real logged-in account.
 
 - **SPF claim** — Myntra's "Seller Protection Fund" record for one returned item — carries the
   return reason and one product photo, keyed by the return's own tracking ID.
-- **OTC** — The one-time code Myntra needs at the courier pickup/return window, roughly 12–1pm
-  IST daily.
+- **OTC** — The one-time code Myntra needs at the courier pickup/return window (checked daily in a window set on the
+  dashboard in India time, default 12–1pm IST).
 - **Ready to Ship queue** — stock-manager's list of orders that have been detected and reserved
   but not yet physically packed and marked shipped.
 - **Return type** — Customer return (sent back by the customer), RTO (never delivered, came back), or Unknown. Stored separately from the condition.

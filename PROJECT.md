@@ -71,7 +71,7 @@ cron-job.org (external, 24/7)                 Vercel (this app)                s
 GET /api/check-orders?secret=...        ──►    poll Myntra                ──►   POST /api/pending
 GET /api/check-amazon-orders?secret=... ──►    poll Amazon                ──►   POST /api/pending
 GET /api/check-cancellations?secret=... ──►    poll Myntra cancellations
-GET /api/check-otc?secret=...           ──►    poll pickup/return OTC (§19, 12:00-13:00 IST only)
+GET /api/check-otc?secret=...           ──►    poll pickup/return OTC (§19, only inside the dashboard-set IST window, default 12:00-13:00)
                                                        │
                                                        ├──► Telegram (order/cancel/OTC alerts,
                                                        │     routed by Owner/Viewer role — §20)
@@ -150,12 +150,13 @@ lives entirely in stock-manager's Ready to Ship queue.
 | `GET /api/check-amazon-orders?secret=CRON_SECRET` | **every 5 min** | Poll Amazon unshipped orders (Easy Ship), alert + queue new ones |
 | `GET /api/check-cancellations?secret=CRON_SECRET` | **every 5 min** | Poll Myntra cancellations, alert on new ones |
 | `GET /api/check-amazon-cancellations?secret=CRON_SECRET` | **every 30 min** | Poll Amazon cancellations (Easy Ship), alert on new ones |
-| `GET /api/check-otc?secret=CRON_SECRET` | **every 2 min** (acts only 12–1 pm) | Pickup/return OTC alert — see §19, shape is different from the three below (no seen-collection, time-window + once-per-day gated instead) |
+| `GET /api/check-otc?secret=CRON_SECRET` | **every 2 min, all day** (acts only inside the OTC window, default 12–1 pm IST — §33) | Pickup/return OTC alert — see §19, shape is different from the three below (no seen-collection, time-window + once-per-day gated instead) |
 
 Schedule as configured on cron-job.org (updated 2026-09-24: Myntra orders moved from every 1 min
 to every 2 min). Marketplace calls this produces per day:
 **Myntra ≈ 1,010–1,070** (720 order checks + 288 cancellation checks + OTC: 2 calls per run, only
-12–1 pm, stopping once the code is found — usually a few, at most 60) and
+inside the OTC window, default 12–1 pm, stopping once the code is found — usually a few, at most
+~60 per window hour) and
 **Amazon ≈ 340** (288 order checks + 48 cancellation checks, Easy Ship only), plus one item-detail
 call per new Myntra order. Why 2 min and not 1: Myntra's ship-by is hours away (usually next day),
 so an alert a minute later changes nothing, while a check every single minute around the clock was
@@ -800,11 +801,11 @@ or drop off returns (`trip=RETURN`) — `GET partnersapi.myntrainfo.com/api/loca
 <id>&trip=<PICKUP|RETURN>` (`fetchOtc()` in `lib/myntra.js`). It reads `null` until a tripsheet
 actually goes active for that courier.
 
-- **Window**: only does anything between **12:00-13:00 IST** — checked in-process
-  (`withinWindow()`), not just relied on from the cron-job.org schedule, so a stray or
-  misconfigured trigger outside that hour is always a safe, instant no-op (no DB touch, no Myntra
-  API call). It runs every 2 min on cron-job.org (changed from 5 on 2026-09-24) — see §6. Outside 12–1 pm, or once
-  today's code is found, a tick makes no Myntra call at all.
+- **Window**: only does anything inside the check window — **set on the dashboard in India time
+  since 2026-09-24 (§33)**, default **12:00-13:00 IST** — checked in-process (`withinWindow()`),
+  not just relied on from the cron-job.org schedule, so a stray or misconfigured trigger outside it
+  is always a safe no-op (one DB read, no Myntra API call). It runs every 2 min on cron-job.org —
+  see §6. Outside the window, or once today's code is found, a tick makes no Myntra call at all.
 - **What one check does**: fetches both trip types for both couriers (4 values total: Pickup MYS,
   Pickup MYE, Return MYS, Return MYE) in one pass.
 - **Alert + stop**: the moment any of those 4 is no longer `null`, sends **one** Telegram message
@@ -835,9 +836,8 @@ actually goes active for that courier.
 - **Dashboard card (added 2026-09-22, `getOtcDisplayStatus()`/`clearOtcDisplay()` in
   `lib/checkOtc.js`, `GET`/`PATCH /api/otc-status`)**: a 6th stat-grid tile on the admin page shows
   whichever codes were found today (blank slots omitted), or — when nothing's been found yet — the
-  window's live state: `windowActive` + `minutesToWindowChange` (minutes until 13:00 if currently
-  in the window, minutes until the next 12:00 — today or tomorrow — otherwise), pure clock math,
-  no DB. A **"Clear"** button next to a found code sets `clearedDate` = today's IST date, which
+  window's live state: `windowActive` + `minutesToWindowChange` (minutes until the window's end if currently
+  in it, minutes until its next start — today or tomorrow — otherwise), pure clock math. A **"Clear"** button next to a found code sets `clearedDate` = today's IST date, which
   hides that value from the card — but **deliberately never touches `alertedDate`**, so clearing
   the display can never make the poller start calling the Myntra API again for the rest of the
   day (verified directly against production: simulated a found-today state, cleared it, confirmed
@@ -1551,3 +1551,29 @@ Full review of every Myntra/Amazon call (rated 9/10 overall); the two weak spots
 - Tested offline with a fake DB: Amazon plain 403 ×5 → no alert, health `error`; 6th → alert,
   `expired`; sign_in 403 / 401 → alert at once; Myntra blocked ×16 → exactly one "blocking" note,
   never an expiry alert; real Myntra 401 still alerts.
+
+## 33. OTC check window set from the dashboard (added 2026-09-24)
+
+The pickup/return OTC check (§19) used to be hard-wired to 12:00–13:00 IST. Now the start and end
+times are set on the Overview page's **Pickup/Return OTC** card:
+- The card always shows "Checks 12:00 pm – 1:00 pm IST"; an **Owner** sees **Change** → two time
+  pickers (Start / End, India time) → Save. Viewers see the window but can't change it.
+- Stored as plain `"HH:MM"` 24-hour **IST** in `settings/otc_config.window` `{ start, end,
+  updatedAt, updatedBy }` (`lib/otcConfig.js`: `getOtcWindow` / `setOtcWindow` /
+  `validateOtcWindow`). No timezone conversion anywhere: the server compares against its own
+  IST-shifted clock (`istNow()`), so the phone's/PC's timezone never matters.
+- Rules (checked in the UI and again on the server): `HH:MM`, end later than start on the **same
+  day** (no overnight window), at least **5 min**, at most **8 h** (the check calls Myntra every
+  ~2 min inside the window until a code appears). Start is inclusive, end exclusive. A missing or
+  corrupt stored window falls back to the default 12:00–13:00.
+- API: `GET /api/otc-config` now also returns `window`; `PATCH /api/otc-config` with
+  `{ window: { start, end } }` — **Owner only** (400 with the reason if invalid). The recipient
+  scope part is unchanged.
+- `runCheckOtc()` and the dashboard countdown (`minutesUntilWindowChange`) read the saved window on
+  every run, so a change applies from the next 2-minute tick. "Once per IST day" is unchanged: if
+  today's code was already found, moving the window later today won't check again until tomorrow.
+- **cron-job.org must run `/api/check-otc` every 2 min ALL DAY** (not only 12–1) for a moved
+  window to be checked. Outside the window a tick costs one DB read and no Myntra call.
+- Tested offline (fake DB + Myntra): default window at 12:30 → alerted; window 14:00–15:30 → 0
+  Myntra calls at 12:30 and 15:30, alerted at 14:00, skipped after; countdown/edge minutes (start
+  inclusive, end exclusive, near midnight) correct; bad stored window → default.

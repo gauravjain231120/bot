@@ -3,9 +3,10 @@
 import { useDashboard } from '../lib/DashboardContext';
 import { timeAgo, formatMinutes, otcLines } from '../lib/format';
 import { OrdersGrid } from '../components/OrdersGrid';
+import { OtcWindowEditor } from '../components/OtcWindowEditor';
 
 export default function OverviewPage() {
-  const { status, loadError, otcStatus, otcClearing, handleClearOtc, packedCount, packedCountError, packedLoading, loadPackedCount } = useDashboard();
+  const { status, loadError, isOwner, otcStatus, otcClearing, handleClearOtc, handleSetOtcWindow, packedCount, packedCountError, packedLoading, loadPackedCount } = useDashboard();
 
   return (
     <>
@@ -95,6 +96,7 @@ export default function OverviewPage() {
           ) : (
             <div className="stat-value">—</div>
           )}
+          <OtcWindowEditor window={otcStatus?.window} isOwner={isOwner} onSave={handleSetOtcWindow} />
         </div>
         <div className="stat-card">
           <div className="stat-label">Myntra packed today</div>
