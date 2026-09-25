@@ -21,7 +21,7 @@ const HINTS = new Map();
 HINTS.set(DecodeHintType.POSSIBLE_FORMATS, FORMATS);
 // TRY_HARDER: more scanlines per attempt, better tolerance for a faint or
 // damaged edge — exactly what a lightly-printed label needs.
-HINTS.set(DecodeHintType.TRY_HARDER, true);
+// HINTS.set(DecodeHintType.TRY_HARDER, true);
 const NATIVE_FORMATS = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'itf'];
 
 // How each camera frame is tried (measured offline on generated labels, see
@@ -48,8 +48,8 @@ const CLEANUPS = ['raw', 'stretch', 'smooth'];
 // clean-ups only cost time on a print that actually needs them.
 const PLAN = [];
 for (const cleanup of CLEANUPS) for (const angle of ANGLES) PLAN.push({ angle, cleanup });
-const FRAME_BUDGET_MS = 70;
-const TICK_MS = 90;
+const FRAME_BUDGET_MS = 30; // Reduced from 70: Keeps the UI highly responsive and prevents stuttering
+const TICK_MS = 40;         // Reduced from 90: Allows ~25 fps processing for near-instant scanning
 function luminance(img) {
   const n = img.width * img.height;
   const lum = new Uint8ClampedArray(n);

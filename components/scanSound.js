@@ -81,32 +81,40 @@ function tone({ freq, delay = 0, duration, type = 'sine', gain = 0.18 }) {
   const c = audioContext();
   if (!c) return;
   if (c.state === 'suspended') c.resume().catch(() => {});
-  const t0 = c.currentTime + delay;
+  
+  // Schedule slightly in the future so rapid consecutive tones don't get 
+  // dropped or click if the browser's audio thread is slightly behind.
+  const t0 = c.currentTime + delay + 0.01;
   const osc = c.createOscillator();
   const amp = c.createGain();
   osc.type = type;
   osc.frequency.setValueAtTime(freq, t0);
+  
+  // Safe volume ramping
   amp.gain.setValueAtTime(0, t0);
   amp.gain.linearRampToValueAtTime(gain, t0 + 0.012);
   amp.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+  
   osc.connect(amp);
   amp.connect(c.destination);
   osc.start(t0);
   osc.stop(t0 + duration + 0.02);
 }
 
-/** Good scan — one bright rising note. Silent when scan sound is off. */
+/** Good scan — one bright, classic scanner beep. Silent when scan sound is off. */
 export function playScanSuccess() {
   if (!readSoundPref()) return;
-  tone({ freq: 660, duration: 0.09 });
-  tone({ freq: 990, delay: 0.08, duration: 0.11 });
+  // A classic, loud, high-pitched supermarket scanner beep
+  tone({ freq: 2000, duration: 0.15, type: 'square', gain: 0.25 });
 }
 
-/** Not found / bad scan — two low buzzes. Silent when scan sound is off. */
+/** Not found / bad scan — three low warning buzzes. Silent when scan sound is off. */
 export function playScanError() {
   if (!readSoundPref()) return;
-  tone({ freq: 200, duration: 0.13, type: 'square', gain: 0.14 });
-  tone({ freq: 150, delay: 0.17, duration: 0.17, type: 'square', gain: 0.14 });
+  // A distinct, harsh error buzzer (three fast buzzes)
+  tone({ freq: 150, delay: 0, duration: 0.12, type: 'sawtooth', gain: 0.25 });
+  tone({ freq: 150, delay: 0.18, duration: 0.12, type: 'sawtooth', gain: 0.25 });
+  tone({ freq: 150, delay: 0.36, duration: 0.2, type: 'sawtooth', gain: 0.25 });
 }
 
 /**
