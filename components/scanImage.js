@@ -254,3 +254,52 @@ export function orderIdConfidence(page, id) {
   }
   return null;
 }
+
+export function createMyntraIdVoter({ history = 6 } = {}) {
+  const reads = [];
+  return function vote(read) {
+    if (!read || !read.id) return null;
+    reads.push(read);
+    if (reads.length > history) reads.shift();
+    const same = reads.filter((r) => r.id === read.id);
+    if (same.length >= 3) return read.id;
+    const strong = same.filter((r) => r.confidence >= STRONG_CONFIDENCE);
+    if (strong.length >= 2 && new Set(strong.map((r) => r.variant)).size >= 2) return read.id;
+    return null;
+  };
+}
+
+const MYNTRA_ID_RE = /(?:^|[^A-Z0-9])(MY[A-Z0-9]{2}[0-9]{8,15})(?![A-Z0-9])/i;
+
+export function readMyntraId(text) {
+  for (const line of String(text || '').split(/\r?\n/)) {
+    let cleaned = line.toUpperCase().replace(/\s+/g, '');
+    // Common OCR letter-to-digit mistakes inside the prefix
+    cleaned = cleaned.replace(/M[YV][5S][R8]/, 'MYSR').replace(/M[YV]E[C\(\[]/, 'MYEC');
+    const m = cleaned.match(MYNTRA_ID_RE);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+export function myntraIdConfidence(page, id) {
+  for (const block of (page && page.blocks) || []) {
+    for (const para of block.paragraphs || []) {
+      for (const line of para.lines || []) {
+        const cs = [];
+        for (const word of line.words || []) {
+          (word.symbols || []).forEach((sym, i) => {
+            if (/^[A-Z0-9]$/i.test(sym.text)) cs.push({ ch: sym.text.toUpperCase(), conf: i === 0 ? null : sym.confidence });
+          });
+        }
+        const joined = cs.map((c) => c.ch).join('');
+        const at = joined.indexOf(id);
+        if (at >= 0) {
+          const confs = cs.slice(at, at + id.length).map((c) => c.conf).filter((c) => c != null);
+          return confs.length ? Math.min(...confs) : null;
+        }
+      }
+    }
+  }
+  return null;
+}

@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { BarcodeScanner } from '../../components/BarcodeScanner';
+import { useState } from 'react';
+import { MyntraScanInput } from '../../components/MyntraScanInput';
 import { playScanError, playScanSuccess, unlockScanSound } from '../../components/scanSound';
 
 // Myntra's packetStatus values seen on real packets, most to least advanced.
@@ -36,31 +36,18 @@ function DateRow({ label, value }) {
 }
 
 export default function PackedScanPage() {
-  const [scanId, setScanId] = useState('');
   const [looking, setLooking] = useState(false);
   const [error, setError] = useState('');
   const [packet, setPacket] = useState(null);
   const [repeatScan, setRepeatScan] = useState(false);
   const [recent, setRecent] = useState([]);
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const inputRef = useRef(null);
-
-  // A USB/Bluetooth barcode scanner "types" the code and presses Enter into
-  // whatever has focus — keeping the input focused means scan after scan
-  // works without touching the screen. Only on mouse/keyboard devices: on a
-  // phone it would pop the on-screen keyboard up after every camera scan.
-  useEffect(() => {
-    const finePointer = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: fine)').matches;
-    if (finePointer && !looking && !cameraOpen && inputRef.current) inputRef.current.focus();
-  }, [looking, cameraOpen]);
 
   // `idOverride` lets the camera scanner look up the just-decoded text
   // immediately instead of waiting a render for state to update.
   async function lookup(idOverride) {
-    const id = (idOverride ?? scanId).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const id = (idOverride ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!id || looking) return;
     unlockScanSound();
-    setScanId(id);
     setLooking(true);
     setError('');
     setPacket(null);
@@ -79,19 +66,12 @@ export default function PackedScanPage() {
         data.packet,
         ...list.filter((r) => r.trackingNumber !== data.packet.trackingNumber),
       ].slice(0, RECENT_LIMIT));
-      // Ready for the next scan straight away.
-      setScanId('');
     } catch (err) {
       playScanError();
       setError(err.message);
     } finally {
       setLooking(false);
     }
-  }
-
-  function handleBarcodeDetected(text) {
-    setCameraOpen(false);
-    lookup(text);
   }
 
   return (
@@ -105,30 +85,12 @@ export default function PackedScanPage() {
       </div>
 
       <div className="card">
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            ref={inputRef}
-            value={scanId}
-            onChange={(e) => setScanId(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); lookup(); } }}
-            placeholder="MYSP… / MYSC… / packet ID"
-            style={{ flex: 1, fontFamily: 'monospace' }}
-            autoComplete="off"
-          />
-          <button type="button" onClick={() => lookup()} disabled={looking || !scanId.trim()}>
-            {looking ? 'Looking up…' : 'Look up'}
-          </button>
-        </div>
-
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => { unlockScanSound(); setCameraOpen(true); }}
-          disabled={looking}
-          style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
-        >
-          📷 Scan with camera
-        </button>
+        <MyntraScanInput
+          pageKey="packed"
+          busy={looking}
+          onLookup={lookup}
+          placeholder="MYSP… / MYSC… / packet ID"
+        />
 
         {error && <div className="banner bad" style={{ marginTop: 12, marginBottom: 0 }}>{error}</div>}
 
@@ -207,7 +169,6 @@ export default function PackedScanPage() {
         </div>
       )}
 
-      {cameraOpen && <BarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setCameraOpen(false)} />}
     </>
   );
 }
