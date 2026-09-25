@@ -1680,3 +1680,6 @@ suite (block handling, OTC window, 14 extension scenarios, SPF cache, SPF edge c
 
 **Found, needs the owner's decision (not changed)** — see stock-manager PROJECT.md for data items:
 - Viewer accounts can Start/Stop alerts, "Check now" and paste sessions (UI + API allow it).
+
+## 2026-09-25: Fix ghost order cancellation alert
+- **Fixed ghost order race condition (`lib/checkCancellations.js`)**: An order cancelled immediately after placement (before the 2-minute `check-orders` cycle caught it) would never be added to stock-manager. When `check-cancellations` ran, it couldn't find the stock to reverse and would send a false-alarm `⚠️ Cancelled line not fully found` Telegram alert. It now cross-references `seenOrders`: if an unresolved cancellation belongs to an order the bot never processed as open in the first place, it silently ignores the shortfall instead of alerting the owner.
