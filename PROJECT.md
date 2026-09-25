@@ -1688,3 +1688,32 @@ suite (block handling, OTC window, 14 extension scenarios, SPF cache, SPF edge c
 - **Disabled ZXing `TRY_HARDER` (`components/BarcodeScanner.js`)**: ZXing's internal TRY_HARDER flag was exponentially increasing CPU time by applying its own crude thresholding. Since the scanner already applies high-quality custom preprocessing (`stretch`, `smooth`), `TRY_HARDER` was redundant and causing massive frame stalls on faintly printed labels. Removing it makes decoding near-instant.
 - **Increased Scanner FPS**: Reduced `FRAME_BUDGET_MS` (70ms -> 30ms) and `TICK_MS` (90ms -> 40ms) to allow the scanner to run at ~25 FPS, keeping the UI highly responsive while it churns through the angle plan.
 - **Fixed and Upgraded Audio (`components/scanSound.js`)**: The previous Web Audio API scheduling (`t0 = c.currentTime + delay`) caused tones to drop or click if the main thread was slightly delayed by the scanner loop. Added a `0.01s` safety buffer to ensure reliable playback. Redesigned the sounds to be much clearer and louder: Success is now a classic 2000Hz supermarket scanner beep, and Error is a harsh 3-pulse 150Hz sawtooth buzzer.
+
+## 2026-09-25: Deep scanner overhaul — faint barcode fix
+Three root causes made faint / lightly-printed barcodes (like MYSR… on plastic
+courier bags) take a very long time or fail entirely to scan:
+
+1. **PLAN ordering** (`components/BarcodeScanner.js`): The old plan tried ALL 12
+   rotational angles with raw (uncleaned) pixels before ever trying contrast
+   stretching. A faint barcode lying flat (the most common case) had to wait
+   through 12 failed raw attempts before the 13th attempt finally stretched
+   the contrast and could read it. **New order**: the two most common orientations
+   (0° and 90°) now get all three cleanups (raw → stretch → smooth) tried FIRST.
+   A faint barcode at 0° is now found on attempt 2 instead of attempt 13 — an
+   order-of-magnitude improvement in perceived speed.
+
+2. **Binarizer strategy**: The previous version used only `HybridBinarizer`. Now
+   every attempt tries `HybridBinarizer` first (local adaptive threshold — best
+   for uneven lighting on crumpled packaging) and falls back to
+   `GlobalHistogramBinarizer` (single global threshold — sometimes wins on
+   evenly-lit or pre-stretched images). The luminance array is computed once and
+   reused, so the fallback costs only the decode math, not the image conversion.
+
+3. **TRY_HARDER restored**: The flag was mistakenly disabled in an earlier commit.
+   It makes ZXing scan many more horizontal rows through the image — critical for
+   faint prints where only a few pixel rows have enough contrast to decode. With
+   the custom preprocessing (stretchGray, smoothAlongBars) already cleaning the
+   image, TRY_HARDER finds a clean row quickly.
+
+Frame timing: 55 ms budget / 55 ms tick (~18 fps processing), 20% faster than the
+original 70/90 while giving TRY_HARDER + dual binarizers enough time per step.

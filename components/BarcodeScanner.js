@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { MultiFormatReader, BarcodeFormat, DecodeHintType, BinaryBitmap, HybridBinarizer, RGBLuminanceSource } from '@zxing/library';
+import { MultiFormatReader, BarcodeFormat, DecodeHintType, BinaryBitmap, HybridBinarizer, GlobalHistogramBinarizer, RGBLuminanceSource } from '@zxing/library';
 import { useTorch, TorchButtons, lowLightHint } from './useTorch';
 import { SoundButton } from './scanSound';
 import { stretchGray, smoothAlongBars, createBarcodeConfirmer } from './scanImage';
@@ -21,7 +21,7 @@ const HINTS = new Map();
 HINTS.set(DecodeHintType.POSSIBLE_FORMATS, FORMATS);
 // TRY_HARDER: more scanlines per attempt, better tolerance for a faint or
 // damaged edge — exactly what a lightly-printed label needs.
-// HINTS.set(DecodeHintType.TRY_HARDER, true);
+HINTS.set(DecodeHintType.TRY_HARDER, true);
 const NATIVE_FORMATS = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'itf'];
 
 // How each camera frame is tried (measured offline on generated labels, see
@@ -41,15 +41,31 @@ const NATIVE_FORMATS = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'itf'
 //     case (tried first) still reads on the very first frame. The whole
 //     frame is used (see scanDraw.js) — a vertical barcode runs outside the
 //     guide box.
-const ANGLES = [0, 90, 45, 135, 15, 165, 30, 150, 60, 120, 75, 105];
+//
+//  PLAN ORDER: the two most common orientations (0° straight, 90° sideways)
+//  get all three cleanups tried FIRST, so a faint print lying flat is found
+//  in 2–4 attempts instead of 13+. Then the remaining angles follow the same
+//  pattern. A good print at a common angle still reads on attempt 1 (raw@0°).
+const PRIMARY_ANGLES = [0, 90];
+const SECONDARY_ANGLES = [45, 135];
+const REMAINING_ANGLES = [15, 165, 30, 150, 60, 120, 75, 105];
 const CLEANUPS = ['raw', 'stretch', 'smooth'];
-// Every angle plain first (a normal print at any angle reads within 12
-// attempts), then every angle stretched, then smoothed — so the extra
-// clean-ups only cost time on a print that actually needs them.
+
 const PLAN = [];
-for (const cleanup of CLEANUPS) for (const angle of ANGLES) PLAN.push({ angle, cleanup });
-const FRAME_BUDGET_MS = 30; // Reduced from 70: Keeps the UI highly responsive and prevents stuttering
-const TICK_MS = 40;         // Reduced from 90: Allows ~25 fps processing for near-instant scanning
+// Phase 1: most common orientations, all cleanups (6 steps)
+for (const angle of PRIMARY_ANGLES) for (const cleanup of CLEANUPS) PLAN.push({ angle, cleanup });
+// Phase 2: next most common orientations, all cleanups (6 steps)
+for (const angle of SECONDARY_ANGLES) for (const cleanup of CLEANUPS) PLAN.push({ angle, cleanup });
+// Phase 3: remaining angles, all cleanups (24 steps)
+for (const angle of REMAINING_ANGLES) for (const cleanup of CLEANUPS) PLAN.push({ angle, cleanup });
+
+// Time budget per frame: long enough for TRY_HARDER to do its job on 1–2
+// steps, short enough that the camera feed never visibly stutters.
+const FRAME_BUDGET_MS = 55;
+// Gap between frames: lets the browser paint one animation frame and keeps
+// the camera feed smooth at ~18 fps processing throughput.
+const TICK_MS = 55;
+
 function luminance(img) {
   const n = img.width * img.height;
   const lum = new Uint8ClampedArray(n);
@@ -58,9 +74,29 @@ function luminance(img) {
   return lum;
 }
 
+// Two binarization strategies per attempt:
+//  - HybridBinarizer: local adaptive threshold — best for real-world photos
+//    with uneven lighting, shadows, or glare on plastic packaging.
+//  - GlobalHistogramBinarizer: single global threshold — faster, sometimes
+//    wins on evenly-lit or pre-stretched images where local blocks confuse
+//    the adaptive method.
+// The luminance array is computed once and reused for both attempts.
 function tryZxing(reader, img) {
+  const lum = luminance(img);
+  const w = img.width;
+  const h = img.height;
+  // 1. HybridBinarizer (local adaptive — handles shadows and glare)
   try {
-    const result = reader.decode(new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(luminance(img), img.width, img.height))), HINTS);
+    const src = new RGBLuminanceSource(lum, w, h);
+    const result = reader.decode(new BinaryBitmap(new HybridBinarizer(src)), HINTS);
+    return result ? { text: result.getText(), format: BarcodeFormat[result.getBarcodeFormat()] } : null;
+  } catch {
+    // Hybrid didn't find it — try global
+  }
+  // 2. GlobalHistogramBinarizer (single threshold — cheap fallback)
+  try {
+    const src = new RGBLuminanceSource(lum, w, h);
+    const result = reader.decode(new BinaryBitmap(new GlobalHistogramBinarizer(src)), HINTS);
     return result ? { text: result.getText(), format: BarcodeFormat[result.getBarcodeFormat()] } : null;
   } catch {
     return null; // no code in this attempt — normal
