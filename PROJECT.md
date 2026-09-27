@@ -1784,3 +1784,46 @@ carries its piece number (1, 2, 3 …). A product line with quantity 2+ is label
 covers ("2–3"), so the numbers always add up to the count (`numberPieces`). Returns count units
 (one per piece, lib/returnUnits.js). An Amazon order split into 2+ packages shows the count without
 "Pack all" — one label doesn't hold everything.
+
+## 38. Session sync: heartbeat race, Amazon copy dying ~10 h in, no alert for self-healing blips (2026-09-27)
+
+Reported: the extension syncs Myntra and Amazon together, but sometimes only one "🔄 auto-sync ok"
+arrives (27 Sept 9:52 — Myntra only); and "⚠️ Amazon session expired" arrived while Amazon was
+logged in in Chrome.
+
+**Evidence (live DB, read-only)**
+- Heartbeats: `amazonLastHeartbeatAt` 00:22:41.591Z (5:52 IST); the 9:52 Amazon sync checked in at
+  04:22:41.049Z — **0.54 s short** of the flat 4 h minimum gap, so it was skipped. The gap equalled
+  the 4 h sync interval, so every cycle was a coin toss per marketplace.
+- `sessionLifetimes` (Amazon, 23–26 Sept): 6 deaths; three in a row **599 / 600 / 619 min after
+  capture**; 4 of 6 restored by the extension within 17 s – 36 min — each AFTER the alert went out.
+  Scheduled syncs never refreshed the bot's Amazon copy: the sync route skipped any unattended sync
+  whose `at-acbin` / `sess-at-acbin` matched the stored copy ("the bot's rolling copy is fresher"),
+  and those tokens stay the same for days — so the bot kept a copy aging toward death while Chrome
+  had a working one. (Myntra wasn't affected in practice: the bot rolls erp tokens, so they never
+  matched and every Myntra sync already replaced the copy.)
+
+**Fixes**
+- Heartbeat gap = 4 h − half the sync interval (`heartbeatGapMs`): every 4 h sync sends one; a
+  15-min interval still gives ~one per 4 h. Retries of the scheduled sync pass `scheduled` (1.4), so
+  a scheduled sync that needed a retry (e.g. Amazon's one-off 403 on the test call) still sends it.
+- `/api/session/sync`: no same-login shortcut — every sync tests the browser's copy and, if it
+  works, replaces the bot's (one test call per sync). `isSameWorkingLogin` now only words a manual ↻.
+- Extension 1.4: Amazon `resyncOnNewLogin` — a change of the login cookies (`at-acbin`,
+  `sess-at-acbin`; not the per-page `session-token`) syncs within seconds (debounced 5 s, at most
+  once per 5 min, never a login the bot refused; the 1-min health check is the backup trigger).
+  Not for Myntra (erp.rt changes on every token refresh; the bot rolls its own copy).
+- `lib/sessionAlerts.js` (Myntra + Amazon): the first failed check records the death and when it
+  started; while the extension is actively syncing that session (source extension, checked in
+  within its interval + 2 h) the alert waits **15 min** for the extension to restore it — no alert
+  if it does; after that it goes out once, saying the extension couldn't restore it. Pasted session,
+  stale extension or no session → immediate alert, as before. The "restored automatically" note
+  only follows an alert that actually went out.
+
+Tested offline: the real `checkAmazonOrders` / `checkOrders` with a fake DB, Amazon/Myntra and
+Telegram (restore within grace → no alert; not restored → one alert at 15 min, one "restored"
+note; pasted / stale / missing → immediate), heartbeat gap maths incl. the 0.54 s case, and the
+real `background.js` against a fake Chrome API (7 scenarios: session-token roll ignored, new login
+synced unscheduled, 5-min limit + health-check pickup, Myntra excluded, retry = scheduled, refused
+login never re-sent, fresh login after that synced). **The extension must be reloaded** at
+`chrome://extensions` for its part.

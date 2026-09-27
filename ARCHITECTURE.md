@@ -193,8 +193,12 @@ Myntra sends back on every call, so its copy keeps rolling like a real browser's
 out; (2) every minute the extension asks the bot whether its session works, and if it expired
 while the browser is still logged in, it re-syncs right away — if the browser is logged out it
 doesn't (a logged-out copy can't work) and says "log in"; (3) the regular sync, per marketplace,
-default every 4 hours. The bot tests every synced session before switching to it, so a sync can
-never replace a working session with a broken one. A request blocked by Myntra's Akamai bot
+default every 4 hours — each one replaces the bot's copy with the browser's current, tested
+cookies (Amazon's bot copy used to be kept when the login looked unchanged, and died ~10 h in); and
+for Amazon, a NEW login in the browser is synced within seconds. The bot tests every synced session
+before switching to it, so a sync can never replace a working session with a broken one. While the
+extension manages a session, the "session expired" alert waits up to 15 min for it to restore the
+session, and only goes out if it couldn't. A request blocked by Myntra's Akamai bot
 protection is treated as a temporary error, never as an expired login (a block lasting ~30 min sends
 one "Myntra is blocking" note); the same goes for Amazon's one-off 403s, unless they last ~30 min. The
 SPF page reuses what it already fetched (ticket list 15 min, paid claims kept for good), so it no longer

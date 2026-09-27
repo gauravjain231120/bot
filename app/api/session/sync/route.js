@@ -6,7 +6,6 @@ import {
   markSessionRestored,
   clearSessionError,
   isSameWorkingLogin,
-  touchSessionSynced,
 } from '../../../../lib/sessionStore';
 import { testSession } from '../../../../lib/sessionProbe';
 
@@ -26,7 +25,9 @@ const MAX_PERIOD = 24 * 60;
  * body: { marketplace, headers, trigger, scheduled, periodMinutes }
  *   trigger 'manual'   — someone clicked Sync in the popup
  *           'auto'     — the extension's own timer (scheduled: true for the
- *                        main per-marketplace alarm, false for a retry)
+ *                        main per-marketplace alarm and its backoff retries),
+ *                        or a new login just appeared in the browser
+ *                        (scheduled: false)
  *           'recovery' — the extension saw (via /api/session/health) that the
  *                        bot's session expired while the browser is still
  *                        logged in, and is re-syncing right away
@@ -38,6 +39,15 @@ const MAX_PERIOD = 24 * 60;
  * a non-working one is refused with reason 'session-not-working' and the
  * current session is left exactly as it was — the extension then knows the
  * browser needs a real login and stops re-trying that same copy.
+ *
+ * Every sync — scheduled ones included — replaces the bot's copy with the
+ * browser's once it tests OK. Unattended syncs of the "same login" used to
+ * be skipped (the bot's own rolling copy was assumed fresher). For Amazon
+ * that was wrong: the browser's login tokens stay the same for days, so the
+ * bot's copy was never refreshed and kept dying ~10 h after capture while
+ * Chrome stayed logged in (sessionLifetimes: 599 / 600 / 619 min in a row,
+ * each followed by an "expired" alert and an extension restore). One test
+ * call per sync (every 4 h by default) keeps it fresh.
  *
  * Auth is a shared secret, not the admin cookie — the extension runs in a
  * different browser context than the dashboard, with no cookie in common.
@@ -59,17 +69,8 @@ export async function POST(request) {
   const period = Number(body.periodMinutes);
   const syncPeriodMinutes = Number.isFinite(period) ? Math.min(MAX_PERIOD, Math.max(MIN_PERIOD, Math.round(period))) : null;
 
-  // 0. Scheduled/retry sync of the SAME login the bot already has working:
-  // nothing to test or replace (the bot's copy is the fresher one — it keeps
-  // rolling). Just note the check-in. Saves a marketplace call per sync.
-  // A manual ↻ still tests (someone asked), but says "working", not
-  // "activated", when it's the same login.
-  const sameLogin = trigger !== 'recovery' && (await isSameWorkingLogin(marketplace, body.headers));
-  if (trigger === 'auto' && sameLogin) {
-    await touchSessionSynced(marketplace, syncPeriodMinutes);
-    if (body.scheduled) await announceScheduledSyncOk(marketplace);
-    return NextResponse.json({ ok: true, unchanged: true });
-  }
+  // Only for a manual ↻'s wording ("working, same login" vs "activated").
+  const sameLogin = trigger === 'manual' && (await isSameWorkingLogin(marketplace, body.headers));
 
   // 1. Test the browser's session before touching the stored one. Only a
   // genuine rejection counts as "not working" (lib/sessionProbe.js); a bot-
@@ -106,9 +107,9 @@ export async function POST(request) {
       await markSessionRestored(marketplace);
     } else {
       await clearSessionError(marketplace);
-      // Quiet once-per-period heartbeat; never touches the alert flags, so a
-      // retry storm can't turn it into the old activated/expired spam loop.
-      if (body.scheduled) await announceScheduledSyncOk(marketplace);
+      // Quiet ~4-hourly heartbeat; never touches the alert flags, so a retry
+      // storm can't turn it into the old activated/expired spam loop.
+      if (body.scheduled) await announceScheduledSyncOk(marketplace, syncPeriodMinutes);
     }
 
     return NextResponse.json({ ok: true, ...result });

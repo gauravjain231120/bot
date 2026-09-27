@@ -5,7 +5,7 @@
 // reads cookies that already exist because you're logged into these sites
 // normally in this browser; it never logs in or touches a password.
 //
-// Three things run on their own:
+// Four things run on their own:
 //  1. A periodic sync PER MARKETPLACE ("session-sync-market-<name>"), each on
 //     its own interval set in the popup (default 240 min = 4h).
 //  2. Per-marketplace backoff retries when an unattended sync fails.
@@ -15,6 +15,10 @@
 //     instead of waiting hours for the next scheduled sync. If this browser
 //     is logged out, it does NOT sync (a logged-out copy can't work) and
 //     shows "log in" instead.
+//  4. Amazon only: the moment this browser gets a NEW login (its login
+//     cookies change), that login is synced to the bot straight away — the
+//     bot's copy of the old login tends to stop working soon after, and
+//     waiting up to 4h for the timer meant an "expired" alert first.
 
 const SYNC_ALARM_PREFIX = 'session-sync-market-';
 const LEGACY_SYNC_ALARM = 'session-sync'; // the old single shared alarm, migrated on startup
@@ -44,6 +48,9 @@ const RECENT_SYNC_GRACE_MS = 10 * 60 * 1000;
 // A copy the bot rejected isn't re-sent for this long (unless you log in again
 // and the cookies change) — never forever, in case the rejection was a fluke.
 const BAD_COPY_HOLD_MS = 2 * 60 * 60 * 1000;
+// New-login syncs (resyncOnNewLogin): at most one per marketplace this often,
+// however many cookie changes a login produces.
+const NEW_LOGIN_MIN_GAP_MS = 5 * 60 * 1000;
 
 const MARKETPLACES = [
   {
@@ -70,6 +77,10 @@ const MARKETPLACES = [
     // Stable per login — NOT session-token, which Amazon changes on almost
     // every page load (it would make every page look like a "new login").
     fingerprintCookies: ['at-acbin', 'sess-at-acbin'],
+    // Hand a new login to the bot at once (see syncIfNewLogin). Not for
+    // Myntra: its erp.rt changes on every token refresh, and the bot keeps
+    // its own Myntra copy refreshed anyway.
+    resyncOnNewLogin: true,
     staticHeaders: {
       accept: 'application/json, text/plain, */*',
       'x-requested-with': 'XMLHttpRequest',
@@ -175,11 +186,11 @@ async function loginState(entry) {
 }
 
 // `trigger` tells the server WHY this sync happened: 'manual' (a button click
-// — worth a Telegram confirmation), 'auto' (the periodic timer or a backoff
-// retry — silent), 'recovery' (the health check saw the bot's session die
-// while this browser is still logged in). `scheduled` marks the periodic
-// alarm itself (never a retry), for the server's quiet once-per-period
-// heartbeat. The server TESTS the session before saving it and answers
+// — worth a Telegram confirmation), 'auto' (the periodic timer, a backoff
+// retry or a new login — silent), 'recovery' (the health check saw the bot's
+// session die while this browser is still logged in). `scheduled` marks the
+// periodic alarm and its retries, for the server's quiet ~4-hourly
+// heartbeat (the server limits how often it's sent). The server TESTS the session before saving it and answers
 // reason 'session-not-working' if it doesn't work (logged out / stale).
 // The bot answers well within this (its own limit is 30s); without one, a
 // hung request would sit until Chrome killed the service worker.
@@ -285,7 +296,9 @@ async function noteLoginResults(results) {
     const key = `recovery_${r.marketplace}`;
     const rec = (await chrome.storage.local.get([key]))[key] || {};
     if (r.ok) {
-      await chrome.storage.local.set({ [key]: { ...rec, needsLogin: false, badFingerprint: null } });
+      // The login the bot now has — syncIfNewLogin compares against it.
+      const { fingerprint } = await loginState(entry);
+      await chrome.storage.local.set({ [key]: { ...rec, needsLogin: false, badFingerprint: null, syncedFingerprint: fingerprint } });
     } else if (r.reason === 'logged-out') {
       await chrome.storage.local.set({ [key]: { ...rec, needsLogin: true } });
     } else if (r.reason === 'session-not-working' && !r.skipped) {
@@ -449,16 +462,45 @@ async function resyncAfterLogin(entry) {
   await updateBadge();
 }
 
-// Fires the moment a cookie changes in this browser. A login cookie being set
-// (not removed) on a marketplace that's waiting for a login = you just logged
-// in: sync it a few seconds later (lets the rest of the login cookies land).
+// This browser is logged in with a DIFFERENT login than the one the bot last
+// accepted from it (resyncOnNewLogin marketplaces): sync it now, before the
+// bot's copy of the old login stops working. Cheap when nothing changed —
+// it only reads cookies. Never re-sends a copy the bot rejected, and at most
+// one try per NEW_LOGIN_MIN_GAP_MS (the 1-minute health check calls this too,
+// so a change that lands inside the gap is picked up right after it).
+async function syncIfNewLogin(entry) {
+  if (!entry.resyncOnNewLogin || !(await isEnabled())) return;
+  const m = entry.marketplace;
+  const key = `recovery_${m}`;
+  const { loggedIn, fingerprint } = await loginState(entry);
+  if (!loggedIn || !fingerprint) return;
+  const rec = (await chrome.storage.local.get([key]))[key] || {};
+  if (fingerprint === rec.syncedFingerprint || fingerprint === rec.badFingerprint) return;
+  if (rec.newLoginSyncAt && Date.now() - rec.newLoginSyncAt < NEW_LOGIN_MIN_GAP_MS) return;
+  await chrome.storage.local.set({ [key]: { ...rec, newLoginSyncAt: Date.now() } });
+  const results = await syncSome([m], 'auto');
+  if (!results.length || results[0].marketplace === 'all') return;
+  await updateRetriesFor(results, true);
+  await updateBadge();
+}
+
+// Fires the moment a cookie changes in this browser. A few seconds after the
+// last change (lets the rest of the login cookies land):
+//  - a marketplace waiting for a login gets synced (resyncAfterLogin);
+//  - a new login on a resyncOnNewLogin marketplace gets synced (syncIfNewLogin).
 const loginTimers = new Map();
 chrome.cookies.onChanged.addListener(({ removed, cookie }) => {
   if (removed || !cookie) return;
-  const entry = MARKETPLACES.find((e) => e.loginCookies.includes(cookie.name) && String(cookie.domain || '').replace(/^\./, '').endsWith(e.cookieDomain));
+  const domain = String(cookie.domain || '').replace(/^\./, '');
+  const entry = MARKETPLACES.find(
+    (e) => domain.endsWith(e.cookieDomain) && (e.loginCookies.includes(cookie.name) || (e.resyncOnNewLogin && (e.fingerprintCookies || []).includes(cookie.name)))
+  );
   if (!entry) return;
   clearTimeout(loginTimers.get(entry.marketplace));
-  loginTimers.set(entry.marketplace, setTimeout(() => resyncAfterLogin(entry), 5000));
+  loginTimers.set(
+    entry.marketplace,
+    setTimeout(() => resyncAfterLogin(entry).then(() => syncIfNewLogin(entry)), 5000)
+  );
 });
 
 async function fetchHealth(appUrl, syncSecret) {
@@ -501,9 +543,11 @@ async function checkHealth() {
 
       if (state === 'ok') {
         if (rec.count) await chrome.storage.local.set({ [key]: { ...rec, count: 0 } });
-        // Bot is fine, but this browser's row may be waiting for a login —
-        // if you've logged in since, sync it now (backup for the cookie event).
+        // Bot is fine, but this browser's row may be waiting for a login, or
+        // hold a newer login than the bot's — sync it now if so (backup for
+        // the cookie event, which a sleeping worker can miss).
         await resyncAfterLogin(entry);
+        await syncIfNewLogin(entry);
         continue;
       }
       if (state !== 'expired' && state !== 'missing') continue; // network/5xx: a re-sync won't help
@@ -595,7 +639,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === HEALTH_ALARM) {
     checkHealth();
   } else if (alarm.name.startsWith(RETRY_ALARM_PREFIX)) {
-    runAutoSync([alarm.name.slice(RETRY_ALARM_PREFIX.length)]);
+    // A retry finishes the scheduled sync it stands in for — `scheduled` lets
+    // its success send the ~4-hourly heartbeat (the bot limits how often).
+    runAutoSync([alarm.name.slice(RETRY_ALARM_PREFIX.length)], true);
   } else if (alarm.name.startsWith(SYNC_ALARM_PREFIX)) {
     runAutoSync([alarm.name.slice(SYNC_ALARM_PREFIX.length)], true);
   } else if (alarm.name === LEGACY_SYNC_ALARM) {
