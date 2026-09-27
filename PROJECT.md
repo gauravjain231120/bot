@@ -1994,3 +1994,22 @@ comes from the cron checks' stored data. Audit of every automatic path:
 
 Removed for this rule: §41's OTC follow-up (looking again every 10 min after the first code for
 codes that appear later). `/otc` on Telegram shows all four codes on demand.
+
+## 43. Read-only audit after the §41 deploy (2026-09-27)
+
+Checked live (bot DB + stock-manager DB, read-only; 6 read-only Myntra calls):
+- **Stock integrity clean**: reserved stock equals the Ready to Ship queue for every product pool
+  (20), no order+variant queued twice, nothing both queued and shipped, no negative stock; every
+  open order (9 Myntra, 1 Amazon) is queued or shipped with matching units; no queue rows left for
+  cancelled orders.
+- **Cancel signature assumption holds**: for every adopted old record, Myntra's list `quantity`
+  equals its CANCELLED unit rows.
+- **New code running cleanly**: all cron jobs tick, no errors, no failing cancellations; old
+  cancellation records learning their baseline (10 per run).
+- **Bug found and fixed**: Myntra returns are logged with the item's `portalOrderReleaseId`
+  (`100…`, per unit row of the order) — not the M-Direct order id (`60…`) the cancellation uses
+  (verified 5 of 5 by matching real returns to their orders). So stock-manager's "already put back
+  on cancellation" check could never match a Myntra RTO. The cancellation sweep now collects the
+  cancelled rows' release ids per variant (`cancelledBySuffix` → `altOrderIds`) and sends them with
+  `unship-cancelled`; stock-manager stores and matches them (its PROJECT.md §12 addendum). Amazon
+  order ids already matched.
