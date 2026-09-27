@@ -99,22 +99,30 @@ export default function OverviewPage() {
           <OtcWindowEditor window={otcStatus?.window} isOwner={isOwner} onSave={handleSetOtcWindow} />
         </div>
         <div className="stat-card">
-          <div className="stat-label">Myntra packed today</div>
+          {/* Every packet waiting for pickup, whatever day it was packed (api/packed-count). */}
+          <div className="stat-label">Myntra packed</div>
           {packedCountError ? (
             <>
               <div className="stat-value" style={{ fontSize: '0.85rem' }}>Error</div>
               <div className="stat-sub">{packedCountError}</div>
             </>
           ) : (
-            <div className="stat-value">{packedCount ? packedCount.count : packedLoading ? '…' : '—'}</div>
+            <div className="stat-value">
+              {packedCount ? `${packedCount.count}${packedCount.capped ? '+' : ''}` : packedLoading ? '…' : '—'}
+            </div>
           )}
-          <div className="stat-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {packedCount ? packedCount.dayKey : ''}
+          <div className="stat-sub" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            {packedCount && !packedCountError ? (
+              <span>
+                waiting for pickup
+                {packedCount.today != null ? ` · ${packedCount.today} packed today` : ''}
+              </span>
+            ) : null}
             <button
               type="button"
               className="secondary"
               style={{ padding: '2px 8px', fontSize: '0.72rem' }}
-              onClick={loadPackedCount}
+              onClick={() => loadPackedCount(true)}
               disabled={packedLoading}
             >
               {packedLoading ? 'Checking…' : 'Refresh'}

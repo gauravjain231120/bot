@@ -1827,3 +1827,26 @@ real `background.js` against a fake Chrome API (7 scenarios: session-token roll 
 synced unscheduled, 5-min limit + health-check pickup, Myntra excluded, retry = scheduled, refused
 login never re-sent, fresh login after that synced). **The extension must be reloaded** at
 `chrome://extensions` for its part.
+
+## 39. New scan sounds; "Myntra packed" card counts everything waiting for pickup (2026-09-27)
+
+**Scan sounds (`components/scanSound.js`)** — still generated in code (Web Audio, no files):
+- Success: a rising two-note bell chime, E6 → B6 (perfect fifth), soft 2nd/3rd harmonics slightly
+  detuned for shimmer, plus a faint B7 sparkle; ~0.4 s. Replaces the 2 kHz square-wave beep.
+- Error: a soft descending "uh-oh", A4 → F#4 (minor third), rounded triangle tone with a small
+  pitch droop and a low-pass; ~0.5 s. Replaces the three 150 Hz sawtooth buzzes.
+- Both go through one compressor (threshold −12 dB, ratio 4, +6.8 dB make-up): both peak at about
+  −3 dBFS, so they're as loud as before in a busy room without distortion when notes overlap.
+
+**"Myntra packed" card (`app/page.js`, `app/api/packed-count`)** — was "packed today": the count of
+PACKED packets among those packed on today's date, so a packet packed yesterday and still waiting
+was missing. Now `lib/myntra.js fetchPackedWaiting` reads getPostPackedOrders over the last 14 days
+(IST) and counts every packet still at packetStatus PACKED (one per packet), whatever day it was
+packed; the card shows that number ("waiting for pickup") plus "N packed today" (by `packedOn`).
+Page 1's `totalCount` lets the rest load 3 pages at a time; a stale total falls back to page-by-page;
+capped at 20 pages (shown as "N+"). Cached 10 min server-side; Refresh gets a live count (at most
+one per 30 s). Telegram `/packed` is unchanged (per-day count, `fetchPackedCount`).
+
+Tested offline: fetchPackedWaiting against a fake Myntra (duplicates, stale totalCount, cap, none
+waiting, ≤3 concurrent calls, 14-day IST range); sound levels checked by calculation. Not yet heard
+on a phone.
