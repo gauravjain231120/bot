@@ -11,7 +11,11 @@ Admin app that polls Myntra M-Direct for new orders and alerts on Telegram (with
   itself, can be automated — see `browser-extension/`).
 - `/api/check-orders?secret=...` is the endpoint an external scheduler hits on a timer. It fetches
   currently open orders, diffs against a MongoDB-tracked set of already-seen order IDs, and sends
-  a Telegram message (with image + SKU) for each genuinely new one.
+  a Telegram message (with image + SKU, and how many orders are open right now) for each genuinely
+  new one — retried until Telegram confirms it arrived.
+- Nothing polls Myntra/Amazon on its own beyond these scheduled checks: dashboard data that needs a
+  live marketplace call (e.g. the "Myntra packed" card) loads only when the page opens or on Refresh
+  (PROJECT.md §42 lists every automatic call).
 - The `/` admin page (password-gated) is where you can paste a fresh session by hand whenever
   needed, and see basic status (last check, open order count, last error). In normal day-to-day
   use, though, a small Chrome extension (`browser-extension/`) does this automatically — see

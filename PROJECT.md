@@ -1953,8 +1953,8 @@ every cron route records its tick and the others alert once if one goes quiet
 (`lib/cronWatchdog.js` — e.g. cron-job.org switched a job off). Handled failures answer 200
 `{ok:false}` so cron-job.org doesn't count them toward disabling the job; unexpected ones 500.
 
-**OTC**: after the first code, looks again every 10 min until all four are in (a RETURN code that
-appeared after the PICKUP one used to be never sent); updates only for new codes.
+**OTC**: marked done for the day only once the message was actually delivered (a follow-up that
+kept looking every 10 min for later codes was removed again the same day — §42).
 
 **Myntra envelope**: HTTP 200 + statusType ERROR (or a non-JSON page) throws instead of reading as
 "0 open orders". Lists de-duplicated by order id (Myntra and Amazon).
@@ -1968,3 +1968,29 @@ calls fail fast for a minute (the alert still goes out promptly, owner told to a
 Not changed (need a decision): Viewers can still Start/Stop and "Check now"; `CRON_SECRET` is in
 the scheduler URL (moving it means editing every cron-job.org job); no pinning to one seller
 account for synced Amazon logins.
+
+## 42. Open-order count in alerts; audit of automatic marketplace calls (2026-09-27)
+
+**New-order alerts** (Myntra and Amazon) end with `📋 Open orders now: N` — the number of open orders
+on that platform right now, this one included. It comes from the same check that found the new
+order (`orders.length` after de-duplication = Myntra's `status.totalCount`), so it costs no extra
+call. Formatters: `formatOrderHeader` / `formatAlert` (lib/myntra.js), `formatAmazonOrderHeader` /
+`formatAmazonAlert` (lib/amazon.js), `openCount` passed in by the checks.
+
+**The seller's rule: no extra automatic Myntra/Amazon calls.** Live marketplace lookups from the
+dashboard happen only when a page is opened or Refresh is pressed; everything shown periodically
+comes from the cron checks' stored data. Audit of every automatic path:
+
+| What | Talks to | When |
+|---|---|---|
+| Cron checks (unchanged baseline, §6) | Myntra / Amazon | orders 2 / 5 min, cancellations 5 / 30 min, OTC every 2 min inside its window until the first code is sent, then not again that day |
+| Dashboard 60 s refresh (visible tab only): status, open orders, OTC card, recipients | the bot's DB + stock-manager's DB | never Myntra/Amazon |
+| Dashboard "Myntra packed" card | Myntra | once when the page opens, and on Refresh (10-min cache; Refresh at most once per 30 s) |
+| Scan pages (Pack / Return) | Myntra / Amazon | only on a scan or typed lookup |
+| Extension health check | the bot (`/api/session/health`, DB only) | every 1 min |
+| Extension syncs | the bot → ONE test call to Myntra/Amazon | every 4 h per marketplace, on a new Amazon login, or when the bot's session died (backoff 10–60 min) |
+| Retries added in §41 | Myntra / Amazon / stock-manager | only after a failure, bounded (new-order alert ≤5 tries; a failed cancellation step on the next 5/30-min check) |
+| Cancellation baseline for old records (§41) | Myntra item details | one-time after deploy, ≤10 per run (~50 total), then never |
+
+Removed for this rule: §41's OTC follow-up (looking again every 10 min after the first code for
+codes that appear later). `/otc` on Telegram shows all four codes on demand.
