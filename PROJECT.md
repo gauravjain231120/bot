@@ -1774,3 +1774,13 @@ Very faint AND small in frame still fails — the scanner's hint now says to mov
 - Removed: per-digit tesseract confidence (no longer used), `smoothAlongBars`.
 
 Not verified on a phone yet — the numbers above are offline measurements.
+
+## 37. Item count + numbered photos on the scan pages (2026-09-27)
+
+All four scan pages (Myntra Pack / Return, Amazon Pack / Return) show how many pieces the scanned
+parcel holds in a big number at the top of the result (`components/ItemCount.js` →
+`ItemCountBanner`; highlighted when 2+, with "Pack all N" / "Check all N"), and every product photo
+carries its piece number (1, 2, 3 …). A product line with quantity 2+ is labelled with the range it
+covers ("2–3"), so the numbers always add up to the count (`numberPieces`). Returns count units
+(one per piece, lib/returnUnits.js). An Amazon order split into 2+ packages shows the count without
+"Pack all" — one label doesn't hold everything.

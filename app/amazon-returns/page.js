@@ -7,6 +7,7 @@ import { RETURN_CONDITIONS, RETURN_CONDITION_LABELS } from '../../lib/format';
 import { ReturnTypeTag, RETURN_TYPE_HINTS } from '../../components/ReturnTypeTag';
 import { useDashboard } from '../../lib/DashboardContext';
 import { amazonUnits } from '../../lib/returnUnits';
+import { ItemCountBanner } from '../../components/ItemCount';
 
 const RECENT_LIMIT = 10;
 
@@ -115,6 +116,15 @@ export default function AmazonReturnsPage() {
     return conds;
   }
 
+  // One unit = one physical piece (lib/returnUnits.js), numbered across the whole result.
+  const unitLists = result ? result.returns.map((rr) => amazonUnits(rr)) : [];
+  const starts = [];
+  let totalUnits = 0;
+  for (const list of unitLists) {
+    starts.push(totalUnits);
+    totalUnits += list.length;
+  }
+
   return (
     <>
       <div className="page-header">
@@ -133,11 +143,12 @@ export default function AmazonReturnsPage() {
 
         {result && (
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <ItemCountBanner count={totalUnits} noun={result.returns.length > 1 ? 'scan' : 'return'} verb="Check" />
             {repeatScan && <div className="muted" style={{ fontSize: '0.8rem' }}>You already scanned this one earlier in this session.</div>}
             {result.returns.length > 1 && (
               <div className="muted" style={{ fontSize: '0.8rem' }}>{result.returns.length} returns found for {result.searched}</div>
             )}
-            {result.returns.map((rr) => (
+            {result.returns.map((rr, ri) => (
               <div key={rr.returnRequestId} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{rr.orderId}</span>
@@ -148,11 +159,11 @@ export default function AmazonReturnsPage() {
                 </div>
                 {isOwner && <div className="muted" style={{ fontSize: '0.8rem' }}>{RETURN_TYPE_HINTS[rr.returnType] || RETURN_TYPE_HINTS.UNKNOWN}</div>}
 
-                {amazonUnits(rr).map((unit) => {
+                {unitLists[ri].map((unit, ui) => {
                   const { key, item } = unit;
                   const st = itemState[key] || {};
                   return (
-                    <ItemCard key={key} item={{ ...item, quantity: 1 }}>
+                    <ItemCard key={key} item={{ ...item, quantity: 1 }} number={String(starts[ri] + ui + 1)}>
                       {unit.unitsOfSku > 1 && (
                         <div style={{ marginTop: 4, fontWeight: 600 }}>
                           Unit {unit.n} of {unit.unitsOfSku} of this product — grade and add each one

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { MyntraScanInput } from '../../components/MyntraScanInput';
 import { playScanError, playScanSuccess, unlockScanSound } from '../../components/scanSound';
+import { ItemCountBanner, NumberedImage, numberPieces } from '../../components/ItemCount';
 
 // Myntra's packetStatus values seen on real packets, most to least advanced.
 // Anything else still shows, just as its raw value.
@@ -74,6 +75,8 @@ export default function PackedScanPage() {
     }
   }
 
+  const pieces = packet ? numberPieces(packet.items.map((it) => it.quantity)) : null;
+
   return (
     <>
       <div className="page-header">
@@ -96,12 +99,10 @@ export default function PackedScanPage() {
 
         {packet && (
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <ItemCountBanner count={pieces.total} noun="packet" verb="Pack" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{packet.trackingNumber}</span>
               <StatusBadge status={packet.status} />
-              {packet.items.length > 1 && (
-                <span className="muted" style={{ fontSize: '0.8rem' }}>{packet.items.length} items in this packet</span>
-              )}
             </div>
             {repeatScan && (
               <div className="muted" style={{ fontSize: '0.8rem' }}>You already scanned this one earlier in this session.</div>
@@ -109,14 +110,7 @@ export default function PackedScanPage() {
 
             {packet.items.map((item, i) => (
               <div key={`${item.skuId}-${i}`} style={{ display: 'flex', gap: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
-                {item.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={item.image}
-                    alt=""
-                    style={{ width: 170, maxWidth: '38vw', height: 'auto', maxHeight: 250, borderRadius: 10, objectFit: 'contain', flexShrink: 0 }}
-                  />
-                ) : null}
+                <NumberedImage src={item.image} label={pieces.labels[i]} />
                 <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem' }}>
                   <div style={{ fontWeight: 600 }}>{item.productName || 'Unknown product'}</div>
                   <div className="muted" style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{item.sellerSkuCode || item.myntraSku || `skuId ${item.skuId}`}</div>

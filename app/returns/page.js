@@ -7,6 +7,7 @@ import { RETURN_CONDITIONS, RETURN_CONDITION_LABELS } from '../../lib/format';
 import { ReturnTypeTag } from '../../components/ReturnTypeTag';
 import { useDashboard } from '../../lib/DashboardContext';
 import { myntraUnits } from '../../lib/returnUnits';
+import { ItemCountBanner, NumberedImage } from '../../components/ItemCount';
 
 const RECENT_LIMIT = 10;
 
@@ -148,31 +149,15 @@ export default function ReturnsPage() {
 
         {myntraCandidates.length > 0 && (
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div className="muted" style={{ fontSize: '0.78rem' }}>
-              Found {myntraCandidates.length} item{myntraCandidates.length === 1 ? '' : 's'} for{' '}
-              <span style={{ fontFamily: 'monospace' }}>{resolvedId}</span>
-            </div>
+            {/* One candidate = one physical piece (lib/returnUnits.js). */}
+            <ItemCountBanner count={myntraCandidates.length} noun="return" verb="Check" />
+            <div style={{ fontFamily: 'monospace', fontWeight: 700 }}>{resolvedId}</div>
             {repeatScan && (
               <div className="muted" style={{ fontSize: '0.8rem' }}>You already scanned this one earlier in this session.</div>
             )}
             {myntraCandidates.map((c, i) => (
               <div key={i} style={{ display: 'flex', gap: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
-                {c.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={c.image}
-                    alt=""
-                    style={{
-                      width: 170,
-                      maxWidth: '38vw',
-                      height: 'auto',
-                      maxHeight: 250,
-                      borderRadius: 10,
-                      objectFit: 'contain',
-                      flexShrink: 0,
-                    }}
-                  />
-                ) : null}
+                <NumberedImage src={c.image} label={String(i + 1)} />
                 <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem' }}>
                   {isOwner && <div style={{ marginBottom: 4 }}><ReturnTypeTag type={c.returnType} /></div>}
                   <div style={{ fontWeight: 600 }}>{c.productName ?? c.resolvedSku}</div>

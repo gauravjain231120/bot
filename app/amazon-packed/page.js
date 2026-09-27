@@ -3,10 +3,16 @@
 import { useState } from 'react';
 import { AmazonScanInput, DateRow, ItemCard, StatusBadge } from '../../components/AmazonScanShared';
 import { playScanError, playScanSuccess } from '../../components/scanSound';
+import { ItemCountBanner, numberPieces } from '../../components/ItemCount';
 
 const RECENT_LIMIT = 10;
 
-function OrderResult({ order }) {
+// Every item of an order, in the order they're shown: packed ones by package, then the rest.
+const orderItems = (o) => [...o.packages.flatMap((p) => p.items), ...o.items];
+
+// `labels`: the piece number of each item, in orderItems order.
+function OrderResult({ order, labels }) {
+  let k = 0;
   const firstPkg = order.packages[0];
   const pickupText = firstPkg && firstPkg.pickupStart
     ? `${firstPkg.pickupStart.text}${firstPkg.pickupEnd ? ` – ${firstPkg.pickupEnd.text.split(', ').pop()}` : ''}`
@@ -30,10 +36,10 @@ function OrderResult({ order }) {
               {pkg.scanned && order.packages.length > 1 ? ' · ← scanned' : ''}
             </div>
           )}
-          {pkg.items.map((item, i) => <ItemCard key={`${item.sku}-${i}`} item={item} />)}
+          {pkg.items.map((item, i) => <ItemCard key={`${item.sku}-${i}`} item={item} number={labels[k++]} />)}
         </div>
       ))}
-      {order.items.map((item, i) => <ItemCard key={`${item.sku}-${i}`} item={item} />)}
+      {order.items.map((item, i) => <ItemCard key={`${item.sku}-${i}`} item={item} number={labels[k++]} />)}
 
       <div style={{ fontSize: '0.88rem' }}>
         <DateRow label="Order received" value={order.orderDate} />
@@ -74,7 +80,7 @@ export default function AmazonPackedPage() {
           orderId: o.orderId,
           status: o.status,
           tracking: (o.packages[0] && o.packages[0].trackingId) || null,
-          items: [...o.packages.flatMap((p) => p.items), ...o.items].map((it) => `${it.sku || '?'} · ${it.size || '?'}`),
+          items: orderItems(o).map((it) => `${it.sku || '?'} · ${it.size || '?'}`),
         })),
         ...list.filter((r) => !orderIds.includes(r.orderId)),
       ].slice(0, RECENT_LIMIT));
@@ -87,6 +93,15 @@ export default function AmazonPackedPage() {
       setLooking(false);
     }
   }
+
+  // Pieces numbered across the whole result (normally one order).
+  const pieces = result ? numberPieces(result.orders.flatMap(orderItems).map((it) => it.quantity)) : null;
+  let offset = 0;
+  const labelsFor = (o) => {
+    const n = orderItems(o).length;
+    offset += n;
+    return pieces.labels.slice(offset - n, offset);
+  };
 
   return (
     <>
@@ -105,11 +120,17 @@ export default function AmazonPackedPage() {
 
         {result && (
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Split into 2+ packages, one label doesn't hold everything — no "pack all". */}
+            <ItemCountBanner
+              count={pieces.total}
+              noun={result.orders.length > 1 ? 'scan' : 'order'}
+              verb={result.orders.some((o) => o.packages.length > 1) ? undefined : 'Pack'}
+            />
             {repeatScan && <div className="muted" style={{ fontSize: '0.8rem' }}>You already scanned this one earlier in this session.</div>}
             {result.orders.length > 1 && (
               <div className="muted" style={{ fontSize: '0.8rem' }}>{result.orders.length} orders match {result.searched}</div>
             )}
-            {result.orders.map((o) => <OrderResult key={o.orderId} order={o} />)}
+            {result.orders.map((o) => <OrderResult key={o.orderId} order={o} labels={labelsFor(o)} />)}
           </div>
         )}
       </div>

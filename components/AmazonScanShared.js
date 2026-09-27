@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BarcodeScanner } from './BarcodeScanner';
 import { OrderIdScanner } from './OrderIdScanner';
 import { unlockScanSound } from './scanSound';
+import { NumberedImage } from './ItemCount';
 
 // Shared pieces of the Amazon Pack / Amazon Return scan pages. The Myntra
 // scan pages don't use any of this — they're left exactly as they were.
@@ -51,18 +52,12 @@ export function DateRow({ label, value, children }) {
   );
 }
 
-// Photo, title, SKU, big size badge, color — same layout as the Myntra cards.
-export function ItemCard({ item, children }) {
+// Photo (with its piece number — see ItemCount), title, SKU, big size badge,
+// color — same layout as the Myntra cards.
+export function ItemCard({ item, number, children }) {
   return (
     <div style={{ display: 'flex', gap: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
-      {item.image ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={item.image}
-          alt=""
-          style={{ width: 170, maxWidth: '38vw', height: 'auto', maxHeight: 250, borderRadius: 10, objectFit: 'contain', flexShrink: 0 }}
-        />
-      ) : null}
+      <NumberedImage src={item.image} label={number} />
       <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem' }}>
         <div style={{ fontWeight: 600 }}>{item.title || 'Unknown product'}</div>
         <div className="muted" style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{item.sku || item.asin || '—'}</div>
