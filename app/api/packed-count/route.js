@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { isAuthed } from '../../../lib/adminAuth';
-import { fetchPackedWaiting } from '../../../lib/myntra';
+import { fetchPackedPackets } from '../../../lib/myntra';
 import { todayIst } from '../../../lib/telegramCommands';
 
 export const runtime = 'nodejs';
@@ -14,10 +14,16 @@ const istDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkat
 // Refresh skips the cache, but never re-walks Myntra more than this often.
 const FRESH_MIN_GAP_MS = 30 * 1000;
 
-// GET /api/packed-count[?fresh=1] — the dashboard's "Myntra packed" card:
-// every packet waiting for pickup (packed, not yet picked up), however many
-// days ago it was packed (lib/myntra.js fetchPackedWaiting), plus how many of
-// those were packed today.
+// GET /api/packed-count[?fresh=1] — the dashboard's "Myntra packed" card
+// (lib/myntra.js fetchPackedPackets):
+//   count        packets waiting for pickup (status PACKED), however many days
+//                ago they were packed
+//   today        packets packed today, picked up yet or not
+//   todayPicked  of those, how many the courier already took — so "0 waiting"
+//                right after the pickup reads as what it is
+//   overdue      waiting packets already past their pick-by time — e.g. one
+//                packed 15 Sept (pick by 16 Sept) still PACKED on 27 Sept:
+//                something to look at on Myntra, shown with its tracking ids
 //
 // Deliberately NOT part of the dashboard's auto-refresh loop (it's loaded
 // once when the page opens, and on Refresh) — this hits Myntra's live API,
@@ -41,20 +47,26 @@ export async function GET(request) {
   const cache = await settings.findOne({ _id: 'packed_waiting_cache' });
   const cacheAge = cache ? Date.now() - new Date(cache.at).getTime() : Infinity;
   if (cache && cache.dayKey === dayKey && cacheAge < (fresh ? FRESH_MIN_GAP_MS : PACKED_CACHE_MS)) {
-    const { count, today, capped, days } = cache;
-    return NextResponse.json({ count, today, capped, days, dayKey, cachedAt: cache.at });
+    const { count, today, todayPicked, overdue, overdueIds, capped, days } = cache;
+    return NextResponse.json({ count, today, todayPicked, overdue, overdueIds, capped, days, dayKey, cachedAt: cache.at });
   }
   try {
-    const { packets, capped, days, startDate } = await fetchPackedWaiting(sessionDoc.headers);
-    const count = packets.length;
-    const today = packets.filter((p) => p.packedOn && istDay(p.packedOn) === dayKey).length;
+    const { packets, capped, days, startDate } = await fetchPackedPackets(sessionDoc.headers);
+    const waiting = packets.filter((p) => p.status === 'PACKED');
+    const count = waiting.length;
+    const packedToday = packets.filter((p) => p.packedOn && istDay(p.packedOn) === dayKey);
+    const today = packedToday.length;
+    const todayPicked = packedToday.filter((p) => p.status !== 'PACKED').length;
+    const late = waiting.filter((p) => p.pickBy && p.pickBy < Date.now());
+    const overdue = late.length;
+    const overdueIds = late.map((p) => p.trackingNumber).filter(Boolean).slice(0, 10);
     const at = new Date().toISOString();
     await settings.updateOne(
       { _id: 'packed_waiting_cache' },
-      { $set: { dayKey, count, today, capped, days, since: startDate, at } },
+      { $set: { dayKey, count, today, todayPicked, overdue, overdueIds, capped, days, since: startDate, at } },
       { upsert: true },
     );
-    return NextResponse.json({ count, today, capped, days, dayKey });
+    return NextResponse.json({ count, today, todayPicked, overdue, overdueIds, capped, days, dayKey });
   } catch (err) {
     const status = err.response && err.response.status;
     return NextResponse.json({ error: err.message }, { status: status === 401 || status === 403 ? 401 : 500 });

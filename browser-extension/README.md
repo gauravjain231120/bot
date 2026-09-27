@@ -85,8 +85,9 @@ affect any other.
 | Which marketplaces it syncs / their cookie domain | the `MARKETPLACES` array in `background.js` |
 | App URL / secret | the extension's own options page (not a file) |
 
-**Updating to 1.1 / 1.2 / 1.3 / 1.4**: reload it once at `chrome://extensions` (⟳). (1.4: right after
-reloading, the next session check syncs Amazon once — that's expected.) Your current countdown carries
+**Updating to 1.1 / 1.2 / 1.3 / 1.4 / 1.4.1**: reload it once at `chrome://extensions` (⟳). The popup's
+footer shows the running version. (1.4+: right after reloading, the next session check syncs Amazon
+once — that's expected.) Your current countdown carries
 over to both marketplaces' new timers; nothing needs re-entering.
 
 After editing any `.js`/`.html`/`.json` file here, reload the extension at `chrome://extensions`

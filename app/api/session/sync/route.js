@@ -96,7 +96,7 @@ export async function POST(request) {
 
   // 2. It works — store it.
   try {
-    const result = await saveSessionHeaders({ marketplace, headers: body.headers, source: 'extension', syncPeriodMinutes });
+    const result = await saveSessionHeaders({ marketplace, headers: body.headers, source: 'extension', syncPeriodMinutes, extensionVersion: body.extVersion });
 
     if (trigger === 'manual') {
       // A person explicitly asked "does this work?" — confirm it and re-arm

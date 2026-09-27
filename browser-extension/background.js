@@ -72,8 +72,17 @@ const MARKETPLACES = [
   {
     marketplace: 'amazon',
     cookieDomain: 'amazon.in',
-    // Seller Central's auth cookies — either one means a live login.
-    loginCookies: ['at-acbin', 'session-token'],
+    // Seller Central's auth cookies — either one means a live login. NOT
+    // session-token: amazon.in's shopping site sets that for every visitor,
+    // so it read as "logged in" after signing out of Seller Central (and, as
+    // it changes on every page load, defeated the rejected-copy hold below).
+    loginCookies: ['at-acbin', 'sess-at-acbin'],
+    // Send exactly the cookies Chrome itself sends to the orders API the bot
+    // calls — not every cookie of every amazon.in subdomain (the shopping
+    // site's too), which gave duplicate names (a stored copy had csm-hit
+    // twice) and a cookie header the real site never sees. Same order as
+    // Chrome sends them.
+    requestUrl: 'https://sellercentral.amazon.in/orders-api/search',
     // Stable per login — NOT session-token, which Amazon changes on almost
     // every page load (it would make every page look like a "new login").
     fingerprintCookies: ['at-acbin', 'sess-at-acbin'],
@@ -98,6 +107,29 @@ const MARKETPLACES = [
   },
 ];
 const MARKETPLACE_NAMES = MARKETPLACES.map((m) => m.marketplace);
+const EXT_VERSION = chrome.runtime.getManifest().version;
+
+// chrome.storage has no transactions. Both marketplaces' timers fire at the
+// same moment, and each sync used to read `lastResult`, merge its own row and
+// write it back — the second write dropped the first one's result. Every
+// read-modify-write of a shared key now queues behind the previous one.
+const storageLocks = new Map();
+function withStorageLock(key, fn) {
+  const run = (storageLocks.get(key) || Promise.resolve()).then(fn, fn);
+  storageLocks.set(key, run.catch(() => {}));
+  return run;
+}
+
+// Merges `patch` (or patch(current)) into the object stored at `key`, reading
+// the LATEST value at write time — never a copy read earlier.
+function patchStore(key, patch) {
+  return withStorageLock(key, async () => {
+    const cur = (await chrome.storage.local.get([key]))[key] || {};
+    const next = { ...cur, ...(typeof patch === 'function' ? patch(cur) : patch) };
+    await chrome.storage.local.set({ [key]: next });
+    return next;
+  });
+}
 
 // Chrome's User-Agent Client Hints, read fresh from this actual browser —
 // mirrors the sec-ch-ua* headers a real tab sends alongside every fetch.
@@ -141,18 +173,28 @@ async function getPeriods() {
 // and must not blank out the other's last-known status. Each result carries
 // its OWN `at`.
 async function mergeLastResult(newResults) {
-  const { lastResult } = await chrome.storage.local.get(['lastResult']);
-  const existing = (lastResult && lastResult.results) || [];
-  const merged = newResults.length === 1 && newResults[0].marketplace === 'all'
-    ? newResults
-    : MARKETPLACE_NAMES.map(
-        (name) => newResults.find((r) => r.marketplace === name) || existing.find((r) => r.marketplace === name)
-      ).filter(Boolean);
-  await chrome.storage.local.set({ lastResult: { results: merged } });
+  return withStorageLock('lastResult', async () => {
+    const { lastResult } = await chrome.storage.local.get(['lastResult']);
+    const existing = (lastResult && lastResult.results) || [];
+    const merged = newResults.length === 1 && newResults[0].marketplace === 'all'
+      ? newResults
+      : MARKETPLACE_NAMES.map(
+          (name) => newResults.find((r) => r.marketplace === name) || existing.find((r) => r.marketplace === name)
+        ).filter(Boolean);
+    await chrome.storage.local.set({ lastResult: { results: merged } });
+  });
 }
 
-async function buildHeaders({ cookieDomain, staticHeaders, browserLike }) {
-  const cookies = await chrome.cookies.getAll({ domain: cookieDomain });
+async function buildHeaders({ cookieDomain, requestUrl, loginCookies, staticHeaders, browserLike }) {
+  let cookies = [];
+  if (requestUrl) {
+    // chrome.cookies.getAll({url}) returns them in the browser's own send order.
+    cookies = await chrome.cookies.getAll({ url: requestUrl });
+    // Safety net: if the login cookies somehow aren't scoped to that URL,
+    // fall back to the whole domain rather than send a copy without them.
+    if (!cookies.some((c) => loginCookies.includes(c.name))) cookies = [];
+  }
+  if (cookies.length === 0) cookies = await chrome.cookies.getAll({ domain: cookieDomain });
   if (cookies.length === 0) {
     throw new Error(`No cookies found for ${cookieDomain} — log in there in this browser first.`);
   }
@@ -235,7 +277,7 @@ async function syncOne(entry, appUrl, syncSecret, trigger, scheduled, periodMinu
     const res = await fetch(`${appUrl}/api/session/sync`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-sync-secret': syncSecret },
-      body: JSON.stringify({ marketplace: entry.marketplace, headers, trigger, scheduled: !!scheduled, periodMinutes }),
+      body: JSON.stringify({ marketplace: entry.marketplace, headers, trigger, scheduled: !!scheduled, periodMinutes, extVersion: EXT_VERSION }),
       signal: ctrl.signal,
     });
     const data = await res.json().catch(() => ({}));
@@ -251,9 +293,13 @@ async function syncOne(entry, appUrl, syncSecret, trigger, scheduled, periodMinu
   }
 }
 
-// Marketplaces with a MANUAL sync currently in flight — an unattended attempt
-// never races a manual one for the same marketplace (the manual one wins).
+// Marketplaces with a sync currently in flight. An unattended attempt never
+// runs alongside another sync of the same marketplace (the health check, a
+// timer and a new-login sync can all want one at the same moment) — it's
+// simply left out, and callers treat "no result" as "someone else is on it".
+// A manual click always runs.
 const manualInFlight = new Set();
+const autoInFlight = new Set();
 
 // Syncs only the given marketplace names (defaults to all of them).
 async function syncSome(names = MARKETPLACE_NAMES, trigger = 'auto', scheduled = false) {
@@ -266,11 +312,12 @@ async function syncSome(names = MARKETPLACE_NAMES, trigger = 'auto', scheduled =
 
   const periods = await getPeriods();
   let entries = MARKETPLACES.filter((m) => names.includes(m.marketplace));
-  if (trigger === 'manual') {
-    for (const m of entries) manualInFlight.add(m.marketplace);
-  } else {
-    entries = entries.filter((m) => !manualInFlight.has(m.marketplace));
+  const inFlight = trigger === 'manual' ? manualInFlight : autoInFlight;
+  if (trigger !== 'manual') {
+    entries = entries.filter((m) => !manualInFlight.has(m.marketplace) && !autoInFlight.has(m.marketplace));
   }
+  for (const m of entries) inFlight.add(m.marketplace);
+  if (!entries.length) return [];
 
   try {
     const results = await Promise.all(
@@ -280,9 +327,7 @@ async function syncSome(names = MARKETPLACE_NAMES, trigger = 'auto', scheduled =
     await noteLoginResults(results);
     return results;
   } finally {
-    if (trigger === 'manual') {
-      for (const m of entries) manualInFlight.delete(m.marketplace);
-    }
+    for (const m of entries) inFlight.delete(m.marketplace);
   }
 }
 
@@ -294,16 +339,15 @@ async function noteLoginResults(results) {
     if (!MARKETPLACE_NAMES.includes(r.marketplace)) continue;
     const entry = MARKETPLACES.find((m) => m.marketplace === r.marketplace);
     const key = `recovery_${r.marketplace}`;
-    const rec = (await chrome.storage.local.get([key]))[key] || {};
     if (r.ok) {
       // The login the bot now has — syncIfNewLogin compares against it.
       const { fingerprint } = await loginState(entry);
-      await chrome.storage.local.set({ [key]: { ...rec, needsLogin: false, badFingerprint: null, syncedFingerprint: fingerprint } });
+      await patchStore(key, { needsLogin: false, badFingerprint: null, syncedFingerprint: fingerprint });
     } else if (r.reason === 'logged-out') {
-      await chrome.storage.local.set({ [key]: { ...rec, needsLogin: true } });
+      await patchStore(key, { needsLogin: true });
     } else if (r.reason === 'session-not-working' && !r.skipped) {
       const { fingerprint } = await loginState(entry);
-      await chrome.storage.local.set({ [key]: { ...rec, needsLogin: true, badFingerprint: fingerprint, badAt: Date.now() } });
+      await patchStore(key, { needsLogin: true, badFingerprint: fingerprint, badAt: Date.now() });
     }
   }
 }
@@ -356,15 +400,19 @@ async function getRetryCount(marketplace) {
 }
 
 async function scheduleRetry(marketplace) {
-  const count = await getRetryCount(marketplace);
+  const key = `retryCount_${marketplace}`;
+  const count = await withStorageLock(key, async () => {
+    const n = await getRetryCount(marketplace);
+    await chrome.storage.local.set({ [key]: n + 1 });
+    return n;
+  });
   const delayInMinutes = RETRY_DELAYS_MINUTES[Math.min(count, RETRY_DELAYS_MINUTES.length - 1)];
-  await chrome.storage.local.set({ [`retryCount_${marketplace}`]: count + 1 });
   await chrome.alarms.create(retryAlarmName(marketplace), { delayInMinutes });
 }
 
 async function clearRetry(marketplace) {
   await chrome.alarms.clear(retryAlarmName(marketplace));
-  await chrome.storage.local.set({ [`retryCount_${marketplace}`]: 0 });
+  await withStorageLock(`retryCount_${marketplace}`, () => chrome.storage.local.set({ [`retryCount_${marketplace}`]: 0 }));
 }
 
 async function pendingRetries() {
@@ -451,13 +499,13 @@ async function resyncAfterLogin(entry) {
   if (fingerprint && fingerprint === rec.badFingerprint) return;
   const key = `recovery_${m}`;
   const [r] = await syncSome([m], 'auto');
-  const latest = (await chrome.storage.local.get([key]))[key] || {};
-  if (r && r.ok) {
-    await chrome.storage.local.set({ [key]: { ...latest, resyncAt: null, resyncCount: 0 } });
+  if (!r) return; // another sync of this marketplace is already running
+  if (r.ok) {
+    await patchStore(key, { resyncAt: null, resyncCount: 0 });
     await clearRetry(m);
     await resetSyncAlarm(m);
   } else {
-    await chrome.storage.local.set({ [key]: { ...latest, resyncAt: now, resyncCount: (rec.resyncCount || 0) + 1 } });
+    await patchStore(key, (cur) => ({ resyncAt: now, resyncCount: (cur.resyncCount || 0) + 1 }));
   }
   await updateBadge();
 }
@@ -477,7 +525,8 @@ async function syncIfNewLogin(entry) {
   const rec = (await chrome.storage.local.get([key]))[key] || {};
   if (fingerprint === rec.syncedFingerprint || fingerprint === rec.badFingerprint) return;
   if (rec.newLoginSyncAt && Date.now() - rec.newLoginSyncAt < NEW_LOGIN_MIN_GAP_MS) return;
-  await chrome.storage.local.set({ [key]: { ...rec, newLoginSyncAt: Date.now() } });
+  if (autoInFlight.has(m) || manualInFlight.has(m)) return; // already syncing — it'll carry this login
+  await patchStore(key, { newLoginSyncAt: Date.now() });
   const results = await syncSome([m], 'auto');
   if (!results.length || results[0].marketplace === 'all') return;
   await updateRetriesFor(results, true);
@@ -507,7 +556,7 @@ async function fetchHealth(appUrl, syncSecret) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15000);
   try {
-    const res = await fetch(`${appUrl}/api/session/health`, { headers: { 'x-sync-secret': syncSecret }, signal: ctrl.signal });
+    const res = await fetch(`${appUrl}/api/session/health`, { headers: { 'x-sync-secret': syncSecret, 'x-extension-version': EXT_VERSION }, signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } finally {
@@ -542,7 +591,7 @@ async function checkHealth() {
       const rec = (await chrome.storage.local.get([key]))[key] || {};
 
       if (state === 'ok') {
-        if (rec.count) await chrome.storage.local.set({ [key]: { ...rec, count: 0 } });
+        if (rec.count) await patchStore(key, { count: 0 });
         // Bot is fine, but this browser's row may be waiting for a login, or
         // hold a newer login than the bot's — sync it now if so (backup for
         // the cookie event, which a sleeping worker can miss).
@@ -562,16 +611,16 @@ async function checkHealth() {
       const { loggedIn, fingerprint } = await loginState(entry);
       if (!loggedIn) {
         // Logged out in this browser — syncing would just send a dead copy.
-        if (!rec.needsLogin) await chrome.storage.local.set({ [key]: { ...rec, needsLogin: true } });
+        if (!rec.needsLogin) await patchStore(key, { needsLogin: true });
         continue;
       }
       // Same copy the bot rejected recently — wait for a fresh login (new cookies) or the hold to pass.
       if (fingerprint && fingerprint === rec.badFingerprint && rec.badAt && now - rec.badAt < BAD_COPY_HOLD_MS) continue;
 
       const [r] = await syncSome([m], 'recovery');
-      const latest = (await chrome.storage.local.get([key]))[key] || {};
-      await chrome.storage.local.set({ [key]: { ...latest, lastAt: now, count: (rec.count || 0) + 1 } });
-      if (r && r.ok) await clearRetry(m);
+      if (!r) continue; // another sync of this marketplace is already running
+      await patchStore(key, { lastAt: now, count: (rec.count || 0) + 1 });
+      if (r.ok) await clearRetry(m);
     }
   } finally {
     healthRunning = false;

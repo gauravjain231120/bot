@@ -40,6 +40,11 @@ export async function GET(request) {
     settings.findOne({ _id: 'session_amazon' }, { projection }),
   ]);
   const st = status || {};
+  // Remember which extension build is polling (written only when it changes).
+  const version = String(request.headers.get('x-extension-version') || '').slice(0, 20);
+  if (version && st.extensionVersion !== version) {
+    await settings.updateOne({ _id: 'status' }, { $set: { extensionVersion: version } }, { upsert: true });
+  }
 
   return NextResponse.json({
     running: st.running !== false,

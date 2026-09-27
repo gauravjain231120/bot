@@ -91,6 +91,7 @@
       footer { text-align: center; margin-top: 12px; }
       footer a { font-size: 11px; color: var(--muted); text-decoration: none; }
       footer a:hover { text-decoration: underline; }
+      footer .version { font-size: 11px; color: var(--muted); margin-left: 6px; }
     </style>
   </head>
   <body>
@@ -118,7 +119,7 @@
     <button class="btn-primary" id="sync">Sync now</button>
     <button class="btn-secondary" id="toggle">Stop auto-sync</button>
 
-    <footer><a href="#" id="openOptions">Setup / change app URL</a></footer>
+    <footer><a href="#" id="openOptions">Setup / change app URL</a> <span class="version" id="version"></span></footer>
     <script src="popup.js"></script>
   </body>
 </html>

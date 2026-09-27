@@ -116,6 +116,15 @@ export default function OverviewPage() {
               <span>
                 waiting for pickup
                 {packedCount.today != null ? ` · ${packedCount.today} packed today` : ''}
+                {packedCount.todayPicked ? ` (${packedCount.todayPicked} picked up)` : ''}
+                {packedCount.overdue ? (
+                  <span
+                    style={{ display: 'block', color: 'var(--bad)', fontWeight: 600 }}
+                    title={(packedCount.overdueIds || []).join(', ')}
+                  >
+                    {packedCount.overdue} past pick-by time{packedCount.overdueIds && packedCount.overdueIds.length ? `: ${packedCount.overdueIds.join(', ')}` : ''}
+                  </span>
+                ) : null}
               </span>
             ) : null}
             <button

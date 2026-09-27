@@ -1850,3 +1850,38 @@ one per 30 s). Telegram `/packed` is unchanged (per-day count, `fetchPackedCount
 Tested offline: fetchPackedWaiting against a fake Myntra (duplicates, stale totalCount, cap, none
 waiting, ≤3 concurrent calls, 14-day IST range); sound levels checked by calculation. Not yet heard
 on a phone.
+
+## 40. Packed card showed 0 (Myntra refuses >5-day ranges); extension 1.4.1 fixes (2026-09-27)
+
+**Packed card bug (introduced in §39, same day).** getPostPackedOrders refuses a date range longer
+than 5 days: HTTP 200, `status.statusType: "ERROR"`, *"Difference between start date and end date
+should not be greater than 5 days"*, no rows (verified live, read-only). §39's 14-day query read that
+as "0 packed" while 19 were PACKED. The offline test had used an invented "always success" Myntra —
+it now copies the real answer. Fix (`lib/myntra.js fetchPackedPackets`): three 5-day windows (end −
+start = 4 days), newest first, merged one per packet; an ERROR answer always throws (the card shows
+it). Live check after the fix: 278 packets in 15 days, 19 PACKED = 13 packed 26 Sept 9:57–10:02 pm +
+5 packed 27 Sept 12:24 am (pick-by 29 Sept 5 am) + 1 packed 15 Sept (pick-by 16 Sept) still PACKED.
+The card: waiting for pickup (all PACKED) · N packed today (picked up yet or not, "(M picked up)")
+· a red line for packets past their pick-by time, with their tracking ids.
+
+**Extension 1.4.1** (`browser-extension/background.js`):
+- Amazon "logged in" = `at-acbin` / `sess-at-acbin` only. `session-token` is set by the amazon.in
+  shopping site for every visitor, so it read as a Seller Central login after signing out — and as
+  it changes on every page load, it also defeated the "don't re-send a rejected copy" hold.
+- Amazon cookies = exactly what Chrome sends to `sellercentral.amazon.in/orders-api`
+  (`chrome.cookies.getAll({url})`, Chrome's own order), not every cookie of every amazon.in
+  subdomain (a stored copy had `csm-hit` twice). Falls back to the whole domain if the login
+  cookies aren't in that set. Myntra unchanged (never died).
+- Storage race: both marketplaces' timers fire together; each sync read `lastResult`, merged its own
+  row and wrote it back, so one result could be lost (reproduced offline on the old code with
+  realistic storage latency). All shared read-modify-writes now go through a per-key queue
+  (`withStorageLock` / `patchStore`, which merges into the latest value).
+- One unattended sync per marketplace at a time (timer, retry, health-check recovery, new-login
+  sync could overlap); a skipped caller treats it as "someone else is on it", not a failure.
+- The extension sends its version (sync body + health header); the bot stores it
+  (`settings.status.extensionVersion`, session doc `extensionVersion`) and the popup shows it — so
+  "was the update reloaded?" has an answer.
+
+Tested offline: the real background.js on a fake Chrome API (10 scenarios, incl. the race, cookie
+scope, session-token-only = logged out, no overlapping syncs) and fetchPackedPackets against a fake
+Myntra with the real 5-day refusal; plus the live read-only check above.
