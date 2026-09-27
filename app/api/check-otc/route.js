@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
+import { cronAuthorized, cronFailure } from '../../../lib/cronRoute';
+import { recordTick, checkTicks } from '../../../lib/cronWatchdog';
 import { getRunning } from '../../../lib/monitorState';
 import { runCheckOtc } from '../../../lib/checkOtc';
 
@@ -14,12 +16,13 @@ export const dynamic = 'force-dynamic';
 // window — nothing extra to configure on the scheduler side for correctness,
 // only for not wasting calls.
 export async function GET(request) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+  if (!cronAuthorized(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
   const db = await getDb();
+  await recordTick(db, 'otc');
+  await checkTicks(db, ['orders']);
   if (!(await getRunning(db))) {
     return NextResponse.json({ skipped: true, reason: 'stopped' });
   }
@@ -28,7 +31,6 @@ export async function GET(request) {
     const result = await runCheckOtc();
     return NextResponse.json(result);
   } catch (err) {
-    const status = err.status === 401 || err.status === 403 ? 401 : 500;
-    return NextResponse.json({ error: err.message }, { status });
+    return cronFailure(err);
   }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { parseCurl } from '../../../lib/curl';
-import { isAuthed } from '../../../lib/adminAuth';
+import { requireOwner } from '../../../lib/adminAuth';
 import { saveSession } from '../../../lib/sessionStore';
 import { testSession } from '../../../lib/sessionProbe';
 
@@ -9,9 +9,10 @@ export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 export async function POST(request) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  // Owner only: a pasted session decides which seller account every order
+  // alert and stock reservation comes from.
+  const check = await requireOwner();
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const { curl, marketplace: rawMarketplace } = await request.json().catch(() => ({}));
   const marketplace = rawMarketplace === 'amazon' ? 'amazon' : 'myntra';

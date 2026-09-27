@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
+import { secretMatches } from '../../../../lib/secrets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,8 +27,7 @@ function stateFor(sessionDoc, lastError) {
 }
 
 export async function GET(request) {
-  const secret = request.headers.get('x-sync-secret');
-  if (!process.env.EXTENSION_SYNC_SECRET || secret !== process.env.EXTENSION_SYNC_SECRET) {
+  if (!secretMatches(request.headers.get('x-sync-secret'), process.env.EXTENSION_SYNC_SECRET)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 

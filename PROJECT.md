@@ -337,7 +337,10 @@ This is shared by both the dashboard card and the `/packed`/`/packedall` bot com
 3. For each item: look up live stock (§9), push it into stock-manager's Ready to Ship queue
    (§10), and build its caption text (SKU, size/color, qty, stock line).
 4. Send everything as **one Telegram message per order** (§11).
-5. Mark the order ID as seen.
+5. Seen/alerted bookkeeping (§41, `lib/orderClaims.js`): the order is recorded as seen when first
+   fetched (`alerted: false`), CLAIMED atomically before steps 1–4, and marked `alerted: true`
+   only once Telegram confirms delivery — otherwise retried on the next check (up to 5 times,
+   then the owner is told).
 
 ## 9. Stock lookup (`lib/stock.js`) — read-only
 
@@ -416,11 +419,10 @@ iterations worth knowing about, because the reasoning matters if it needs to cha
      any item).
    - `photos.length === 1` → `sendTelegramPhoto` (Telegram requires 2+ items for a media group).
    - `photos.length > 1` → `sendTelegramMediaGroup`.
-   - Caption length: Telegram caps photo/album captions at 1024 characters. A single item's
-     block is ~90–120 chars; the header is ~100–150. In practice this comfortably fits orders up
-     to 5–6 distinct SKUs. **If a legitimately huge multi-SKU order ever gets truncated, that's
-     the limit to know about** — the fix would be to split overflow items into a follow-up plain
-     `sendTelegramMessage`.
+   - Caption length: Telegram caps photo/album captions at 1024 characters — and REJECTS (not
+     truncates) a longer one. Since §41 `lib/telegram.js` sends the photos without a caption and
+     the full text as a message right after; a photo Telegram can't fetch falls back to the text
+     alone; albums are capped at 10; a 429 waits `retry_after` once.
 - `lib/telegram.js` is the only file that talks to the Telegram Bot API (`sendMessage`,
   `sendPhoto`, `sendMediaGroup`, all `parse_mode: 'HTML'`). Telegram's HTML mode has no color
   support — "OUT OF STOCK" uses bold + a 🔴 emoji as the closest visual equivalent to red.
@@ -443,7 +445,8 @@ iterations worth knowing about, because the reasoning matters if it needs to cha
   seen as "already tracked" and get dropped instead of merged, undercounting the Ready to Ship
   queue. Root-fixed by grouping items by SKU (§8) *before* anything else sees them, rather than
   patching the idempotency check further.
-- **Missing-session alert gap (open, unresolved)**: `runCheckOrders()` throws a plain
+- **Missing-session alert gap (fixed since — "missing" and "expired" share one alert, now
+  lib/sessionAlerts.js)**: `runCheckOrders()` used to throw a plain
   `'No session saved yet'` error *before* the try/catch that sends the session-expired Telegram
   alert, if `settings/_id:'session'` doesn't exist at all (found by deliberately deleting it to
   test the extension's recovery). A session that **expires** (a real 401/403 from Myntra) alerts
@@ -675,9 +678,9 @@ browser-extension/         Manifest V3 Chrome extension — auto-syncs the sessi
 - When a marketplace session expires, checks fail (401/403) and nothing gets marked "seen" for
   that window. **The moment a fresh session is pasted, the very next check succeeds and treats
   every order still in the marketplace's "open" list as new** — so you get one alert per order
-  that arrived during the outage, all at once. Caveat: only the most recent ~15 open orders per
-  platform are ever fetched per call (`fetchSize=15` / `limit=15`), so a very long outage with a
-  big backlog could miss the oldest ones — check manually if that's a risk.
+  that arrived during the outage, all at once. (Both platforms paginate the open list now — the
+  old `fetchSize=15` / `limit=15` cap is gone — and alerts beyond ~50 s of a run wait for the
+  next check instead of risking a timeout, §41.)
 
 ## 15. Runbook: cleaning out state (Ready to Ship + seen-orders)
 
@@ -1892,3 +1895,76 @@ Myntra with the real 5-day refusal; plus the live read-only check above.
 24–27 Sept, **18 waiting for pickup** (13 packed 26 Sept night + 5 packed 27 Sept), 5 packed today.
 The 15-Sept packet still PACKED on Myntra is outside the 4 days and no longer counted. The card says
 "waiting for pickup (last 4 days)".
+
+## 41. Full review of order alerts, cancellations and stock (2026-09-27)
+
+Two read-only reviews (Myntra side, Amazon side + routes), each finding verified in the code (and
+live, read-only, where Myntra's behaviour mattered) before fixing. Tested offline in simulated
+worlds (fake Myntra/Amazon, fake stock-manager queue + shipped log, fake Telegram, in-memory DB).
+
+**Alerts can no longer be lost silently**
+- `lib/telegram.js`: every send returns `{sent, failed, total}`; 429 → waits `retry_after` once;
+  caption over 1024 → photos without caption + full text; a photo Telegram refuses → the text
+  alone; album capped at 10; message over 4096 split at line breaks.
+- New orders (`lib/orderClaims.js`, both platforms): seen = `alerted:false`, claimed atomically
+  (lease 5 min) so the scheduler and "Check now" can't both alert/reserve; `alerted:true` only on
+  confirmed delivery; else retried next check, up to 5 tries → owner alert. ~50 s budget per run.
+  Item detail failing once is retried before falling back to a plain alert. An order listed open
+  whose units are all already cancelled isn't announced.
+- Every "once" flag (session expired, Myntra blocked, OTC sent, failure streaks, cron watchdog)
+  is claimed atomically and given back if nobody got the message.
+
+**Cancellations (both platforms, `lib/cancellationSweep.js`)**
+- Tracked per unit, not per order: the marketplace's own "what's cancelled" signature (Myntra:
+  cancelled quantity + seller line ids — no "last changed" field exists, checked live; Amazon:
+  quantityCanceled per SKU). A second cancellation on an already-handled order is processed
+  (old: ignored — the rest stayed queued).
+- Baseline = units already cancelled when we first alerted the order (`seenOrders.units.
+  cancelledAtAlert`, recorded by the new-order alert) — the 6026100011 pattern (a unit cancelled
+  inside the poll gap) no longer removes the still-live unit.
+- Step by step with saved progress (alert → queue removal → un-ship → unresolved): any failure
+  (item fetch, stock-manager unreachable, a delete) is retried next check from where it stopped —
+  never marked done, never the old whole-order delete, never "not in the queue" guessed from an
+  unreachable queue (that used to un-ship an unrelated earlier shipment). Owner told once after
+  30 min of retries. Queue rows via the light per-order `/api/pending/check` (stock-manager now
+  returns row ids), DELETE with a quantity (a merged qty-2 row loses only what was cancelled).
+- A plain "STOP" alert still goes out at once if Myntra's item detail isn't available yet — and
+  isn't repeated when the detail arrives. Old records learn their baseline silently (no alerts,
+  no queue changes); first-ever runs still seed silently.
+- Amazon: removal retried until it succeeds (old: once, then never); cancel-after-ship now un-ships
+  like Myntra; a partly cancelled order reserves/alerts only the live units (`quantityCanceled`);
+  an order the cancel check already saw isn't alerted as new.
+
+**Stock (stock-manager)**: a cancel after the order was marked shipped still puts the stock back at
+once (it may still be in the warehouse — "shipped" is marked at packing), and stock-manager now
+remembers it (`CancelReversal`); a later return scan of that order + product (the RTO parcel
+coming back) answers "already put back when the order was cancelled" with the usual "Log it again
+anyway", instead of adding it a second time.
+
+**Sessions**: a check that started on an old copy doesn't overwrite a restore (or alert about it);
+a persistent Amazon block alerts without the extension grace (a re-sync can't fix a block);
+logging in again in Chrome (the usual fix) now also sends the "restored" confirmation; the session
+test uses exactly the headers that get saved and fits the route's 30 s; Amazon "signed out" needs
+positive evidence (a captcha / robot-check page is a temporary error, not an expiry); same-name
+cookies are all refreshed; OTC's session problem goes through the shared once-per-outage alert.
+
+**Watchdogs**: "checks keep failing" alert (~30 min of non-session errors, `lib/failureStreak.js`);
+every cron route records its tick and the others alert once if one goes quiet
+(`lib/cronWatchdog.js` — e.g. cron-job.org switched a job off). Handled failures answer 200
+`{ok:false}` so cron-job.org doesn't count them toward disabling the job; unexpected ones 500.
+
+**OTC**: after the first code, looks again every 10 min until all four are in (a RETURN code that
+appeared after the PICKUP one used to be never sent); updates only for new codes.
+
+**Myntra envelope**: HTTP 200 + statusType ERROR (or a non-JSON page) throws instead of reading as
+"0 open orders". Lists de-duplicated by order id (Myntra and Amazon).
+
+**Smaller**: constant-time secret checks (cron, extension, Telegram webhook); pasting a session is
+Owner-only; return quantity capped at 20; `/cmd@OtherBot` is ignored; Telegram lists say the real
+"…and N more" (was always 0); Amazon tracking lookups keep only orders whose package carries the
+number; the dashboard's Amazon grid hides cancelled units; stock-manager / stock DB unreachable →
+calls fail fast for a minute (the alert still goes out promptly, owner told to add it by hand).
+
+Not changed (need a decision): Viewers can still Start/Stop and "Check now"; `CRON_SECRET` is in
+the scheduler URL (moving it means editing every cron-job.org job); no pinning to one seller
+account for synced Amazon logins.

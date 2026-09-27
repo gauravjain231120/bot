@@ -91,6 +91,9 @@ flowchart LR
 4. **stock-manager reserves stock** for it and it appears in the Ready to Ship queue, ready to be
    packed and marked shipped. This is the one and only way a new order reaches stock-manager —
    nothing else talks to that queue.
+5. **An order only counts as alerted once Telegram confirms delivery.** Otherwise it's retried on the
+   next check (up to 5 times, then the owner is told), and two checks running at once can never both
+   alert or reserve the same order.
 
 ## Flow: an order gets cancelled
 
@@ -106,6 +109,13 @@ flowchart LR
 
 "Cancelled" can land at two different points in the order's life — before it ever shipped, or
 after. Both paths end at the same place: the stock is correct again, either way.
+
+Cancellations are tracked **per unit**, not per order: a second item cancelled later on the same
+order is handled too, and a unit that was already cancelled before the bot first queued the order
+is never "removed" (that used to take a still-live item out of the queue). Each step is saved as it
+happens and retried on the next check if anything fails — never guessed. When stock is put back for
+an order cancelled after shipping, stock-manager remembers it, so scanning the returning (RTO) parcel
+later doesn't add the same stock a second time.
 
 ## Flow: scanning and logging a return
 

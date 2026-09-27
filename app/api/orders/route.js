@@ -56,11 +56,12 @@ function myntraOrders(snapshot, itemsById, stockBySku) {
 function amazonOrders(snapshot, stockBySku) {
   const orders = (snapshot && snapshot.orders) || [];
   return orders.map((order) => {
-    const items = groupAmazonItemsBySku(order.orderItems);
+    // Only what's still to ship — a unit the buyer cancelled isn't shown.
+    const items = groupAmazonItemsBySku(order.orderItems).filter((item) => item.qty > 0);
     return {
       source: 'amazon',
       orderId: order.amazonOrderId,
-      quantity: items.reduce((sum, item) => sum + (item.qty || 1), 0),
+      quantity: items.reduce((sum, item) => sum + item.qty, 0),
       orderDateMs: amazonOrderDateMs(order),
       shipByMs: amazonShipByDateMs(order),
       items: items.map((item) => {

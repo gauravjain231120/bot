@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
-import { replyToChat, sendTelegramMessage } from '../../../lib/telegram';
+import { replyToChat, sendTelegramMessage, getBotUsername } from '../../../lib/telegram';
+import { secretMatches } from '../../../lib/secrets';
 import { recordSeen } from '../../../lib/recipients';
 import { escapeHtml } from '../../../lib/html';
 import { fetchPackedCount, fetchOtc } from '../../../lib/myntra';
@@ -94,8 +95,7 @@ const DATE_CAPABLE = new Set([
 // (even for rejected/unrecognized messages) — a non-200 or slow response
 // makes Telegram retry the same update repeatedly.
 export async function POST(request) {
-  const secret = request.headers.get('x-telegram-bot-api-secret-token');
-  if (!process.env.TELEGRAM_WEBHOOK_SECRET || secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
+  if (!secretMatches(request.headers.get('x-telegram-bot-api-secret-token'), process.env.TELEGRAM_WEBHOOK_SECRET)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 403 });
   }
 
@@ -136,7 +136,13 @@ export async function POST(request) {
   // splitting on whitespace up front avoids the old startsWith-prefix chain,
   // where e.g. "/myntraleft" also matched as a prefix of checking "/myntra".
   const [rawCommand, ...rest] = text.split(/\s+/);
-  // In a group chat Telegram sends "/ship@YourBot" — the @bot part is dropped.
+  // In a group chat Telegram sends "/ship@YourBot" — the @bot part is dropped,
+  // but only when it's THIS bot: "/ship@SomeOtherBot" is meant for another bot.
+  const mention = /@(\w+)$/.exec(rawCommand || '');
+  if (mention) {
+    const me = await getBotUsername().catch(() => null);
+    if (me && mention[1].toLowerCase() !== me.toLowerCase()) return NextResponse.json({ ok: true });
+  }
   const command = (rawCommand || '').toLowerCase().replace(/@\w+$/, '');
   const dateArg = rest.join(' ');
 

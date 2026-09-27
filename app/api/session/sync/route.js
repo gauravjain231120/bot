@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
+  cleanHeaders,
   saveSessionHeaders,
   announceSessionActivated,
   announceScheduledSyncOk,
@@ -8,6 +9,7 @@ import {
   isSameWorkingLogin,
 } from '../../../../lib/sessionStore';
 import { testSession } from '../../../../lib/sessionProbe';
+import { secretMatches } from '../../../../lib/secrets';
 
 export const runtime = 'nodejs';
 // Testing a dead Amazon session can take ~10s+ (Amazon's 403s are retried) —
@@ -53,8 +55,7 @@ const MAX_PERIOD = 24 * 60;
  * different browser context than the dashboard, with no cookie in common.
  */
 export async function POST(request) {
-  const secret = request.headers.get('x-sync-secret');
-  if (!process.env.EXTENSION_SYNC_SECRET || secret !== process.env.EXTENSION_SYNC_SECRET) {
+  if (!secretMatches(request.headers.get('x-sync-secret'), process.env.EXTENSION_SYNC_SECRET)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -76,7 +77,8 @@ export async function POST(request) {
   // genuine rejection counts as "not working" (lib/sessionProbe.js); a bot-
   // protection block or network error says nothing about the session, so it's
   // "couldn't test, retry later", never "logged out".
-  const probe = await testSession(marketplace, body.headers);
+  // Tested exactly as it will be stored (transport headers dropped).
+  const probe = await testSession(marketplace, cleanHeaders(body.headers));
   if (probe.rejected) {
     return NextResponse.json(
       {
@@ -106,7 +108,10 @@ export async function POST(request) {
     } else if (trigger === 'recovery') {
       await markSessionRestored(marketplace);
     } else {
-      await clearSessionError(marketplace);
+      // Clears the error; if an "expired" alert went out, this is also the
+      // "restored" confirmation — logging in again in Chrome (the fix the
+      // alert asks for) arrives here, as an unattended sync.
+      await markSessionRestored(marketplace);
       // Quiet ~4-hourly heartbeat; never touches the alert flags, so a retry
       // storm can't turn it into the old activated/expired spam loop.
       if (body.scheduled) await announceScheduledSyncOk(marketplace, syncPeriodMinutes);

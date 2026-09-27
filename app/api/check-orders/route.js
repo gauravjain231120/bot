@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
+import { cronAuthorized, cronFailure } from '../../../lib/cronRoute';
+import { recordTick, checkTicks } from '../../../lib/cronWatchdog';
 import { getRunning } from '../../../lib/monitorState';
 import { runCheckOrders } from '../../../lib/checkOrders';
 import { checkStoppedWatchdog } from '../../../lib/watchdog';
@@ -12,17 +14,19 @@ export const dynamic = 'force-dynamic';
 // while monitoring is stopped — new orders simply stay unseen until Start is pressed,
 // at which point they're picked up as "new" on the next check.
 export async function GET(request) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+  if (!cronAuthorized(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
   const db = await getDb();
+  await recordTick(db, 'orders');
+  await checkTicks(db, ['amazonOrders', 'cancellations', 'amazonCancellations', 'otc']);
   // The extension syncs on its own 4h timer, independent of whether checking
   // is running or stopped — watch it unconditionally, same as every tick.
-  await checkExtensionSyncWatchdog(db);
+  // A watchdog problem must never block the order check itself.
+  await checkExtensionSyncWatchdog(db).catch((err) => console.error('extension sync watchdog failed:', err.message));
   if (!(await getRunning(db))) {
-    await checkStoppedWatchdog(db);
+    await checkStoppedWatchdog(db).catch((err) => console.error('stopped watchdog failed:', err.message));
     return NextResponse.json({ skipped: true, reason: 'stopped' });
   }
 
@@ -30,7 +34,6 @@ export async function GET(request) {
     const result = await runCheckOrders();
     return NextResponse.json(result);
   } catch (err) {
-    const status = err.status === 401 || err.status === 403 ? 401 : 500;
-    return NextResponse.json({ error: err.message }, { status });
+    return cronFailure(err);
   }
 }
