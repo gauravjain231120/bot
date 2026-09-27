@@ -1,13 +1,12 @@
 // Image clean-up + "is this read trustworthy?" rules shared by the camera
-// scanners (BarcodeScanner, OrderIdScanner). Everything here works on plain
+// scanners (BarcodeScanner, TextIdScanner). Everything here works on plain
 // ImageData-shaped objects ({ data: RGBA bytes, width, height }) — no DOM —
 // so it runs the same in the browser and in offline tests.
 //
-// Why: a faint / low-ink print is a CONTRAST problem. The bars or digits are
-// light grey on white, so the decoder's own black/white threshold either
-// misses them (barcode "not found") or guesses wrong (OCR reads 8 for 3).
-// Stretching the picture's own darkest-to-lightest range to full black-to-
-// white makes faint ink properly dark before any decoding happens.
+// Why: for OCR a faint / low-ink print is a CONTRAST problem — light grey
+// digits on white. Stretching the picture's own darkest-to-lightest range to
+// full black-to-white makes faint ink properly dark before tesseract runs.
+// (Barcodes get their own edge-based clean-up: barcodeLines.js.)
 
 /**
  * In place: grayscale + contrast stretch. The 1st-percentile grey becomes
@@ -51,45 +50,6 @@ export function stretchGray(img) {
     data[p + 1] = g;
     data[p + 2] = g;
     data[p + 3] = 255;
-  }
-  return img;
-}
-
-/**
- * In place: average each pixel with the ones above/below it (a vertical box
- * blur). Once a frame is turned so the barcode's bars run vertically, this
- * removes camera noise/speckle — the main thing hiding a faint print — while
- * leaving the bars themselves (which don't change top-to-bottom) sharp.
- * Only the grey channel is read; all three are written.
- */
-export function smoothAlongBars(img, radius = 3) {
-  const { data, width: w, height: h } = img;
-  const col = new Float32Array(h);
-  for (let x = 0; x < w; x++) {
-    for (let y = 0; y < h; y++) col[y] = data[(y * w + x) * 4];
-    let sum = 0;
-    let count = 0;
-    for (let y = 0; y < Math.min(h, radius + 1); y++) {
-      sum += col[y];
-      count++;
-    }
-    for (let y = 0; y < h; y++) {
-      const add = y + radius + 1;
-      const drop = y - radius;
-      const p = (y * w + x) * 4;
-      const g = sum / count;
-      data[p] = g;
-      data[p + 1] = g;
-      data[p + 2] = g;
-      if (add < h) {
-        sum += col[add];
-        count++;
-      }
-      if (drop >= 0) {
-        sum -= col[drop];
-        count--;
-      }
-    }
   }
   return img;
 }
@@ -160,46 +120,76 @@ export function estimateSkew(img, { maxDeg = 12, stepDeg = 1, sampleWidth = 480 
 }
 
 // ---- Barcode: when is a read good enough? ----
-// Code 128 / EAN / UPC carry a check digit — a misread almost never passes
-// it, so the first read counts. Code 39 / ITF / Codabar have no mandatory
-// check digit: on a faint print a bar can be misjudged and still decode to a
-// wrong-but-valid-looking code, so those need the SAME text twice in a row.
-const CHECKSUMMED = new Set(['CODE_128', 'EAN_13', 'EAN_8', 'UPC_A', 'UPC_E', 'code_128', 'ean_13', 'ean_8', 'upc_a', 'upc_e']);
+// A check digit is not enough on its own: the scanner decodes hundreds of
+// lines a second, and Code 128's mod-103 check (EAN's mod-10 even more so)
+// lets the odd random line through as junk like ":" or "E$'{?:" (seen in
+// offline testing). So a read must first LOOK like a tracking / order /
+// packet id — 6+ letters/digits (dashes allowed), nothing else — and then:
+//   - a Myntra id (MY + 2 letters + 8+ digits) in Code 128 counts at once —
+//     noise can't produce that shape AND pass the check character;
+//   - anything else needs the same text a second time within a few seconds
+//     (another scan line, frame, or the phone's own reader).
+const PLAUSIBLE_ID = /^[A-Z0-9][A-Z0-9-]{4,38}[A-Z0-9]$/i;
+const MYNTRA_BARCODE = /^MY[A-Z]{2}\d{8,}$/;
+const CODE_128 = new Set(['CODE_128', 'code_128']);
 
-export function createBarcodeConfirmer() {
-  let last = null;
+export function looksLikeId(text) {
+  return PLAUSIBLE_ID.test(String(text || '').trim());
+}
+
+export function createBarcodeConfirmer({ windowMs = 4000, now = () => Date.now() } = {}) {
+  const seen = new Map(); // text -> when first read
   return function confirm(text, format) {
     const t = String(text || '').trim();
-    if (!t) return null;
-    if (CHECKSUMMED.has(String(format))) return t;
-    if (last === t) return t;
-    last = t;
+    if (!looksLikeId(t)) return null;
+    if (CODE_128.has(String(format)) && MYNTRA_BARCODE.test(t)) return t;
+    const at = now();
+    for (const [k, when] of seen) if (at - when > windowMs) seen.delete(k);
+    if (seen.has(t)) return t;
+    seen.set(t, at);
     return null;
   };
 }
 
-// ---- Amazon order id (OCR): when is a read good enough? ----
-// OCR can misread a faint digit the same way twice in a row (the old rule),
-// so an id is only accepted when it's been read:
-//   - twice with high per-digit confidence AND from two different image
-//     sizes (the scanner alternates normal and 1.5x — a wrong digit at one
-//     size rarely repeats at the other), or
-//   - three times in the last six reads, whatever the confidence.
-// A read that disagrees just doesn't add up — it never "wins" alone.
-export const STRONG_CONFIDENCE = 80;
-
-export function createOrderIdVoter({ history = 6 } = {}) {
+// ---- OCR ids: when is a read good enough? ----
+// OCR's typical mistake is one digit misread (0↔8, 5↔6, 3↔8…), and it can
+// repeat the same mistake on a few frames running. So an id only counts when:
+//   - it was read at least 3 times in the last 8 reads,
+//   - from both image sizes (frames alternate normal / 1.5x — a digit
+//     misread at one size rarely repeats at the other), and
+//   - no read in that window disagreed by just 1–2 characters (a "rival":
+//     some frames see 0, some 8). Then the camera must look again — the
+//     scanner shows both readings (vote.rival) so the user can move closer.
+// Wrong ids are the expensive failure (a lookup of the wrong return /
+// order), so this trades a moment of extra reading for never guessing.
+export function createIdVoter({ history = 8, need = 3 } = {}) {
   const reads = [];
-  return function vote(read) {
+  function vote(read) {
+    vote.rival = null;
     if (!read || !read.id) return null;
     reads.push(read);
     if (reads.length > history) reads.shift();
+    const rival = reads.find((r) => r.id !== read.id && nearMiss(r.id, read.id));
+    if (rival) {
+      vote.rival = rival.id;
+      return null;
+    }
     const same = reads.filter((r) => r.id === read.id);
-    if (same.length >= 3) return read.id;
-    const strong = same.filter((r) => r.confidence >= STRONG_CONFIDENCE);
-    if (strong.length >= 2 && new Set(strong.map((r) => r.variant)).size >= 2) return read.id;
+    if (same.length >= need && new Set(same.map((r) => r.variant)).size >= 2) return read.id;
     return null;
-  };
+  }
+  vote.rival = null;
+  return vote;
+}
+
+// Same length and 1–2 characters different: the same id with a misread.
+export function nearMiss(a, b) {
+  const x = String(a).replace(/-/g, '');
+  const y = String(b).replace(/-/g, '');
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) diff++;
+  return diff > 0 && diff <= 2;
 }
 
 // Amazon order ids are 3-7-7 digits. Matched ONE LINE AT A TIME and only
@@ -223,82 +213,26 @@ export function readOrderId(text) {
   return null;
 }
 
-/**
- * The lowest per-character confidence (0-100) among the digits of `id` in a
- * tesseract result, or null if they can't be located. One weak digit is
- * exactly what makes a wrong read, so the minimum — not the average — counts.
- *
- * tesseract.js 6 reports 0 for the FIRST character of every word whatever it
- * really is (seen on clean, perfectly-read test images), so that one position
- * is skipped; the voter's "read it again" rule still covers it.
- */
-export function orderIdConfidence(page, id) {
-  const digits = id.replace(/-/g, '');
-  for (const block of (page && page.blocks) || []) {
-    for (const para of block.paragraphs || []) {
-      for (const line of para.lines || []) {
-        const ds = [];
-        for (const word of line.words || []) {
-          (word.symbols || []).forEach((sym, i) => {
-            if (/^\d$/.test(sym.text)) ds.push({ ch: sym.text, conf: i === 0 ? null : sym.confidence });
-          });
-        }
-        const joined = ds.map((d) => d.ch).join('');
-        const at = joined.indexOf(digits);
-        if (at >= 0) {
-          const confs = ds.slice(at, at + digits.length).map((d) => d.conf).filter((c) => c != null);
-          return confs.length ? Math.min(...confs) : null;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-export function createMyntraIdVoter({ history = 6 } = {}) {
-  const reads = [];
-  return function vote(read) {
-    if (!read || !read.id) return null;
-    reads.push(read);
-    if (reads.length > history) reads.shift();
-    const same = reads.filter((r) => r.id === read.id);
-    if (same.length >= 3) return read.id;
-    const strong = same.filter((r) => r.confidence >= STRONG_CONFIDENCE);
-    if (strong.length >= 2 && new Set(strong.map((r) => r.variant)).size >= 2) return read.id;
-    return null;
-  };
-}
-
-const MYNTRA_ID_RE = /(?:^|[^A-Z0-9])(MY[A-Z0-9]{2}[0-9]{8,15})(?![A-Z0-9])/i;
+// Myntra tracking ids: MY + 2 letters + 10 digits (MYSR…, MYSP…, MYSC…,
+// MYEC…, MYEP…, MYER… — every real one seen so far has exactly 10 digits).
+// Exactly 10, so a dropped or doubled digit is never accepted. Matched one
+// line at a time; nothing alphanumeric may follow the last digit, but junk
+// glued in front is fine (OCR often runs a stray letter into the "M"). OCR's
+// usual letter/digit swaps are undone position by position: the prefix is
+// letters (5→S, 8→R, H misread for M, V/W for Y), the tail is digits
+// (O/D/Q→0, I/L→1, Z→2, S→5, G→6, B→8).
+const MYNTRA_ID_RE = /([MH][YVW]) ?([A-Z0-9]{2}) ?([A-Z0-9]{10})(?![A-Z0-9])/g;
+const TAIL_DIGIT = { O: '0', D: '0', Q: '0', I: '1', L: '1', Z: '2', S: '5', G: '6', B: '8' };
+const PREFIX_LETTER = { 5: 'S', 8: 'R' };
 
 export function readMyntraId(text) {
   for (const line of String(text || '').split(/\r?\n/)) {
-    let cleaned = line.toUpperCase().replace(/\s+/g, '');
-    // Common OCR letter-to-digit mistakes inside the prefix
-    cleaned = cleaned.replace(/M[YV][5S][R8]/, 'MYSR').replace(/M[YV]E[C\(\[]/, 'MYEC');
-    const m = cleaned.match(MYNTRA_ID_RE);
-    if (m) return m[1];
-  }
-  return null;
-}
-
-export function myntraIdConfidence(page, id) {
-  for (const block of (page && page.blocks) || []) {
-    for (const para of block.paragraphs || []) {
-      for (const line of para.lines || []) {
-        const cs = [];
-        for (const word of line.words || []) {
-          (word.symbols || []).forEach((sym, i) => {
-            if (/^[A-Z0-9]$/i.test(sym.text)) cs.push({ ch: sym.text.toUpperCase(), conf: i === 0 ? null : sym.confidence });
-          });
-        }
-        const joined = cs.map((c) => c.ch).join('');
-        const at = joined.indexOf(id);
-        if (at >= 0) {
-          const confs = cs.slice(at, at + id.length).map((c) => c.conf).filter((c) => c != null);
-          return confs.length ? Math.min(...confs) : null;
-        }
-      }
+    const cleaned = line.toUpperCase().replace(/[\-–—_.|]/g, '').replace(/\s+/g, ' ');
+    for (const m of cleaned.matchAll(MYNTRA_ID_RE)) {
+      const prefix = 'MY' + [...m[2]].map((c) => PREFIX_LETTER[c] || c).join('');
+      const tail = [...m[3]].map((c) => TAIL_DIGIT[c] || c).join('');
+      const id = prefix + tail;
+      if (/^MY[SE][A-Z]\d{10}$/.test(id)) return id;
     }
   }
   return null;

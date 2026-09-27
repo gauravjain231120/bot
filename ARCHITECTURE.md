@@ -149,9 +149,12 @@ each one up by hand on Myntra's site.
 The phone camera scanners switch the flashlight on by themselves when the picture is too dark to
 scan (auto flash — on/off in the scanner, remembered on each phone). 🔦 On is remembered too: every scan
 then starts with the flash on; 🔦 Off hands it back to auto flash.
-Both scanners clean up each frame before reading it — faint ink is contrast-stretched to black, the
-barcode is tried at every angle, and a tilted order ID is straightened first — and an order ID is
-only accepted once several frames agree, so a faint digit can't turn into a wrong number.
+The barcode scanner rebuilds each frame's bars from their edges (not one grey threshold), so light /
+faint prints, blurred frames and bars split by a worn thermal head still read; it runs in a background
+worker so the camera preview stays smooth, and a read must look like a real id (anything but a
+Myntra MY… id is read twice). Reading a printed id (Amazon order ID, Myntra tracking ID) also watches
+for the barcode under it — an exact barcode read wins over OCR — and an OCR id is only accepted once
+3 frames agree and none disagree by a digit or two, so a faint 0 can't turn into an 8.
 ## Flow: splitting the SPF paid total into fake / wrong
 
 ```mermaid

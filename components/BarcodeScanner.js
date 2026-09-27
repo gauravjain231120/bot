@@ -1,78 +1,25 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { MultiFormatReader, BarcodeFormat, DecodeHintType, BinaryBitmap, HybridBinarizer, RGBLuminanceSource } from '@zxing/library';
 import { useTorch, TorchButtons, lowLightHint } from './useTorch';
 import { SoundButton } from './scanSound';
-import { stretchGray, smoothAlongBars, createBarcodeConfirmer } from './scanImage';
-import { drawTurnedCrop } from './scanDraw';
+import { createBarcodeConfirmer, looksLikeId } from './scanImage';
+import { createBarcodeEngine, BARCODE_ANGLES } from './barcodeEngine';
 
-// Myntra/Amazon tracking barcodes are all 1D — restricting decode to these
-// formats makes every attempt cheaper than zxing's default of trying all.
-const FORMATS = [
-  BarcodeFormat.CODE_128,
-  BarcodeFormat.CODE_39,
-  BarcodeFormat.EAN_13,
-  BarcodeFormat.EAN_8,
-  BarcodeFormat.UPC_A,
-  BarcodeFormat.ITF,
-];
-const HINTS = new Map();
-HINTS.set(DecodeHintType.POSSIBLE_FORMATS, FORMATS);
-// Note: TRY_HARDER is deliberately DISABLED. While it scans more rows, it burns
-// massive amounts of CPU on mobile devices and drops the camera frame rate. 
-// Instead of scanning 10 rows in one slow frame, we scan 1 row across 10 fast 
-// frames (relying on natural hand jitter to find a clean row). This keeps the 
-// video buttery smooth and prevents the phone from overheating.
-// HINTS.set(DecodeHintType.TRY_HARDER, true);
+// Per camera frame (full write-up: PROJECT.md §36):
+//  1. the phone's own reader (BarcodeDetector — Android Chrome) when there
+//     is one: fast, any angle;
+//  2. our decoder, in a Web Worker so the preview never stutters
+//     (barcodeEngine → barcodeWorker → barcodeDecode → barcodeLines): the
+//     frame turned to the next angle in BARCODE_ANGLES, rebuilt as clean
+//     scan lines from bar EDGES (not one grey threshold — that's what made
+//     faint / light prints unreadable), incl. versions with hairline white
+//     streaks in the bars closed up.
+// A read must pass createBarcodeConfirmer (looks like a real id; anything but
+// a Myntra MY… id read twice). After a first, unconfirmed read the same
+// angle is kept for a few frames so the confirming read comes quickly.
 const NATIVE_FORMATS = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'itf'];
-
-// PLAN ORDER: Prioritize the most common angles FIRST (straight, sideways, and perfect diagonals)
-// with the raw image. If the barcode is well-printed, it scans instantly at any normal angle.
-// Then, try stretching the contrast for those same common angles (for faint prints).
-// Finally, check the odd angles, and only at the very end apply the expensive 'smooth' cleanup.
-const PRIORITY_ANGLES = [0, 90, 45, 135];
-const OTHER_ANGLES = [15, 165, 30, 150, 60, 120, 75, 105];
-const PLAN = [];
-
-// 1. Raw fast-pass on common angles (4 steps)
-for (const angle of PRIORITY_ANGLES) PLAN.push({ angle, cleanup: 'raw' });
-// 2. Faint-print pass on common angles (4 steps)
-for (const angle of PRIORITY_ANGLES) PLAN.push({ angle, cleanup: 'stretch' });
-// 3. Raw pass on odd angles (8 steps)
-for (const angle of OTHER_ANGLES) PLAN.push({ angle, cleanup: 'raw' });
-// 4. Faint-print pass on odd angles (8 steps)
-for (const angle of OTHER_ANGLES) PLAN.push({ angle, cleanup: 'stretch' });
-// 5. Deep smoothing for noisy/terrible prints (12 steps)
-for (const angle of [...PRIORITY_ANGLES, ...OTHER_ANGLES]) PLAN.push({ angle, cleanup: 'smooth' });
-
-// Keep the time budget very tight (30ms). This guarantees the JS thread yields
-// quickly so the browser can paint the next camera frame. A high frame rate (30fps+)
-// is critical for perceived speed and allows natural hand movement to act as our "TRY_HARDER".
-const FRAME_BUDGET_MS = 30;
-const TICK_MS = 30;
-
-function luminance(img) {
-  const n = img.width * img.height;
-  const lum = new Uint8ClampedArray(n);
-  const d = img.data;
-  for (let i = 0, p = 0; i < n; i++, p += 4) lum[i] = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8;
-  return lum;
-}
-
-// Single binarizer strategy (HybridBinarizer). Doing multiple binarizers per step
-// doubles CPU usage and slows down the frame loop too much. Hybrid is the best
-// for uneven lighting / shadows on plastic packaging.
-function tryZxing(reader, img) {
-  const lum = luminance(img);
-  try {
-    const src = new RGBLuminanceSource(lum, img.width, img.height);
-    const result = reader.decode(new BinaryBitmap(new HybridBinarizer(src)), HINTS);
-    return result ? { text: result.getText(), format: BarcodeFormat[result.getBarcodeFormat()] } : null;
-  } catch {
-    return null;
-  }
-}
+const HOLD_FRAMES = 4;
 
 async function makeNativeDetector() {
   try {
@@ -103,23 +50,17 @@ export function BarcodeScanner({ onDetected, onClose }) {
   useEffect(() => {
     let cancelled = false;
     let stream = null;
-    let timer = null;
     let done = false;
-    const reader = new MultiFormatReader();
-    reader.setHints(HINTS);
-    const confirm = createBarcodeConfirmer();
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     let native = null;
-    let step = 0;
+    const confirm = createBarcodeConfirmer();
+    const engine = createBarcodeEngine();
 
     function stop() {
-      if (timer) clearTimeout(timer);
-      timer = null;
       if (stream) {
         stream.getTracks().forEach((t) => t.stop());
         stream = null;
       }
+      engine.destroy();
     }
 
     function found(text, format) {
@@ -131,12 +72,18 @@ export function BarcodeScanner({ onDetected, onClose }) {
       return true;
     }
 
-    async function frame() {
-      const video = videoRef.current;
-      if (cancelled || done) return;
-      if (video && video.videoWidth) {
-        const t0 = performance.now();
-        // 1. Native detector
+    // Lets the browser paint a frame between decode attempts.
+    const nextFrame = () => new Promise((r) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => r()) : setTimeout(r, 16)));
+
+    async function loop() {
+      let step = 0;
+      let hold = 0;
+      while (!cancelled && !done) {
+        const video = videoRef.current;
+        if (!video || !video.videoWidth) {
+          await nextFrame();
+          continue;
+        }
         if (native) {
           try {
             const codes = await native.detect(video);
@@ -145,27 +92,17 @@ export function BarcodeScanner({ onDetected, onClose }) {
             native = null;
           }
         }
-        // 2. ZXing Plan
-        do {
-          const { angle, cleanup } = PLAN[step];
-          step = (step + 1) % PLAN.length;
-          let img = drawTurnedCrop(video, canvas, ctx, angle);
-          if (cleanup === 'stretch') img = stretchGray(img);
-          else if (cleanup === 'smooth') img = stretchGray(smoothAlongBars(img, 4));
-          
-          const r = tryZxing(reader, img);
-          if (r && found(r.text, r.format)) return;
-          
-          if (native && cleanup !== 'raw') {
-            try {
-              ctx.putImageData(img, 0, 0);
-              const codes = await native.detect(canvas);
-              for (const c of codes) if (found(c.rawValue, c.format)) return;
-            } catch {}
-          }
-        } while (performance.now() - t0 < FRAME_BUDGET_MS && step !== 0);
+        if (cancelled || done) return;
+        const r = await engine.decode(video, BARCODE_ANGLES[step]);
+        if (cancelled || done) return;
+        if (r) {
+          if (found(r.text, r.format)) return;
+          if (looksLikeId(r.text)) hold = HOLD_FRAMES; // read once — look again at this angle to confirm
+        }
+        if (hold > 0) hold--;
+        else step = (step + 1) % BARCODE_ANGLES.length;
+        await nextFrame();
       }
-      timer = setTimeout(frame, TICK_MS);
     }
 
     async function start() {
@@ -180,7 +117,7 @@ export function BarcodeScanner({ onDetected, onClose }) {
           },
         });
         if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
+          stop();
           return;
         }
 
@@ -189,7 +126,7 @@ export function BarcodeScanner({ onDetected, onClose }) {
         await video.play();
 
         attachTorch(stream.getVideoTracks()[0]);
-        frame();
+        loop();
       } catch (e) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : 'Could not start the camera.';
@@ -204,7 +141,6 @@ export function BarcodeScanner({ onDetected, onClose }) {
       stop();
     };
   }, [attachTorch]);
-
 
   return (
     <div
@@ -237,7 +173,7 @@ export function BarcodeScanner({ onDetected, onClose }) {
         />
       </div>
       <div style={{ padding: 16, textAlign: 'center', fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)' }}>
-        {error ?? lowLightHint(torch) ?? 'Point the camera at the tracking barcode — any angle, faint print is fine. Hold still for a moment.'}
+        {error ?? lowLightHint(torch) ?? 'Point the camera at the tracking barcode — any angle. Faint print? Move closer so the barcode fills the screen width, and hold still.'}
       </div>
     </div>
   );

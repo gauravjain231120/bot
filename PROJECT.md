@@ -1717,3 +1717,60 @@ courier bags) take a very long time or fail entirely to scan:
 
 Frame timing: 55 ms budget / 55 ms tick (~18 fps processing), 20% faster than the
 original 70/90 while giving TRY_HARDER + dual binarizers enough time per step.
+
+## 36. Barcode rebuilt from bar edges; OCR never guesses a digit (2026-09-27)
+
+Reported: light / faint barcode prints (e.g. a real MYSR1247200658 label) didn't scan at all, and
+reading a Myntra tracking id / Amazon order id as text sometimes took a 0 for an 8.
+
+**Root causes found**
+- For 1D barcodes zxing uses ONE grey threshold per row: `HybridBinarizer` only differs from
+  `GlobalHistogramBinarizer` for 2D codes (the earlier notes assumed it was adaptive for barcodes —
+  it isn't). A faint print, a slightly blurred frame (narrow bars go paler than wide ones), or a
+  label next to a dark bag loses the thin bars under any single threshold; stretching contrast
+  doesn't change which side of the threshold they fall.
+- The real MYSR label has **wide bars split by a hairline white streak** (worn thermal head). zxing
+  can't decode it at any threshold, even on the clean photo.
+- Code 128's mod-103 check (EAN/ITF even less) lets the odd random scan line through as junk
+  (":", "E$'{?:", 8-digit ITF/EAN numbers) — the old rule accepted Code 128 / EAN on first read.
+- `MultiFormatReader` `console.warn`s a stack trace on every miss (many per second while scanning).
+- OCR: the guide box includes the barcode, which tesseract reads as junk lines, and the old voter
+  accepted "3 identical reads in 6" even while other frames read a different digit.
+
+**Barcode (`barcodeLines.js` → `barcodeDecode.js` → `barcodeWorker.js`, driven by `barcodeEngine.js`)**
+1. Frame turned to the next angle (0, 90, 45, 135, then 15° steps — `BARCODE_ANGLES`).
+2. 40 scan lines down the frame, each = 5 or 13 frame rows averaged (bars run up-down, so noise
+   drops without blurring bars).
+3. Bars rebuilt from **edges** (gradient peaks, sub-pixel, written at 2x width) above the line's own
+   noise level; ripples (an edge < 35% of the strong edges near it) dropped; a mid-grey step wider
+   than any bar is paper (keeps the quiet zone); bar width corrected for ink spread/starvation
+   (narrow bars vs narrow spaces). Extra versions close hairline white gaps of ~0.75 / 1.05 / 1.35
+   module (module width measured per line). Lines with < 24 edges are skipped.
+4. zxing `MultiFormatOneDReader` (Code 128 + Code 39 only, TRY_HARDER over the small line stack —
+   both directions, so upside-down works), no console spam.
+5. All of that in a **Web Worker** (frame buffer transferred, not copied); if the worker fails or
+   hangs 4 s, the same decoder runs on the main thread. The phone's `BarcodeDetector` still runs
+   first where it exists.
+6. Trust (`createBarcodeConfirmer`): must look like an id (6+ letters/digits/dashes); a Code 128
+   Myntra id (MY + 2 letters + 8+ digits) counts at once; anything else needs the same text twice
+   within 4 s. After a first read the scanner stays on that angle for 4 frames to confirm quickly.
+
+Measured offline (Node, same decoder code; 140 synthetic 1080p camera frames: the real label photo
++ generated Code 128 labels, 4 ink levels, blur, noise, uneven light, tilts 0/7/35/90/180°):
+old 30/140 → new **78/140**, 0 wrong. Faint 1 → 18 /35, very faint 0 → 5 /35. The real MYSR photo
+0 → 18 /60 frames (18/40 at normal/large size; at the smallest size neither reads). A label held
+close (barcode ~ half the frame width) **20/20** across all ink levels incl. very faint (old 11/20).
+Very faint AND small in frame still fails — the scanner's hint now says to move closer.
+~22 ms per attempt on a laptop (phone slower, but off the main thread).
+
+**OCR (`TextIdScanner.js`; `OrderIdScanner` / `MyntraTextScanner` are now thin wrappers)**
+- The barcode engine runs alongside tesseract: a barcode in view that decodes to the right kind of
+  id (Myntra `MY…`; Amazon `###-#######-#######`) wins at once — exact, where OCR can misread.
+- `readMyntraId`: exactly `MY[SE]X` + **10 digits** (all real ids seen), per-position letter/digit
+  fixes (prefix letters, tail digits), junk glued in front tolerated.
+- `createIdVoter` (both scanners): 3 identical reads in the last 8, from both image sizes, and **no
+  read in the window differing by 1–2 characters**. If frames disagree, the scanner shows
+  "Unsure: X or Y? Move closer" and keeps reading — it never picks the majority.
+- Removed: per-digit tesseract confidence (no longer used), `smoothAlongBars`.
+
+Not verified on a phone yet — the numbers above are offline measurements.
