@@ -99,7 +99,7 @@ export default function OverviewPage() {
           <OtcWindowEditor window={otcStatus?.window} isOwner={isOwner} onSave={handleSetOtcWindow} />
         </div>
         <div className="stat-card">
-          {/* Every packet waiting for pickup, whatever day it was packed (api/packed-count). */}
+          {/* Packets waiting for pickup among those packed in the last 4 days (api/packed-count). */}
           <div className="stat-label">Myntra packed</div>
           {packedCountError ? (
             <>
@@ -114,7 +114,7 @@ export default function OverviewPage() {
           <div className="stat-sub" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             {packedCount && !packedCountError ? (
               <span>
-                waiting for pickup
+                waiting for pickup (last {packedCount.days || 4} days)
                 {packedCount.today != null ? ` · ${packedCount.today} packed today` : ''}
                 {packedCount.todayPicked ? ` (${packedCount.todayPicked} picked up)` : ''}
                 {packedCount.overdue ? (

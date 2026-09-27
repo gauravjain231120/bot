@@ -6,7 +6,7 @@ import { todayIst } from '../../../lib/telegramCommands';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-// A busy fortnight is a dozen Myntra pages — give it room.
+// A busy few days can be several Myntra pages — give it room.
 export const maxDuration = 30;
 
 const PACKED_CACHE_MS = 10 * 60 * 1000;
@@ -16,14 +16,13 @@ const FRESH_MIN_GAP_MS = 30 * 1000;
 
 // GET /api/packed-count[?fresh=1] — the dashboard's "Myntra packed" card
 // (lib/myntra.js fetchPackedPackets):
-//   count        packets waiting for pickup (status PACKED), however many days
-//                ago they were packed
+//   count        packets waiting for pickup (status PACKED) among those packed
+//                in the last 4 days (today + 3 days before)
 //   today        packets packed today, picked up yet or not
 //   todayPicked  of those, how many the courier already took — so "0 waiting"
 //                right after the pickup reads as what it is
-//   overdue      waiting packets already past their pick-by time — e.g. one
-//                packed 15 Sept (pick by 16 Sept) still PACKED on 27 Sept:
-//                something to look at on Myntra, shown with its tracking ids
+//   overdue      waiting packets already past their pick-by time — something
+//                to look at on Myntra, shown with its tracking ids
 //
 // Deliberately NOT part of the dashboard's auto-refresh loop (it's loaded
 // once when the page opens, and on Refresh) — this hits Myntra's live API,

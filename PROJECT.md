@@ -1885,3 +1885,10 @@ The card: waiting for pickup (all PACKED) · N packed today (picked up yet or no
 Tested offline: the real background.js on a fake Chrome API (10 scenarios, incl. the race, cookie
 scope, session-token-only = logged out, no overlapping syncs) and fetchPackedPackets against a fake
 Myntra with the real 5-day refusal; plus the live read-only check above.
+
+**Same day, seller's choice: last 4 days only.** The card now looks at packets packed today and the
+3 days before (one Myntra window, end − start = 3 days; `PACKED_WINDOW_DAYS = 4`, `PACKED_WINDOWS =
+1` in lib/myntra.js — raise PACKED_WINDOWS for a longer look-back). Live check on 27 Sept: 79 packets
+24–27 Sept, **18 waiting for pickup** (13 packed 26 Sept night + 5 packed 27 Sept), 5 packed today.
+The 15-Sept packet still PACKED on Myntra is outside the 4 days and no longer counted. The card says
+"waiting for pickup (last 4 days)".
