@@ -2194,3 +2194,33 @@ person's very next request — no logout needed.
   login; it now needs Recipients. The OTC check window stays Owner-only.
 - Accounts: `sections` (list of keys) on each Viewer account; `setAccountSections`; the PATCH
   `/api/accounts/[username]` takes `{ sections }` (unknown keys dropped); POST takes `sections` too.
+
+## 47. Marketplace logo on alert photos (2026-09-28)
+
+Every alert photo now carries the **Myntra** or **Amazon** logo on a small white tag in its
+top-left corner, so a glance at the chat tells which marketplace the order is from. It's on the
+new-order alerts (first send and every resend of a stored alert) and the cancellation alerts;
+text-only alerts are unchanged.
+
+- **How**: `lib/photoBadge.js` downloads each photo (6 s timeout, once per URL; a qty-2 line is
+  drawn once), shrinks it to at most 1280 px (Telegram shows no more anyway), draws the logo with
+  `sharp` (tag ≈ 9% of the shorter side, 3% margin) and returns a JPEG. `lib/telegram.js`
+  uploads it as multipart (`attach://pN` in an album). The photos are drawn once per alert, then
+  sent to every recipient. `sendPayload(payload, 'myntra' | 'amazon')`; the stored payload keeps
+  the plain photo URLs, as before.
+- **Never loses an alert or a photo**: a photo that can't be downloaded or drawn (or is too small
+  to carry the tag), a missing logo file or `sharp` failing to load → that photo goes by its URL,
+  as before. An upload Telegram refuses (4xx) → sent again with the plain photo URLs, then the
+  text alone if those are refused too (the old rule). A blocked chat (403), Telegram down (5xx)
+  or a timeout are not retried as URLs, since the first try may have arrived.
+- **Logos**: `lib/assets/myntra-logo.png`, `lib/assets/amazon-logo.png` (160 px high, from the
+  Wikimedia Commons SVGs), shipped with every API route by `outputFileTracingIncludes` in
+  `next.config.mjs`. `sharp` is now a direct dependency (it was already installed with Next).
+- No new marketplace seller-API calls. Only the product images are fetched from the public image
+  CDNs, the same links Telegram used to fetch itself, and only when an alert goes out.
+- Tested: offline (upload, album mix of uploads and links, refused upload → links → text,
+  403/5xx, HTML fallback, long caption, tiny/broken image, missing `sharp`, 10-photo cap, real
+  multipart body), the full existing suite, the build (all six alert routes trace `sharp` and the
+  logos), and a live test alert for today's latest Myntra (6035086249) and Amazon
+  (402-4053911-9456355) orders sent **only to the Owner chat**. The test was rebuilt from the DB
+  snapshots: no marketplace call, no reservation, no DB write.
