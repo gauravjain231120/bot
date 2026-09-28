@@ -2224,3 +2224,31 @@ text-only alerts are unchanged.
   logos), and a live test alert for today's latest Myntra (6035086249) and Amazon
   (402-4053911-9456355) orders sent **only to the Owner chat**. The test was rebuilt from the DB
   snapshots: no marketplace call, no reservation, no DB write.
+
+## 48. Packed count in the OTC message (2026-09-28)
+
+The automatic Pickup / Return OTC message now ends with how many packets go out in today's
+pickup, in total and per courier:
+
+```
+📦 Packed: 18
+MYS: 17
+MYE: 1
+```
+
+- **Which packets** (`lib/checkOtc.js` `pickupPackets`, from `fetchPackedPackets`, the last 4
+  days): every packet still at status PACKED, plus every packet packed today (IST) that the
+  courier already took (PICKED / SHIPPED / DELIVERED). A packet packed yesterday and picked up
+  yesterday, or a cancelled one, is not counted.
+- **Per courier, by tracking id**: `MYE…` → MYE; `MYS…` and `SF…` → MYS (as the seller asked).
+  Any other or missing tracking id → an "Other" line, shown only when there is one, so the
+  total always adds up.
+- **Calls**: one read of Myntra's packed list, made only when the OTC message is about to go out
+  (at most once a day, plus once more if Telegram didn't take it and the next poll resends).
+  Never on the polls before a code shows. If the read fails, the codes still go, with
+  "Packed: couldn't read Myntra's packed list", never a made-up 0.
+- `/otc` and `/otcall` on Telegram are unchanged (codes only).
+- Tested offline (`test_otc`: split, statuses, IST day edge, no call before a code, failure line,
+  0) and with a live test message to the **Owner only**. That message used today's stored codes
+  and one packed-list read, with no DB write, and showed 18 = 17 packed today plus 1 older packet
+  still at PACKED.
