@@ -53,7 +53,7 @@ function NoAccess({ username }) {
  */
 export function AppShell({ children }) {
   const {
-    authed, account, can, theme, toggleTheme,
+    authed, account, can, loadError, theme, toggleTheme,
     running, toggling, checking, handleToggle, handleCheckNow, handleLogout,
   } = useDashboard();
   const pathname = usePathname();
@@ -183,7 +183,7 @@ export function AppShell({ children }) {
           </div>
         </div>
         <main className="shell-content">
-          {!account ? <p className="muted">Loading…</p> : pageAllowed ? children : <NoAccess username={account.username} />}
+          {!account ? <p className="muted">{loadError || 'Loading…'}</p> : pageAllowed ? children : <NoAccess username={account.username} />}
         </main>
       </div>
     </div>
