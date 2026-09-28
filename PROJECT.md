@@ -2311,6 +2311,12 @@ PACKED, not on its cancelled list (MYSC1348906990). The new page **Myntra Cancel
 - Calls: only on a scan. One parcel read plus usually 1–6 order reads. Nothing on a timer; the list
   is database only.
 - `/packed` on Telegram (the older per-day PACKED count) is unchanged.
+- MYSC1348906990 (order 6033650199) was marked after its stock had already been fixed by hand, so
+  its Shipped entry was gone and the scan changed nothing. As the seller asked, a Cancelled record
+  was added on stock-manager's Shipped page for it: qty 0, dated its ship-by day 27 Sept, no stock
+  change. It has a MANUAL `CancelReversal` under the bot's request id, so the bot's Undo would only
+  remove the record, and a later Myntra cancellation of the order is counted (no false owner alert).
+  The bot's list entry is marked `recordOnly` and says so.
 - Tested: offline (`test_manual_cancel`: the time window, the best-seller early stop, sure/unsure,
   hand pick rules, no match, unreadable order, rejected session, all three candidate sources and
   stock-manager down, mark + stock + cache drop, repeat, packet-id scan, no-order, stock-manager down
