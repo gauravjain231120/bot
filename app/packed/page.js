@@ -12,11 +12,14 @@ const STATUS_STYLES = {
   PICKED: { label: 'Picked', color: 'var(--accent)', background: 'var(--accent-soft)' },
   PACKED: { label: 'Packed', color: 'var(--text)', background: 'var(--surface-2)' },
 };
+// Any status saying CANCEL (Myntra's exact word for it isn't pinned down).
+const CANCELLED_STYLE = { label: 'Cancelled', color: 'var(--bad)', background: 'var(--bad-soft)' };
 
 const RECENT_LIMIT = 10;
 
 function StatusBadge({ status }) {
-  const style = STATUS_STYLES[status] || { label: status || 'Unknown', color: 'var(--text)', background: 'var(--surface-2)' };
+  const style =
+    STATUS_STYLES[status] || (/CANCEL/i.test(String(status || '')) ? CANCELLED_STYLE : { label: status || 'Unknown', color: 'var(--text)', background: 'var(--surface-2)' });
   return (
     <span style={{ display: 'inline-block', fontWeight: 700, fontSize: '0.8rem', borderRadius: 6, padding: '2px 8px', color: style.color, background: style.background }}>
       {style.label}
@@ -61,7 +64,10 @@ export default function PackedScanPage() {
         setError(data.error || `HTTP ${res.status}`);
         return;
       }
-      playScanSuccess();
+      // A cancelled packet sounds like a wrong scan — "don't pack" without looking.
+      const p = data.packet;
+      if (p.cancelled || (p.items.length && p.items.every((it) => it.cancelled))) playScanError();
+      else playScanSuccess();
       setPacket(data.packet);
       setRecent((list) => [
         data.packet,
@@ -75,7 +81,9 @@ export default function PackedScanPage() {
     }
   }
 
-  const pieces = packet ? numberPieces(packet.items.map((it) => it.quantity)) : null;
+  // Pieces to pack: none of a cancelled line (it gets the red ✕ instead).
+  const pieces = packet ? numberPieces(packet.items.map((it) => (it.cancelled ? 0 : it.quantity))) : null;
+  const cancelledUnits = packet ? packet.items.reduce((a, it) => a + (it.cancelled ? it.quantity || 1 : 0), 0) : 0;
 
   return (
     <>
@@ -99,7 +107,7 @@ export default function PackedScanPage() {
 
         {packet && (
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <ItemCountBanner count={pieces.total} noun="packet" verb="Pack" />
+            <ItemCountBanner count={pieces.total} cancelled={cancelledUnits} noun="packet" verb="Pack" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{packet.trackingNumber}</span>
               <StatusBadge status={packet.status} />
@@ -109,8 +117,8 @@ export default function PackedScanPage() {
             )}
 
             {packet.items.map((item, i) => (
-              <div key={`${item.skuId}-${i}`} style={{ display: 'flex', gap: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
-                <NumberedImage src={item.image} label={pieces.labels[i]} />
+              <div key={`${item.skuId}-${i}`} style={{ display: 'flex', gap: 12, padding: 10, border: item.cancelled ? '2px solid var(--bad)' : '1px solid var(--border)', borderRadius: 10 }}>
+                <NumberedImage src={item.image} label={pieces.labels[i]} cancelled={item.cancelled} />
                 <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem' }}>
                   <div style={{ fontWeight: 600 }}>{item.productName || 'Unknown product'}</div>
                   <div className="muted" style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{item.sellerSkuCode || item.myntraSku || `skuId ${item.skuId}`}</div>
@@ -125,6 +133,9 @@ export default function PackedScanPage() {
                     {item.finalAmount != null ? ` · ₹${item.finalAmount}` : ''}
                     {item.mrp != null && item.mrp !== item.finalAmount ? ` (MRP ₹${item.mrp})` : ''}
                   </div>
+                  {item.cancelled && (
+                    <div style={{ marginTop: 6, fontWeight: 800, color: 'var(--bad)' }}>✕ Cancelled — don&apos;t pack this</div>
+                  )}
                 </div>
               </div>
             ))}

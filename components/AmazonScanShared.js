@@ -53,11 +53,16 @@ export function DateRow({ label, value, children }) {
 }
 
 // Photo (with its piece number — see ItemCount), title, SKU, big size badge,
-// color — same layout as the Myntra cards.
-export function ItemCard({ item, number, children }) {
+// color — same layout as the Myntra cards. `showCancelled` (the Pack page): a
+// cancelled line gets the red ✕ and "don't pack"; a partly cancelled one says
+// how many. The Return page leaves it off — a cancelled order coming back as
+// an RTO is still a return to log.
+export function ItemCard({ item, number, children, showCancelled = false }) {
+  const cancelled = showCancelled && !!item.cancelled;
+  const partly = showCancelled && !cancelled && item.cancelledQty > 0;
   return (
-    <div style={{ display: 'flex', gap: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
-      <NumberedImage src={item.image} label={number} />
+    <div style={{ display: 'flex', gap: 12, padding: 10, border: cancelled ? '2px solid var(--bad)' : '1px solid var(--border)', borderRadius: 10 }}>
+      <NumberedImage src={item.image} label={number} cancelled={cancelled} />
       <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem' }}>
         <div style={{ fontWeight: 600 }}>{item.title || 'Unknown product'}</div>
         <div className="muted" style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{item.sku || item.asin || '—'}</div>
@@ -71,6 +76,14 @@ export function ItemCard({ item, number, children }) {
           Qty: {item.quantity}
           {item.price != null ? ` · ₹${item.price}` : ''}
         </div>
+        {cancelled && (
+          <div style={{ marginTop: 6, fontWeight: 800, color: 'var(--bad)' }}>✕ Cancelled — don&apos;t pack this</div>
+        )}
+        {partly && (
+          <div style={{ marginTop: 6, fontWeight: 700, color: 'var(--bad)' }}>
+            {item.cancelledQty} of these cancelled — pack only {item.quantity}
+          </div>
+        )}
         {children}
       </div>
     </div>

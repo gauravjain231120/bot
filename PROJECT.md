@@ -2142,3 +2142,29 @@ finding reproduced in the simulated world first, then fixed with a test:
   login; a retry started by reconnecting keeps its "scheduled" status.
 - **Deploy order: stock-manager first**, then the bot (the bot relies on the queue delete's
   `requestId` and `cancelled` count; the new stock-manager works with the old bot).
+
+## 45. Cancelled items get a big red ✕ on the Pack pages (2026-09-28)
+
+Amazon Pack and Myntra Pack now make a cancelled item impossible to miss: a big red ✕ across its
+photo with a **CANCELLED** tag, a red card, "✕ Cancelled — don't pack this", and no piece number (it
+isn't a piece to pack). The top banner says **"Cancelled — do not pack"** when nothing is left to
+pack, or "N items to pack · ✕ + M cancelled — leave them out" when only part is; a partly cancelled
+line says "M of these cancelled — pack only N". A scan with nothing left to pack plays the error
+"uh-oh" instead of the success chime, so the packer hears it without looking.
+
+What counts as cancelled:
+- **Amazon** (`lib/amazonScan.js` `shapeOrder`): the order's status is Canceled (Amazon keeps
+  `QuantityOrdered` 1 on a cancelled order's line — every unit counts as cancelled), or a line's
+  own `QuantityCanceled` covers all of it (partly: `cancelledQty`). Items carry `cancelled` /
+  `cancelledQty`; `quantity` keeps its meaning (the physical units) — the Amazon Return page's RTO
+  path reuses this shape and must still log what comes back, so the ✕ is drawn only where
+  `ItemCard` is given `showCancelled` (the Pack page).
+- **Myntra** (`lookupPackedShipment`): the packet lookup (searchPostPackedOrder) carries no order
+  id and no per-item status (checked on real packets), and no cancelled packet has been seen yet,
+  so a packet — or an item, should Myntra ever send one — whose status says CANCEL gets the ✕.
+  Myntra's exact word for it isn't pinned down; the first real cancelled packet will confirm it.
+- The Return pages are unchanged (a cancelled order coming back is still a return to log).
+
+`components/ItemCount.js` (`CancelledMark`, `NumberedImage cancelled`, `ItemCountBanner
+cancelled`), `components/AmazonScanShared.js` (`ItemCard showCancelled`), `app/amazon-packed`,
+`app/packed`.

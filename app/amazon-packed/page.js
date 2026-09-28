@@ -9,6 +9,10 @@ const RECENT_LIMIT = 10;
 
 // Every item of an order, in the order they're shown: packed ones by package, then the rest.
 const orderItems = (o) => [...o.packages.flatMap((p) => p.items), ...o.items];
+// Pieces to pack on a line: none of a cancelled one.
+const toPack = (it) => (it.cancelled ? 0 : it.quantity);
+// Nothing on it left to pack (cancelled order, or every line cancelled).
+const allCancelled = (o) => o.cancelled || orderItems(o).every((it) => it.cancelled);
 
 // `labels`: the piece number of each item, in orderItems order.
 function OrderResult({ order, labels }) {
@@ -36,10 +40,10 @@ function OrderResult({ order, labels }) {
               {pkg.scanned && order.packages.length > 1 ? ' · ← scanned' : ''}
             </div>
           )}
-          {pkg.items.map((item, i) => <ItemCard key={`${item.sku}-${i}`} item={item} number={labels[k++]} />)}
+          {pkg.items.map((item, i) => <ItemCard key={`${item.sku}-${i}`} item={item} number={labels[k++]} showCancelled />)}
         </div>
       ))}
-      {order.items.map((item, i) => <ItemCard key={`${item.sku}-${i}`} item={item} number={labels[k++]} />)}
+      {order.items.map((item, i) => <ItemCard key={`${item.sku}-${i}`} item={item} number={labels[k++]} showCancelled />)}
 
       <div style={{ fontSize: '0.88rem' }}>
         <DateRow label="Order received" value={order.orderDate} />
@@ -71,7 +75,9 @@ export default function AmazonPackedPage() {
         setError(data.error || `HTTP ${res.status}`);
         return false;
       }
-      playScanSuccess();
+      // A cancelled order sounds like a wrong scan — "don't pack" without looking.
+      if (data.orders.length && data.orders.every(allCancelled)) playScanError();
+      else playScanSuccess();
       const orderIds = data.orders.map((o) => o.orderId);
       setRepeatScan(recent.some((r) => orderIds.includes(r.orderId)));
       setResult(data);
@@ -95,7 +101,10 @@ export default function AmazonPackedPage() {
   }
 
   // Pieces numbered across the whole result (normally one order).
-  const pieces = result ? numberPieces(result.orders.flatMap(orderItems).map((it) => it.quantity)) : null;
+  const pieces = result ? numberPieces(result.orders.flatMap(orderItems).map(toPack)) : null;
+  const cancelledUnits = result
+    ? result.orders.flatMap(orderItems).reduce((a, it) => a + (it.cancelled ? it.cancelledQty || it.quantity || 1 : it.cancelledQty || 0), 0)
+    : 0;
   let offset = 0;
   const labelsFor = (o) => {
     const n = orderItems(o).length;
@@ -123,6 +132,7 @@ export default function AmazonPackedPage() {
             {/* Split into 2+ packages, one label doesn't hold everything — no "pack all". */}
             <ItemCountBanner
               count={pieces.total}
+              cancelled={cancelledUnits}
               noun={result.orders.length > 1 ? 'scan' : 'order'}
               verb={result.orders.some((o) => o.packages.length > 1) ? undefined : 'Pack'}
             />
