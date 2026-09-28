@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useDashboard } from '../lib/DashboardContext';
+import { sectionForPath } from '../lib/sections';
 import { LoginScreen } from './LoginScreen';
 import {
   SunIcon, MoonIcon, BellIcon, PlayIcon, StopIcon, RefreshIcon, MenuIcon, CloseIcon,
@@ -15,6 +16,8 @@ import {
 // would just be a redundant way to see the same thing. The /orders route
 // itself is left in place (still using the same shared OrdersGrid), just not
 // linked from here.
+// Each link shows only to accounts that may open its section (lib/sections.js
+// — Owners everything; a Viewer what the Owner ticked on the Team page).
 const NAV_ITEMS = [
   { href: '/', label: 'Overview', Icon: HomeIcon },
   { href: '/returns', label: 'Myntra Return', Icon: ScanIcon },
@@ -22,10 +25,23 @@ const NAV_ITEMS = [
   { href: '/amazon-packed', label: 'Amazon Pack', Icon: BoxIcon },
   { href: '/amazon-returns', label: 'Amazon Return', Icon: ScanIcon },
   { href: '/sessions', label: 'Sessions', Icon: KeyIcon },
-  { href: '/recipients', label: 'Recipients', Icon: UsersIcon, ownerOnly: true },
-  { href: '/team', label: 'Team', Icon: ShieldIcon, ownerOnly: true },
-  { href: '/spf-status', label: 'SPF Status', Icon: ChartIcon, ownerOnly: true },
-];
+  { href: '/recipients', label: 'Recipients', Icon: UsersIcon },
+  { href: '/team', label: 'Team', Icon: ShieldIcon },
+  { href: '/spf-status', label: 'SPF Status', Icon: ChartIcon },
+].map((item) => ({ ...item, section: sectionForPath(item.href) }));
+
+// A page this account may not open: nothing of it is rendered (its data
+// wouldn't load anyway — the server refuses it).
+function NoAccess({ username }) {
+  return (
+    <div className="card empty-state">
+      <p style={{ fontWeight: 600, marginBottom: 6 }}>You don&apos;t have access to this page.</p>
+      <p className="muted">
+        {username ? `Signed in as ${username}. ` : ''}Ask the Owner to give it to you on the Team page.
+      </p>
+    </div>
+  );
+}
 
 /**
  * The app shell every page renders inside (wired in app/layout.js) — sidebar
@@ -37,10 +53,11 @@ const NAV_ITEMS = [
  */
 export function AppShell({ children }) {
   const {
-    authed, account, isOwner, theme, toggleTheme,
+    authed, account, can, theme, toggleTheme,
     running, toggling, checking, handleToggle, handleCheckNow, handleLogout,
   } = useDashboard();
   const pathname = usePathname();
+  const router = useRouter();
   const [navOpen, setNavOpen] = useState(false);
   // Same 900px breakpoint as the CSS. Tracked in JS too — not just relying
   // on a CSS media query to hide the hamburger/close buttons on desktop —
@@ -66,6 +83,17 @@ export function AppShell({ children }) {
     if (!isMobile) setNavOpen(false);
   }, [isMobile]);
 
+  // What this page needs, and whether this account has it. Landing on a page
+  // it can't open (usually "/" — Overview — right after logging in) goes to
+  // the first page it can.
+  const pageSection = sectionForPath(pathname);
+  const pageAllowed = !pageSection || can(pageSection);
+  const firstAllowedHref = (NAV_ITEMS.find((item) => can(item.section)) || {}).href || null;
+  const accountKnown = !!account;
+  useEffect(() => {
+    if (authed && accountKnown && !pageAllowed && firstAllowedHref && firstAllowedHref !== pathname) router.replace(firstAllowedHref);
+  }, [authed, accountKnown, pageAllowed, firstAllowedHref, pathname, router]);
+
   if (authed === null) {
     return (
       <main className="auth-page">
@@ -78,7 +106,8 @@ export function AppShell({ children }) {
     return <LoginScreen />;
   }
 
-  const visibleNav = NAV_ITEMS.filter((item) => !item.ownerOnly || isOwner);
+  const visibleNav = NAV_ITEMS.filter((item) => can(item.section));
+  const canControl = can('controls');
 
   return (
     <div className="shell">
@@ -124,14 +153,18 @@ export function AppShell({ children }) {
             </button>
           )}
           <div className="topbar-controls">
-            <button className={running ? 'danger' : ''} onClick={handleToggle} disabled={toggling}>
-              {running ? <StopIcon /> : <PlayIcon />}
-              {toggling ? 'Working...' : running ? 'Stop' : 'Start'}
-            </button>
-            <button className="secondary" onClick={handleCheckNow} disabled={checking}>
-              <RefreshIcon spinning={checking} />
-              {checking ? 'Checking...' : 'Check now'}
-            </button>
+            {canControl && (
+              <>
+                <button className={running ? 'danger' : ''} onClick={handleToggle} disabled={toggling}>
+                  {running ? <StopIcon /> : <PlayIcon />}
+                  {toggling ? 'Working...' : running ? 'Stop' : 'Start'}
+                </button>
+                <button className="secondary" onClick={handleCheckNow} disabled={checking}>
+                  <RefreshIcon spinning={checking} />
+                  {checking ? 'Checking...' : 'Check now'}
+                </button>
+              </>
+            )}
           </div>
           <div className="topbar-controls">
             {account && (
@@ -149,7 +182,9 @@ export function AppShell({ children }) {
             )}
           </div>
         </div>
-        <main className="shell-content">{children}</main>
+        <main className="shell-content">
+          {!account ? <p className="muted">Loading…</p> : pageAllowed ? children : <NoAccess username={account.username} />}
+        </main>
       </div>
     </div>
   );

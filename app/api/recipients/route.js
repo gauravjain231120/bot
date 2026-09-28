@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
-import { requireOwner } from '../../../lib/adminAuth';
 import { listRecipients, toPublicShape } from '../../../lib/recipients';
 import { getBotUsername } from '../../../lib/telegram';
+import { requireSection } from '../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const check = await requireOwner();
+  const check = await requireSection('recipients');
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const [recipients, botUsername] = await Promise.all([listRecipients(), getBotUsername()]);

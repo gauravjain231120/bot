@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
-import { isAuthed, getCurrentAccount } from '../../../../lib/adminAuth';
+import { getCurrentAccount } from '../../../../lib/adminAuth';
 import { lookupAmazonReturn } from '../../../../lib/amazonScan';
 import { lookupProductBySku } from '../../../../lib/stock';
 import { rememberReturnLookup } from '../../../../lib/returnLookupCache';
+import { requireSection } from '../../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,9 +14,8 @@ export const dynamic = 'force-dynamic';
 // item is matched against stock-manager's catalog (read-only, same as the
 // Myntra Scan Return resolver) so the page can offer "Add to Return".
 export async function GET(request) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const access = await requireSection('amazonReturn');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   const mode = request.nextUrl.searchParams.get('mode') === 'order' ? 'order' : 'tracking';
   const id = request.nextUrl.searchParams.get('id') || '';
 

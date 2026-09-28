@@ -956,6 +956,59 @@ a {
   color: var(--text-dim);
 }
 
+/* ---------- team: what each Viewer can open ---------- */
+
+.member-row {
+  align-items: flex-start;
+}
+.member-sections {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.member-sections-label {
+  font-size: 0.78rem;
+}
+.section-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.section-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  cursor: pointer;
+  user-select: none;
+}
+.section-pick input {
+  margin: 0;
+  padding: 0;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  accent-color: var(--accent);
+}
+.section-pick.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.member-sections-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .remove-btn {
   width: 32px;
   height: 32px;

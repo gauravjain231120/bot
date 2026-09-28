@@ -22,10 +22,10 @@ const STATUS_LABELS = [
   ['DISPUTED', 'Disputed'],
 ];
 
-function OwnerOnlyNotice() {
+function NoAccessNotice() {
   return (
     <div className="card empty-state">
-      This page is only available to Owner accounts.
+      You don&apos;t have access to this page — ask the Owner to give it to you on the Team page.
     </div>
   );
 }
@@ -115,7 +115,8 @@ function PaidReview({ review }) {
 }
 
 export default function SpfStatusPage() {
-  const { isOwner } = useDashboard();
+  const { can } = useDashboard();
+  const allowed = can('spf');
   const [counts, setCounts] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -155,8 +156,8 @@ export default function SpfStatusPage() {
   }, []);
 
   useEffect(() => {
-    if (isOwner) load();
-  }, [isOwner, load]);
+    if (allowed) load();
+  }, [allowed, load]);
 
   useEffect(() => {
     if (!modalKey) return;
@@ -217,7 +218,7 @@ export default function SpfStatusPage() {
     }
   }
 
-  if (!isOwner) return <OwnerOnlyNotice />;
+  if (!allowed) return <NoAccessNotice />;
 
   const breakdown = counts
     ? STATUS_LABELS.map(([key, label]) => [label, counts.byStatus[key] || 0]).filter(([, n]) => n > 0)

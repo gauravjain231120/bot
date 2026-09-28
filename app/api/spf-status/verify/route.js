@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
-import { requireOwner } from '../../../../lib/adminAuth';
 import { fetchSpfPaidBreakdown } from '../../../../lib/spfPaid';
 import { loadSpfTickets, paidClaimStore } from '../../../../lib/spfCache';
 import { secretMatches } from '../../../../lib/secrets';
+import { requireSection } from '../../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,7 +28,7 @@ export const maxDuration = 120;
 // stock-manager's return log (lib/spfPaid.js) — if stock-manager can't be
 // read, the total still comes back, just with `breakdownError` set.
 export async function POST(request) {
-  const check = await requireOwner();
+  const check = await requireSection('spf');
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const body = await request.json().catch(() => ({}));

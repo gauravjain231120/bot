@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireOwner } from '../../../lib/adminAuth';
 import { listAccounts, createAccount } from '../../../lib/accounts';
 import { secretMatches } from '../../../lib/secrets';
+import { cleanSections } from '../../../lib/sections';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,7 +24,11 @@ export async function GET() {
   return NextResponse.json({ accounts: await listAccounts() });
 }
 
-/** POST { username, password, role, confirmPassword } -> add a new dashboard login. Owner only. */
+/**
+ * POST { username, password, role, sections?, confirmPassword } -> add a new
+ * dashboard login. Owner only. `sections`: what a Viewer may open
+ * (lib/sections.js keys; unknown ones dropped) — left out = the default.
+ */
 export async function POST(request) {
   const check = await requireOwner();
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -34,7 +39,8 @@ export async function POST(request) {
   }
 
   try {
-    const account = await createAccount(body.username, body.password, body.role || 'VIEWER');
+    const sections = Array.isArray(body.sections) ? cleanSections(body.sections) : undefined;
+    const account = await createAccount(body.username, body.password, body.role || 'VIEWER', { sections });
     return NextResponse.json({ ok: true, account });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 400 });

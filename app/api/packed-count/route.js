@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
-import { isAuthed } from '../../../lib/adminAuth';
 import { fetchPackedPackets } from '../../../lib/myntra';
 import { todayIst } from '../../../lib/telegramCommands';
+import { requireSection } from '../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,9 +33,8 @@ const ERROR_CACHE_MS = 60 * 1000;
 // Cached 10 min so page loads and tabs share one lookup; Refresh (fresh=1)
 // gets a live count unless one was taken in the last 30 s.
 export async function GET(request) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const access = await requireSection('overview');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   const db = await getDb();
   const settings = db.collection('settings');

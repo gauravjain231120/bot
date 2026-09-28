@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
-import { isAuthed, getCurrentAccount } from '../../../../lib/adminAuth';
+import { getCurrentAccount } from '../../../../lib/adminAuth';
 import { resolveReturnByTrackingId } from '../../../../lib/myntra';
 import { lookupProductBySku } from '../../../../lib/stock';
 import { rememberReturnLookup } from '../../../../lib/returnLookupCache';
+import { requireSection } from '../../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,9 +17,8 @@ export const dynamic = 'force-dynamic';
 // for stock lookups) so the dashboard can offer "Add to Return" directly,
 // without stock-manager's Returns page in the loop at all.
 export async function GET(request) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const access = await requireSection('myntraReturn');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   const trackingId = (request.nextUrl.searchParams.get('trackingId') || '').trim().toUpperCase();
   if (!trackingId) {

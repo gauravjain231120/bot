@@ -4,24 +4,24 @@ import { useDashboard } from '../../lib/DashboardContext';
 import { timeAgo } from '../../lib/format';
 import { RefreshIcon } from '../../components/icons';
 
-function OwnerOnlyNotice() {
+function NoAccessNotice() {
   return (
     <div className="card empty-state">
-      This page is only available to Owner accounts.
+      You don&apos;t have access to this page — ask the Owner to give it to you on the Team page.
     </div>
   );
 }
 
 export default function RecipientsPage() {
   const {
-    isOwner,
+    can,
     recipients, recipientsError, botUsername, roleBusy, recipientsRefreshing,
     handleRefreshRecipients, handleSetRole, handleRemoveRecipient,
     roleHistory,
     otcScope, otcScopeBusy, handleSetOtcScope,
   } = useDashboard();
 
-  if (!isOwner) return <OwnerOnlyNotice />;
+  if (!can('recipients')) return <NoAccessNotice />;
 
   return (
     <>

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
-import { requireOwner } from '../../../lib/adminAuth';
 import { fetchSpfTicketCounts } from '../../../lib/myntra';
 import { loadSpfTickets } from '../../../lib/spfCache';
+import { requireSection } from '../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 // call than the other dashboard stats). The ticket list is cached 15 min
 // (lib/spfCache.js); ?fresh=1 (the page's Refresh button) re-fetches it.
 export async function GET(request) {
-  const check = await requireOwner();
+  const check = await requireSection('spf');
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const db = await getDb();

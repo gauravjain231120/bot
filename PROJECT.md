@@ -2168,3 +2168,29 @@ What counts as cancelled:
 `components/ItemCount.js` (`CancelledMark`, `NumberedImage cancelled`, `ItemCountBanner
 cancelled`), `components/AmazonScanShared.js` (`ItemCard showCancelled`), `app/amazon-packed`,
 `app/packed`.
+
+## 46. Per-person access for dashboard Viewers (2026-09-28)
+
+On the Team page the Owner ticks, for each Viewer, what they can open: **Overview, Myntra Return,
+Myntra Pack, Amazon Pack, Amazon Return, Sessions, Recipients, SPF Status**, and **Start / Stop /
+Check now** (the topbar buttons). Owners open everything; **Team** (who can log in, and what they
+open) stays Owner-only. Adding someone shows the same tick boxes (the standard set pre-ticked);
+changing them asks for the confirmation password, like a role change, and applies on that
+person's very next request — no logout needed.
+
+- **Closed, not just hidden**: every API route checks the section (`lib/access.js`
+  `requireSection`, list in `lib/sections.js`): the scan lookups and their Add-to-Return, orders /
+  OTC / packed card (Overview), session paste (Sessions), recipients + role history (Recipients),
+  SPF, start/stop/check-now (Start/Stop). `/api/status` gives every login the Live/Stopped state
+  and its own section list, and the Overview figures only with Overview. `getCurrentAccount` reads
+  role and sections from the account on each request (not from the session row).
+- **Screen**: the sidebar shows only the person's pages and the topbar buttons only with
+  Start/Stop; a page they can't open shows "You don't have access" (and landing on Overview
+  without it goes to their first page); the dashboard loads only what they may see.
+- **Existing Viewers** (no list saved) keep exactly what Viewers had before: Overview, the four
+  scan pages, Start/Stop/Check now (Sessions, Recipients, SPF Status were already Owner-only) —
+  shown on the Team page as "the standard set — not chosen yet".
+- Also closed: changing who gets the OTC code (`/api/otc-config` recipientScope) was open to any
+  login; it now needs Recipients. The OTC check window stays Owner-only.
+- Accounts: `sections` (list of keys) on each Viewer account; `setAccountSections`; the PATCH
+  `/api/accounts/[username]` takes `{ sections }` (unknown keys dropped); POST takes `sections` too.

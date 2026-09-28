@@ -270,7 +270,7 @@ routes. Everything else on stock-manager needs a real logged-in account.
 | Product / stock catalog reads, return-log reads (SPF paid split) | Bot → stock-manager's database | Read-only database connection, no writes possible |
 | `POST /api/session/sync` | Extension → bot | Separate shared secret |
 | Telegram webhook & commands | Telegram → bot | Bot token + per-person role (Owner-only for commands) |
-| Bot dashboard itself | Person → bot | Real login — Owner / Viewer accounts (added 2026-09-22); Alert recipients, Role change history and the Team list are Owner-only, enforced server-side too, not just hidden in the UI |
+| Bot dashboard itself | Person → bot | Real login — Owner / Viewer accounts; each Viewer opens only the sections the Owner ticked for them on the Team page (Overview, the four scan pages, Sessions, Recipients, SPF Status, Start/Stop/Check now), checked on every API call. The Team list is Owner-only |
 | Everything else on stock-manager | Person → stock-manager | Real login — Owner / Manager / Viewer, section by section |
 
 ## Glossary
@@ -287,6 +287,8 @@ routes. Everything else on stock-manager needs a real logged-in account.
   bucket.
 - **Roles — stock-manager** — Owner, Manager, Viewer. Access is granted section by section
   (Returns, Products, Team, …), checked on every page and every API call.
+- **Roles — bot dashboard** — Owner (everything, including the Team list) and Viewer (only the
+  sections the Owner ticked for them), checked on every API call.
 - **Roles — Telegram** — Owner (every alert + can run commands), Viewer (new-order and
   cancellation alerts only), None (nothing at all).
 - **Session replay** — The bot's whole approach to talking to Myntra/Amazon: reuse the seller's

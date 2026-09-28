@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
 import { setRunning } from '../../../../lib/monitorState';
-import { isAuthed } from '../../../../lib/adminAuth';
+import { requireSection } from '../../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST() {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const access = await requireSection('controls');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   const db = await getDb();
   await setRunning(db, false);

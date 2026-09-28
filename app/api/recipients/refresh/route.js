@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { requireOwner } from '../../../../lib/adminAuth';
 import { listRecipients, updateProfile, toPublicShape } from '../../../../lib/recipients';
 import { getChatInfo, getBotUsername } from '../../../../lib/telegram';
+import { requireSection } from '../../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 // verifiably Telegram-sourced right now, not just whatever was captured the
 // last time that person happened to message the bot.
 export async function POST() {
-  const check = await requireOwner();
+  const check = await requireSection('recipients');
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const recipients = await listRecipients();

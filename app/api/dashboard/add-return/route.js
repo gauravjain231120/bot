@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import { isAuthed, getCurrentAccount } from '../../../../lib/adminAuth';
+import { getCurrentAccount } from '../../../../lib/adminAuth';
 import { myntraReturnTypeFor } from '../../../../lib/returnTypeServer';
 import { addReturnToStockManager } from '../../../../lib/returns';
+import { requireSection } from '../../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,9 +11,8 @@ export const dynamic = 'force-dynamic';
  *  into stock-manager, from this dashboard, without needing to open
  *  stock-manager's own Returns page at all. */
 export async function POST(request) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const access = await requireSection('myntraReturn');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   const body = await request.json().catch(() => ({}));
   if (!body.sku) {
     return NextResponse.json({ error: 'sku is required' }, { status: 400 });

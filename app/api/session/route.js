@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { parseCurl } from '../../../lib/curl';
-import { requireOwner } from '../../../lib/adminAuth';
 import { saveSession } from '../../../lib/sessionStore';
 import { testSession } from '../../../lib/sessionProbe';
+import { requireSection } from '../../../lib/access';
 
 export const runtime = 'nodejs';
 // Testing an Amazon session can take ~10s (its 403s are retried).
@@ -11,7 +11,7 @@ export const maxDuration = 30;
 export async function POST(request) {
   // Owner only: a pasted session decides which seller account every order
   // alert and stock reservation comes from.
-  const check = await requireOwner();
+  const check = await requireSection('sessions');
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const { curl, marketplace: rawMarketplace } = await request.json().catch(() => ({}));

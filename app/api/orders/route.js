@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
-import { isAuthed } from '../../../lib/adminAuth';
 import {
   pickAmazonImage,
   amazonOrderDateMs,
@@ -11,6 +10,7 @@ import {
 import { lookupStockMany } from '../../../lib/stock';
 import { myntraShipByDateMs } from '../../../lib/dates';
 import { loadSnapshots } from '../../../lib/ordersSnapshot';
+import { requireSection } from '../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -81,9 +81,8 @@ function amazonOrders(snapshot, stockBySku) {
 }
 
 export async function GET() {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const access = await requireSection('overview');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   const db = await getDb();
   const [{ myntra, amazon, myntraItems }, sessions] = await Promise.all([

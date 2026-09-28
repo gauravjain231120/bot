@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
-import { isAuthed, requireOwner } from '../../../lib/adminAuth';
+import { requireOwner } from '../../../lib/adminAuth';
+import { requireSection } from '../../../lib/access';
 import {
   VALID_SCOPES,
   getOtcRecipientScope,
@@ -15,10 +16,10 @@ export const dynamic = 'force-dynamic';
 
 // OTC settings: who the alert goes to (recipientScope) and the daily check
 // window in India time (window: { start, end } as "HH:MM", lib/otcConfig.js).
+// Read by Overview (the OTC card's window) and Recipients (who gets the code).
 export async function GET() {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const access = await requireSection('overview', 'recipients');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   const db = await getDb();
   const [recipientScope, win] = await Promise.all([getOtcRecipientScope(db), getOtcWindow(db)]);
   return NextResponse.json({
@@ -29,13 +30,14 @@ export async function GET() {
 
 // body: { recipientScope } and/or { window: { start, end } }.
 // Changing the window is Owner-only (it decides when the bot calls Myntra).
+// Who gets the OTC code needs Recipients (it used to be open to any login);
+// the check window stays Owner only, below.
 export async function PATCH(request) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
   const body = await request.json().catch(() => ({}));
   const hasScope = body.recipientScope !== undefined;
   const hasWindow = body.window !== undefined;
+  const access = await requireSection(hasScope ? 'recipients' : 'overview');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   if (!hasScope && !hasWindow) {
     return NextResponse.json({ error: 'Nothing to change' }, { status: 400 });
   }

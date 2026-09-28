@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
-import { isAuthed } from '../../../../lib/adminAuth';
 import { lookupPackedShipment } from '../../../../lib/myntra';
+import { requireSection } from '../../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,9 +15,8 @@ const RETURN_LABEL_PREFIXES = ['MYSR', 'MYER'];
 // live Myntra call per scan (see lib/myntra.js's lookupPackedShipment), gated
 // by the normal dashboard login like the return resolver next to it.
 export async function GET(request) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const access = await requireSection('myntraPack');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   const id = (request.nextUrl.searchParams.get('id') || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!id) {

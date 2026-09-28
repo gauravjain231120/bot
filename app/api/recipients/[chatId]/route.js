@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { requireOwner } from '../../../../lib/adminAuth';
 import { ROLES, setRole, deleteRecipient } from '../../../../lib/recipients';
 import { secretMatches } from '../../../../lib/secrets';
+import { requireSection } from '../../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,7 +15,7 @@ function checkRolePassword(body) {
 }
 
 export async function PATCH(request, ctx) {
-  const check = await requireOwner();
+  const check = await requireSection('recipients');
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
   const { chatId } = await ctx.params;
   const body = await request.json().catch(() => ({}));
@@ -37,7 +37,7 @@ export async function PATCH(request, ctx) {
 }
 
 export async function DELETE(request, ctx) {
-  const check = await requireOwner();
+  const check = await requireSection('recipients');
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
   const { chatId } = await ctx.params;
   const body = await request.json().catch(() => ({}));

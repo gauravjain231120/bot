@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { isAuthed, getCurrentAccount } from '../../../../lib/adminAuth';
+import { getCurrentAccount } from '../../../../lib/adminAuth';
 import { amazonReturnTypeFor } from '../../../../lib/returnTypeServer';
 import { normalizeOrderId } from '../../../../lib/amazonScan';
 import { addReturnToStockManager } from '../../../../lib/returns';
+import { requireSection } from '../../../../lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,9 +13,8 @@ export const dynamic = 'force-dynamic';
  *  /api/dashboard/add-return, just channel AMAZON). Kept as its own route so
  *  the Myntra one is untouched. */
 export async function POST(request) {
-  if (!(await isAuthed())) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const access = await requireSection('amazonReturn');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   const body = await request.json().catch(() => ({}));
   if (!body.sku) {
     return NextResponse.json({ error: 'sku is required' }, { status: 400 });
