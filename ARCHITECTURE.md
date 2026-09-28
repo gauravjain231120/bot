@@ -275,7 +275,7 @@ self-ship, and searching it on every check was half of all Amazon traffic.
 | `/api/check-amazon-orders` | every 5 min | New Amazon orders (Easy Ship only) |
 | `/api/check-cancellations` | every 5 min | Myntra cancellations — bounded to recent ones, never re-walks the full history |
 | `/api/check-amazon-cancellations` | every 30 min | Amazon cancellations (Easy Ship only) |
-| `/api/check-otc` | every 2 min, all day | Only calls Myntra inside the OTC window (set on the dashboard in India time, default 12–1pm IST), and stops once today's code is found — faster codes, very few calls. The message also shows today's packed count per courier (MYS / MYE): one packed-list read, only when it goes out, leaving out parcels marked on Myntra Cancel |
+| `/api/check-otc` | every 2 min, only around the OTC window (the cron-job.org job's hours match the window set on the dashboard in India time, default 12–1pm IST — change both together) | Only calls Myntra inside the window, and stops once today's code is found — faster codes, very few calls. The watchdog expects it only inside the window. The message also shows today's packed count per courier (MYS / MYE): one packed-list read, only when it goes out, leaving out parcels marked on Myntra Cancel |
 | Browser extension sync | per marketplace, default every 4 hours (set in the popup) | The bot also keeps the Myntra session rolling itself, so this is a backstop |
 | Extension session watch | every 1 min | Asks the **bot** (never Myntra/Amazon) if its session works; re-syncs right away if it expired and the browser is still logged in |
 | Bot dashboard auto-refresh | every 60s, visible tab only | Reads only what the checks saved — makes no Myntra/Amazon calls at all |

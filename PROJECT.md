@@ -150,7 +150,7 @@ lives entirely in stock-manager's Ready to Ship queue.
 | `GET /api/check-amazon-orders?secret=CRON_SECRET` | **every 5 min** | Poll Amazon unshipped orders (Easy Ship), alert + queue new ones |
 | `GET /api/check-cancellations?secret=CRON_SECRET` | **every 5 min** | Poll Myntra cancellations, alert on new ones |
 | `GET /api/check-amazon-cancellations?secret=CRON_SECRET` | **every 30 min** | Poll Amazon cancellations (Easy Ship), alert on new ones |
-| `GET /api/check-otc?secret=CRON_SECRET` | **every 2 min, all day** (acts only inside the OTC window, default 12–1 pm IST — §33) | Pickup/return OTC alert — see §19, shape is different from the three below (no seen-collection, time-window + once-per-day gated instead) |
+| `GET /api/check-otc?secret=CRON_SECRET` | **every 2 min, only around the OTC window** (since 2026-09-28: cron-job.org `*/2 6-7 * * *` UTC = 11:30 am–1:28 pm IST for the default 12–1 pm window — §33, §50) | Pickup/return OTC alert — see §19, shape is different from the three below (no seen-collection, time-window + once-per-day gated instead) |
 
 Schedule as configured on cron-job.org (updated 2026-09-24: Myntra orders moved from every 1 min
 to every 2 min). Marketplace calls this produces per day:
@@ -2323,3 +2323,22 @@ PACKED, not on its cancelled list (MYSC1348906990). The new page **Myntra Cancel
   → retry with the same ids, undo refused/ok, delete after 4 days only, summaries, OTC exclusion);
   the whole suite; the build. Live and read-only: MYSC1349191579 → 6034830666 (2 s) and MYSC1348906990
   → 6033650199 (1 s), the order traced by hand before.
+
+## 50. OTC job only around its window — watchdog follows the window (2026-09-28)
+
+cron-job.org called `/api/check-otc` every 2 min all day. Outside the OTC window each call was a
+quick no-op (no Myntra call), but still about 690 Vercel invocations a day. The seller wanted that
+cut, so the job now runs only around the window: `*/2 6-7 * * *` in the job's UTC time zone is
+11:30 am–1:28 pm IST for the default 12–1 pm window. With the job's time zone set to Asia/Kolkata,
+`*/2 12 * * *` covers exactly 12:00–12:58.
+
+Without a code change this would have raised a false "A scheduled check has stopped running — OTC
+check" alert every afternoon: the order check watched the OTC tick all day (stale after 15 min).
+`lib/cronWatchdog.js` now expects the OTC tick only from 15 min into the dashboard's OTC window
+until it ends (`expectedNow`, reading `getOtcWindow`). So the first run of the day, due at 12:00,
+isn't "missing" at 12:01, and a moved window is followed. Every other job is watched all day, as
+before.
+
+**If the OTC window is changed on the dashboard, change the cron-job.org job's hours to match.**
+Otherwise the check won't run in the new window, and the watchdog will say so 15 min into it.
+Tested offline (`test_otc_watchdog`) with the whole suite.
