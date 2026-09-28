@@ -6,11 +6,13 @@
 
 /**
  * Numbers product lines by piece: [{ quantity: 1 }, { quantity: 2 }] →
- * labels ['1', '2–3'], total 3. Missing / bad quantities count as 1.
+ * labels ['1', '2–3'], total 3. Missing / bad quantities count as 1; an
+ * explicit 0 (a cancelled line) is no piece at all — label null, no number.
  */
 export function numberPieces(quantities) {
   let next = 1;
   const labels = quantities.map((q) => {
+    if (q === 0 || q === '0') return null;
     const n = Math.max(1, Math.floor(Number(q)) || 1);
     const label = n === 1 ? String(next) : `${next}–${next + n - 1}`;
     next += n;

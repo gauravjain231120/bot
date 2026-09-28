@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useDashboard } from '../lib/DashboardContext';
 import { timeAgo, formatMinutes, otcLines } from '../lib/format';
 import { OrdersGrid } from '../components/OrdersGrid';
@@ -7,6 +8,13 @@ import { OtcWindowEditor } from '../components/OtcWindowEditor';
 
 export default function OverviewPage() {
   const { status, loadError, isOwner, otcStatus, otcClearing, handleClearOtc, handleSetOtcWindow, packedCount, packedCountError, packedLoading, loadPackedCount } = useDashboard();
+
+  // The "Myntra packed" card is a live Myntra lookup: loaded when this page is
+  // opened (the server shares one lookup for 10 min) and on its Refresh — never
+  // on a timer, never from other pages.
+  useEffect(() => {
+    loadPackedCount();
+  }, [loadPackedCount]);
 
   return (
     <>

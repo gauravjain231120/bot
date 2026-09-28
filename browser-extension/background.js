@@ -48,9 +48,14 @@ const RECENT_SYNC_GRACE_MS = 10 * 60 * 1000;
 // A copy the bot rejected isn't re-sent for this long (unless you log in again
 // and the cookies change) — never forever, in case the rejection was a fluke.
 const BAD_COPY_HOLD_MS = 2 * 60 * 60 * 1000;
-// New-login syncs (resyncOnNewLogin): at most one per marketplace this often,
-// however many cookie changes a login produces.
+// New-login syncs (resyncOnNewLogin): at most one per marketplace every
+// NEW_LOGIN_MIN_GAP_MS, however many cookie changes a login produces; if they
+// keep failing for a reason that isn't the login (the bot or the marketplace
+// briefly unreachable) the wait grows to an hour, and a login is tried at most
+// NEW_LOGIN_MAX_TRIES times — the regular timer carries it after that.
 const NEW_LOGIN_MIN_GAP_MS = 5 * 60 * 1000;
+const NEW_LOGIN_BACKOFF_MIN = [5, 15, 30, 60];
+const NEW_LOGIN_MAX_TRIES = 8;
 
 const MARKETPLACES = [
   {
@@ -282,9 +287,12 @@ async function syncOne(entry, appUrl, syncSecret, trigger, scheduled, periodMinu
     });
     const data = await res.json().catch(() => ({}));
     const at = new Date().toISOString();
+    // `fingerprint`: the login actually sent — not whatever the cookies say
+    // once the answer is back (a new login landing mid-sync would otherwise be
+    // recorded as already synced, and never sent).
     return res.ok
-      ? { marketplace: entry.marketplace, ok: true, headerCount: data.headerCount, at, trigger }
-      : { marketplace: entry.marketplace, ok: false, error: data.error || `HTTP ${res.status}`, reason: data.reason || null, at, trigger };
+      ? { marketplace: entry.marketplace, ok: true, headerCount: data.headerCount, at, trigger, fingerprint: login.fingerprint }
+      : { marketplace: entry.marketplace, ok: false, error: data.error || `HTTP ${res.status}`, reason: data.reason || null, at, trigger, fingerprint: login.fingerprint };
   } catch (err) {
     const error = err && err.name === 'AbortError' ? "The bot didn't answer in time — will retry" : err.message;
     return { marketplace: entry.marketplace, ok: false, error, reason: null, at: new Date().toISOString(), trigger };
@@ -339,15 +347,14 @@ async function noteLoginResults(results) {
     if (!MARKETPLACE_NAMES.includes(r.marketplace)) continue;
     const entry = MARKETPLACES.find((m) => m.marketplace === r.marketplace);
     const key = `recovery_${r.marketplace}`;
+    const sent = r.fingerprint !== undefined ? r.fingerprint : (await loginState(entry)).fingerprint;
     if (r.ok) {
       // The login the bot now has — syncIfNewLogin compares against it.
-      const { fingerprint } = await loginState(entry);
-      await patchStore(key, { needsLogin: false, badFingerprint: null, syncedFingerprint: fingerprint });
+      await patchStore(key, { needsLogin: false, badFingerprint: null, syncedFingerprint: sent, newLoginTries: 0 });
     } else if (r.reason === 'logged-out') {
       await patchStore(key, { needsLogin: true });
     } else if (r.reason === 'session-not-working' && !r.skipped) {
-      const { fingerprint } = await loginState(entry);
-      await patchStore(key, { needsLogin: true, badFingerprint: fingerprint, badAt: Date.now() });
+      await patchStore(key, { needsLogin: true, badFingerprint: sent, badAt: Date.now() });
     }
   }
 }
@@ -399,11 +406,14 @@ async function getRetryCount(marketplace) {
   return stored[key] || 0;
 }
 
-async function scheduleRetry(marketplace) {
+// `scheduled`: the failed sync was the periodic one — only then does its
+// retry count as scheduled (for the bot's ~4-hourly "auto-sync ok").
+async function scheduleRetry(marketplace, scheduled = false) {
   const key = `retryCount_${marketplace}`;
   const count = await withStorageLock(key, async () => {
     const n = await getRetryCount(marketplace);
-    await chrome.storage.local.set({ [key]: n + 1 });
+    const prev = (await chrome.storage.local.get([`retryScheduled_${marketplace}`]))[`retryScheduled_${marketplace}`];
+    await chrome.storage.local.set({ [key]: n + 1, [`retryScheduled_${marketplace}`]: n > 0 ? !!prev || scheduled : scheduled });
     return n;
   });
   const delayInMinutes = RETRY_DELAYS_MINUTES[Math.min(count, RETRY_DELAYS_MINUTES.length - 1)];
@@ -412,7 +422,9 @@ async function scheduleRetry(marketplace) {
 
 async function clearRetry(marketplace) {
   await chrome.alarms.clear(retryAlarmName(marketplace));
-  await withStorageLock(`retryCount_${marketplace}`, () => chrome.storage.local.set({ [`retryCount_${marketplace}`]: 0 }));
+  await withStorageLock(`retryCount_${marketplace}`, () =>
+    chrome.storage.local.set({ [`retryCount_${marketplace}`]: 0, [`retryScheduled_${marketplace}`]: false })
+  );
 }
 
 async function pendingRetries() {
@@ -425,10 +437,10 @@ async function pendingRetries() {
 // that needs you to log in, and retrying the same copy every few minutes
 // would just be pointless extra marketplace calls. The health check picks it
 // up again as soon as you've logged in (new cookies).
-async function updateRetriesFor(results, enabled) {
+async function updateRetriesFor(results, enabled, scheduled = false) {
   for (const r of results) {
     if (r.ok || !enabled || r.reason === 'session-not-working' || r.reason === 'logged-out') await clearRetry(r.marketplace);
-    else await scheduleRetry(r.marketplace);
+    else await scheduleRetry(r.marketplace, scheduled);
   }
 }
 
@@ -456,7 +468,7 @@ async function runAutoSync(names = MARKETPLACE_NAMES, scheduled = false) {
     await updateBadge();
     return results;
   }
-  await updateRetriesFor(results, await isEnabled());
+  await updateRetriesFor(results, await isEnabled(), scheduled);
   await updateBadge();
   return results;
 }
@@ -482,54 +494,74 @@ async function waitingForLogin(m) {
   return { waiting: !!(rec.needsLogin || lastFailedOnLogin), rec };
 }
 
+// Returns true when it made an attempt (the new-login check then waits: one
+// try per moment, not two back to back). At most LOGIN_RESYNC_MAX_TRIES per
+// login — the regular timer carries it after that.
+const LOGIN_RESYNC_MAX_TRIES = 8;
 async function resyncAfterLogin(entry) {
   const m = entry.marketplace;
-  if (!(await isEnabled())) return;
+  if (!(await isEnabled())) return false;
   const now = Date.now();
   const { waiting, rec } = await waitingForLogin(m);
-  if (!waiting) return;
-  // After the 1st failed try wait 1 min, after the 2nd 5 min, then 15, then 30.
-  const wait = LOGIN_RESYNC_BACKOFF_MIN[Math.min(Math.max((rec.resyncCount || 0) - 1, 0), LOGIN_RESYNC_BACKOFF_MIN.length - 1)] * 60000;
-  if (rec.resyncAt && now - rec.resyncAt < wait) return;
+  if (!waiting) return false;
   const { loggedIn, fingerprint } = await loginState(entry);
-  if (!loggedIn) return;
+  if (!loggedIn) return false;
   // Only a genuinely NEW login is tried here — never the copy the bot turned
   // down (no time limit on this one: that same login would just be refused
   // again, costing a Myntra/Amazon call each time).
-  if (fingerprint && fingerprint === rec.badFingerprint) return;
+  if (fingerprint && fingerprint === rec.badFingerprint) return false;
+  // Tries are counted per login: a different one starts again.
+  const tries = rec.resyncFingerprint === fingerprint ? rec.resyncCount || 0 : 0;
+  if (tries >= LOGIN_RESYNC_MAX_TRIES) return false;
+  // After the 1st failed try wait 1 min, after the 2nd 5 min, then 15, then 30.
+  const wait = LOGIN_RESYNC_BACKOFF_MIN[Math.min(Math.max(tries - 1, 0), LOGIN_RESYNC_BACKOFF_MIN.length - 1)] * 60000;
+  if (tries && rec.resyncAt && now - rec.resyncAt < wait) return false;
   const key = `recovery_${m}`;
   const [r] = await syncSome([m], 'auto');
-  if (!r) return; // another sync of this marketplace is already running
+  if (!r) return false; // another sync of this marketplace is already running
   if (r.ok) {
-    await patchStore(key, { resyncAt: null, resyncCount: 0 });
+    // Its periodic timer is left alone, so both marketplaces' syncs (and their
+    // "auto-sync ok") keep arriving together.
+    await patchStore(key, { resyncAt: null, resyncCount: 0, resyncFingerprint: null });
     await clearRetry(m);
-    await resetSyncAlarm(m);
   } else {
-    await patchStore(key, (cur) => ({ resyncAt: now, resyncCount: (cur.resyncCount || 0) + 1 }));
+    await patchStore(key, { resyncAt: now, resyncCount: tries + 1, resyncFingerprint: fingerprint });
   }
   await updateBadge();
+  return true;
 }
 
 // This browser is logged in with a DIFFERENT login than the one the bot last
 // accepted from it (resyncOnNewLogin marketplaces): sync it now, before the
 // bot's copy of the old login stops working. Cheap when nothing changed —
-// it only reads cookies. Never re-sends a copy the bot rejected, and at most
-// one try per NEW_LOGIN_MIN_GAP_MS (the 1-minute health check calls this too,
-// so a change that lands inside the gap is picked up right after it).
+// it only reads cookies. Never re-sends a copy the bot rejected; a try that
+// failed is repeated only after NEW_LOGIN_BACKOFF_MIN (saved in storage, per
+// login) and at most NEW_LOGIN_MAX_TRIES times — it used to be every 5 min for
+// as long as the failure lasted, each one a marketplace test call, plus a
+// separate retry timer. The 1-minute health check calls this too, so a wait
+// that ends is picked up.
 async function syncIfNewLogin(entry) {
   if (!entry.resyncOnNewLogin || !(await isEnabled())) return;
   const m = entry.marketplace;
+  // Waiting for a login: resyncAfterLogin owns that (it syncs any new login,
+  // with its own tries) — two paths taking turns doubled the test calls.
+  if ((await waitingForLogin(m)).waiting) return;
   const key = `recovery_${m}`;
   const { loggedIn, fingerprint } = await loginState(entry);
   if (!loggedIn || !fingerprint) return;
   const rec = (await chrome.storage.local.get([key]))[key] || {};
   if (fingerprint === rec.syncedFingerprint || fingerprint === rec.badFingerprint) return;
-  if (rec.newLoginSyncAt && Date.now() - rec.newLoginSyncAt < NEW_LOGIN_MIN_GAP_MS) return;
+  const tries = rec.newLoginFingerprint === fingerprint ? rec.newLoginTries || 0 : 0;
+  if (tries >= NEW_LOGIN_MAX_TRIES) return;
+  const wait = tries ? NEW_LOGIN_BACKOFF_MIN[Math.min(tries - 1, NEW_LOGIN_BACKOFF_MIN.length - 1)] * 60000 : NEW_LOGIN_MIN_GAP_MS;
+  if (rec.newLoginSyncAt && Date.now() - rec.newLoginSyncAt < wait) return;
   if (autoInFlight.has(m) || manualInFlight.has(m)) return; // already syncing — it'll carry this login
-  await patchStore(key, { newLoginSyncAt: Date.now() });
+  await patchStore(key, { newLoginSyncAt: Date.now(), newLoginFingerprint: fingerprint, newLoginTries: tries + 1 });
   const results = await syncSome([m], 'auto');
   if (!results.length || results[0].marketplace === 'all') return;
-  await updateRetriesFor(results, true);
+  // The periodic timer is left alone (moving it a full period on split the
+  // two marketplaces' "auto-sync ok" apart).
+  if (results[0].ok) await clearRetry(m);
   await updateBadge();
 }
 
@@ -548,7 +580,7 @@ chrome.cookies.onChanged.addListener(({ removed, cookie }) => {
   clearTimeout(loginTimers.get(entry.marketplace));
   loginTimers.set(
     entry.marketplace,
-    setTimeout(() => resyncAfterLogin(entry).then(() => syncIfNewLogin(entry)), 5000)
+    setTimeout(() => resyncAfterLogin(entry).then((tried) => (tried ? null : syncIfNewLogin(entry))), 5000)
   );
 });
 
@@ -595,8 +627,7 @@ async function checkHealth() {
         // Bot is fine, but this browser's row may be waiting for a login, or
         // hold a newer login than the bot's — sync it now if so (backup for
         // the cookie event, which a sleeping worker can miss).
-        await resyncAfterLogin(entry);
-        await syncIfNewLogin(entry);
+        if (!(await resyncAfterLogin(entry))) await syncIfNewLogin(entry);
         continue;
       }
       if (state !== 'expired' && state !== 'missing') continue; // network/5xx: a re-sync won't help
@@ -688,9 +719,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === HEALTH_ALARM) {
     checkHealth();
   } else if (alarm.name.startsWith(RETRY_ALARM_PREFIX)) {
-    // A retry finishes the scheduled sync it stands in for — `scheduled` lets
-    // its success send the ~4-hourly heartbeat (the bot limits how often).
-    runAutoSync([alarm.name.slice(RETRY_ALARM_PREFIX.length)], true);
+    // A retry of the scheduled sync finishes it — `scheduled` lets its success
+    // send the ~4-hourly heartbeat (the bot limits how often). A retry of a
+    // manual click isn't a scheduled sync.
+    const m = alarm.name.slice(RETRY_ALARM_PREFIX.length);
+    chrome.storage.local.get([`retryScheduled_${m}`]).then((s) => runAutoSync([m], !!s[`retryScheduled_${m}`]));
   } else if (alarm.name.startsWith(SYNC_ALARM_PREFIX)) {
     runAutoSync([alarm.name.slice(SYNC_ALARM_PREFIX.length)], true);
   } else if (alarm.name === LEGACY_SYNC_ALARM) {
@@ -699,10 +732,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-// Connectivity back while a retry is pending: jump the queue for just those.
+// Connectivity back while a retry is pending: jump the queue for just those
+// (a retry of the scheduled sync stays scheduled — its heartbeat included).
 self.addEventListener('online', () => {
-  pendingRetries().then((alarms) => {
-    if (alarms.length > 0) runAutoSync(alarms.map((a) => a.name.slice(RETRY_ALARM_PREFIX.length)));
+  pendingRetries().then(async (alarms) => {
+    for (const a of alarms) {
+      const m = a.name.slice(RETRY_ALARM_PREFIX.length);
+      const s = await chrome.storage.local.get([`retryScheduled_${m}`]);
+      runAutoSync([m], !!s[`retryScheduled_${m}`]);
+    }
   });
 });
 

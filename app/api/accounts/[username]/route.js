@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireOwner } from '../../../../lib/adminAuth';
 import { ROLES, deleteAccount, setAccountRole } from '../../../../lib/accounts';
+import { secretMatches } from '../../../../lib/secrets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic';
 // the Telegram recipients routes — one shared ROLE_CHANGE_PASSWORD for any
 // change to who has dashboard access or what they can do with it.
 function checkConfirmPassword(body) {
-  return Boolean(process.env.ROLE_CHANGE_PASSWORD) && body.confirmPassword === process.env.ROLE_CHANGE_PASSWORD;
+  return secretMatches(body.confirmPassword, process.env.ROLE_CHANGE_PASSWORD);
 }
 
 /** PATCH { role, confirmPassword } -> change an existing account's role. Owner only. */

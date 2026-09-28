@@ -63,8 +63,8 @@ export function BarcodeScanner({ onDetected, onClose }) {
       engine.destroy();
     }
 
-    function found(text, format) {
-      const ok = confirm(text, format);
+    function found(text, format, agree = false) {
+      const ok = confirm(text, format, agree);
       if (!ok || done) return false;
       done = true;
       stop();
@@ -96,7 +96,7 @@ export function BarcodeScanner({ onDetected, onClose }) {
         const r = await engine.decode(video, BARCODE_ANGLES[step]);
         if (cancelled || done) return;
         if (r) {
-          if (found(r.text, r.format)) return;
+          if (found(r.text, r.format, r.agree)) return;
           if (looksLikeId(r.text)) hold = HOLD_FRAMES; // read once — look again at this angle to confirm
         }
         if (hold > 0) hold--;

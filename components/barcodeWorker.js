@@ -1,6 +1,6 @@
 // Web Worker: decodes camera frames off the main thread (see barcodeDecode.js
 // and barcodeEngine.js). In: { id, buf: ArrayBuffer (RGBA), w, h } — the
-// buffer is transferred, not copied. Out: { id, result: {text, format} | null }.
+// buffer is transferred, not copied. Out: { id, result: {text, format, agree} | null }.
 import { createFrameDecoder } from './barcodeDecode';
 
 const decode = createFrameDecoder();

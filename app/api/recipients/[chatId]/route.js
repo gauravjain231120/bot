@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireOwner } from '../../../../lib/adminAuth';
 import { ROLES, setRole, deleteRecipient } from '../../../../lib/recipients';
+import { secretMatches } from '../../../../lib/secrets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,7 +11,7 @@ export const dynamic = 'force-dynamic';
 // this is a deliberate extra confirmation step, checked server-side (never
 // trust a client-side-only prompt for this).
 function checkRolePassword(body) {
-  return Boolean(process.env.ROLE_CHANGE_PASSWORD) && body.password === process.env.ROLE_CHANGE_PASSWORD;
+  return secretMatches(body.password, process.env.ROLE_CHANGE_PASSWORD);
 }
 
 export async function PATCH(request, ctx) {

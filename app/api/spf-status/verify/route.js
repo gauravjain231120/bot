@@ -3,6 +3,7 @@ import { getDb } from '../../../../lib/db';
 import { requireOwner } from '../../../../lib/adminAuth';
 import { fetchSpfPaidBreakdown } from '../../../../lib/spfPaid';
 import { loadSpfTickets, paidClaimStore } from '../../../../lib/spfCache';
+import { secretMatches } from '../../../../lib/secrets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,7 +32,7 @@ export async function POST(request) {
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const body = await request.json().catch(() => ({}));
-  const ok = Boolean(process.env.ROLE_CHANGE_PASSWORD) && body.confirmPassword === process.env.ROLE_CHANGE_PASSWORD;
+  const ok = secretMatches(body.confirmPassword, process.env.ROLE_CHANGE_PASSWORD);
   if (!ok) return NextResponse.json({ error: 'Wrong confirmation password' }, { status: 403 });
 
   if (body.key !== 'paid') return NextResponse.json({ ok: true });

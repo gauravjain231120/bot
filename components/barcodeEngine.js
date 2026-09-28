@@ -15,6 +15,10 @@ import { createFrameDecoder } from './barcodeDecode';
 export const BARCODE_ANGLES = [0, 90, 45, 135, 15, 165, 30, 150, 60, 120, 75, 105];
 
 const WORKER_TIMEOUT_MS = 4000;
+// The first answer also waits for the worker to start and load the decoder —
+// on a slow phone that alone can take several seconds, and timing it out
+// moved decoding onto the main thread for good (a janky preview).
+const WORKER_FIRST_TIMEOUT_MS = 15000;
 
 export function createBarcodeEngine() {
   const canvas = document.createElement('canvas');
@@ -23,6 +27,7 @@ export function createBarcodeEngine() {
   let inline = null;
   let pending = null; // { id, resolve, timer }
   let nextId = 1;
+  let answered = false; // the worker has answered at least once
 
   function useInline() {
     if (worker) {
@@ -42,7 +47,10 @@ export function createBarcodeEngine() {
 
   try {
     worker = new Worker(new URL('./barcodeWorker.js', import.meta.url));
-    worker.onmessage = (e) => settle(e.data.id, e.data.result);
+    worker.onmessage = (e) => {
+      answered = true;
+      settle(e.data.id, e.data.result);
+    };
     worker.onerror = () => {
       const p = pending;
       useInline();
@@ -63,13 +71,16 @@ export function createBarcodeEngine() {
         return Promise.resolve(null);
       }
     }
+    // One frame at a time: a call while one is still out answers that one
+    // "nothing" rather than leaving its caller waiting forever.
+    if (pending) settle(pending.id, null);
     return new Promise((resolve) => {
       const id = nextId++;
       const timer = setTimeout(() => {
         // Worker hung (or was never really running) — carry on without it.
         useInline();
         settle(id, null);
-      }, WORKER_TIMEOUT_MS);
+      }, answered ? WORKER_TIMEOUT_MS : WORKER_FIRST_TIMEOUT_MS);
       pending = { id, resolve, timer };
       const buf = img.data.buffer;
       worker.postMessage({ id, buf, w: img.width, h: img.height }, [buf]);

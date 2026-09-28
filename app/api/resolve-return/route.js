@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { resolveReturnByTrackingId } from '../../../lib/myntra';
+import { secretMatches } from '../../../lib/secrets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,7 @@ export const dynamic = 'force-dynamic';
 // x-sync-secret, not a query param, so it never ends up logged in a URL.
 export async function GET(request) {
   const secret = request.headers.get('x-resolve-secret');
-  if (!process.env.RESOLVE_RETURN_SECRET || secret !== process.env.RESOLVE_RETURN_SECRET) {
+  if (!secretMatches(secret, process.env.RESOLVE_RETURN_SECRET)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 

@@ -127,8 +127,11 @@ export function estimateSkew(img, { maxDeg = 12, stepDeg = 1, sampleWidth = 480 
 // packet id — 6+ letters/digits (dashes allowed), nothing else — and then:
 //   - a Myntra id (MY + 2 letters + 8+ digits) in Code 128 counts at once —
 //     noise can't produce that shape AND pass the check character;
+//   - so does a read that another part of the same barcode agreed with in the
+//     same frame (`agree` from barcodeDecode: a line two or more strips away,
+//     i.e. other pixels, decoded the same text);
 //   - anything else needs the same text a second time within a few seconds
-//     (another scan line, frame, or the phone's own reader).
+//     (another frame, or the phone's own reader).
 const PLAUSIBLE_ID = /^[A-Z0-9][A-Z0-9-]{4,38}[A-Z0-9]$/i;
 const MYNTRA_BARCODE = /^MY[A-Z]{2}\d{8,}$/;
 const CODE_128 = new Set(['CODE_128', 'code_128']);
@@ -139,10 +142,11 @@ export function looksLikeId(text) {
 
 export function createBarcodeConfirmer({ windowMs = 4000, now = () => Date.now() } = {}) {
   const seen = new Map(); // text -> when first read
-  return function confirm(text, format) {
+  return function confirm(text, format, agree = false) {
     const t = String(text || '').trim();
     if (!looksLikeId(t)) return null;
     if (CODE_128.has(String(format)) && MYNTRA_BARCODE.test(t)) return t;
+    if (agree) return t;
     const at = now();
     for (const [k, when] of seen) if (at - when > windowMs) seen.delete(k);
     if (seen.has(t)) return t;

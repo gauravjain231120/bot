@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireOwner } from '../../../lib/adminAuth';
 import { listAccounts, createAccount } from '../../../lib/accounts';
+import { secretMatches } from '../../../lib/secrets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,7 +14,7 @@ export const dynamic = 'force-dynamic';
 // (app/api/recipients/[chatId]/route.js) — one shared confirmation password
 // for "this changes who has access", not a second one to remember.
 function checkConfirmPassword(body) {
-  return Boolean(process.env.ROLE_CHANGE_PASSWORD) && body.confirmPassword === process.env.ROLE_CHANGE_PASSWORD;
+  return secretMatches(body.confirmPassword, process.env.ROLE_CHANGE_PASSWORD);
 }
 
 export async function GET() {

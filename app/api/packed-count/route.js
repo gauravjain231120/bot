@@ -13,6 +13,9 @@ const PACKED_CACHE_MS = 10 * 60 * 1000;
 const istDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(ms));
 // Refresh skips the cache, but never re-walks Myntra more than this often.
 const FRESH_MIN_GAP_MS = 30 * 1000;
+// A failed lookup is answered from memory for this long (page opens in a row
+// while Myntra is failing shouldn't each ask again); Refresh always retries.
+const ERROR_CACHE_MS = 60 * 1000;
 
 // GET /api/packed-count[?fresh=1] — the dashboard's "Myntra packed" card
 // (lib/myntra.js fetchPackedPackets):
@@ -49,6 +52,10 @@ export async function GET(request) {
     const { count, today, todayPicked, overdue, overdueIds, capped, days } = cache;
     return NextResponse.json({ count, today, todayPicked, overdue, overdueIds, capped, days, dayKey, cachedAt: cache.at });
   }
+  const failed = !fresh ? await settings.findOne({ _id: 'packed_waiting_error' }) : null;
+  if (failed && Date.now() - new Date(failed.at).getTime() < ERROR_CACHE_MS) {
+    return NextResponse.json({ error: failed.error }, { status: failed.httpStatus || 500 });
+  }
   try {
     const { packets, capped, days, startDate } = await fetchPackedPackets(sessionDoc.headers);
     const waiting = packets.filter((p) => p.status === 'PACKED');
@@ -68,6 +75,10 @@ export async function GET(request) {
     return NextResponse.json({ count, today, todayPicked, overdue, overdueIds, capped, days, dayKey });
   } catch (err) {
     const status = err.response && err.response.status;
-    return NextResponse.json({ error: err.message }, { status: status === 401 || status === 403 ? 401 : 500 });
+    const httpStatus = status === 401 || status === 403 ? 401 : 500;
+    await settings
+      .updateOne({ _id: 'packed_waiting_error' }, { $set: { at: new Date().toISOString(), error: err.message, httpStatus } }, { upsert: true })
+      .catch(() => {});
+    return NextResponse.json({ error: err.message }, { status: httpStatus });
   }
 }

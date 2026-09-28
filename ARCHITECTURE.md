@@ -117,6 +117,16 @@ happens and retried on the next check if anything fails — never guessed. When 
 an order cancelled after shipping, stock-manager remembers it, so scanning the returning (RTO) parcel
 later doesn't add the same stock a second time.
 
+Retries are safe on both sides. Both calls carry the bot's `requestId`, and stock-manager records
+each one in the same transaction as the change itself — a queue delete (`QueueCancel`) or a stock
+put back (`CancelReversal`). A request whose answer got lost is simply sent again and answered with
+what it already did, never applied twice: the queue delete says how many units it actually took
+(`cancelled`, 0 if the row was already gone — then the unit goes down the un-ship path), and the
+un-ship never reverses a second shipment. A database failure is a 500 (retried), not "couldn't find
+it". An order someone queued by hand (the bot never alerted it) still has its
+cancelled units taken out of the queue — only what's queued, and never below the units still live —
+but is never un-shipped and never announced.
+
 ## Flow: scanning and logging a return
 
 This one's the odd-one-out: it runs on demand, not on the cron timer, and it's the one case where

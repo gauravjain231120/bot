@@ -39,12 +39,20 @@ adjustable in the popup — for as long as Chrome is running. No further clicks 
 - **New Amazon login → synced at once** (1.4): when this browser gets a new Seller Central login
   (its `at-acbin` / `sess-at-acbin` cookies change), the extension hands it to the bot within
   seconds instead of waiting for the timer — the bot's copy of the old login stops working soon
-  after. At most once per 5 min; never re-sends a login the bot refused.
+  after. At most once per 5 min; never re-sends a login the bot refused. If the bot can't test it
+  right then (Amazon briefly unreachable), it tries again after 5, 15, 30, then 60 min — at most 8
+  times for one login, counting the "waiting for a login" re-sync too (1.4.3; it used to be every
+  5 min for as long as that lasted). These syncs don't move the 4-hourly timer, so Myntra's and
+  Amazon's "auto-sync ok" keep arriving together.
 - **Every scheduled sync refreshes the bot's copy** (1.4, bot side): the bot tests this browser's
   current cookies and switches to them each time (it used to keep its own aging Amazon copy when
   the login was unchanged — that copy kept dying ~10 h in).
 - **"🔄 auto-sync ok"**: at most one per marketplace every ~4 h; a retry of the scheduled sync that
-  succeeds sends it too.
+  succeeds sends it too (a retry of a failed **Sync now** click doesn't — 1.4.2).
+- **Sync now** answers on Telegram (Owner only, silent): "✅ … session working — checked now, same
+  login as before", "✅ … session working — checked now; the bot saved this browser's latest login"
+  (usual for Myntra: its login token renews every few hours), or "✅ … session restored" after an
+  expiry. All three mean it works.
 - **Auto-sync every (minutes)**: set Myntra and Amazon separately (15–1440, default 240) and
   Save. A shorter interval takes effect right away; a longer one from the next cycle.
 - **Logged out = no sync at all**: every sync first checks this browser's login; if you're logged out
@@ -85,7 +93,7 @@ affect any other.
 | Which marketplaces it syncs / their cookie domain | the `MARKETPLACES` array in `background.js` |
 | App URL / secret | the extension's own options page (not a file) |
 
-**Updating to 1.1 / 1.2 / 1.3 / 1.4 / 1.4.1**: reload it once at `chrome://extensions` (⟳). The popup's
+**Updating to 1.1 / 1.2 / 1.3 / 1.4 / 1.4.1 / 1.4.2 / 1.4.3**: reload it once at `chrome://extensions` (⟳). The popup's
 footer shows the running version. (1.4+: right after reloading, the next session check syncs Amazon
 once — that's expected.) Your current countdown carries
 over to both marketplaces' new timers; nothing needs re-entering.

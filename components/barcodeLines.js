@@ -36,8 +36,9 @@ const DEFAULTS = {
 
 /**
  * @param {Uint8ClampedArray|Uint8Array} lum grey frame, w*h
- * @returns {{ lum: Uint8ClampedArray, w: number, h: number }} black (0) / white (255)
- *   lines, one per row — h is 0 when nothing in the frame looks like a barcode.
+ * @returns {{ lum: Uint8ClampedArray, w: number, h: number, stripOf: Int16Array }} black (0) /
+ *   white (255) lines, one per row — h is 0 when nothing in the frame looks like
+ *   a barcode. stripOf[row] = which strip (height band of the frame) it came from.
  */
 export function scanLines(lum, w, h, opts = {}) {
   const { strips, radii, up, gate, gateK, ripple, closeFracs, minEdges } = { ...DEFAULTS, ...opts };
@@ -45,6 +46,7 @@ export function scanLines(lum, w, h, opts = {}) {
   const OW = w * up;
   const perStrip = radii.length * (1 + closeFracs.length);
   const out = new Uint8ClampedArray(OW * strips * perStrip);
+  const stripOf = new Int16Array(strips * perStrip);
   const row = new Float32Array(w);
   const closed = new Float32Array(w);
   const tmp = new Float32Array(w);
@@ -83,6 +85,7 @@ export function scanLines(lum, w, h, opts = {}) {
       const n = findEdges(row, w, minEdge, W, ripple, d, E);
       if (n < minEdges) continue;
       const spread = inkSpread(E, n, W, widths);
+      stripOf[lines] = s;
       paint(row, w, n, E, W, up, mx, mn, dq, out, lines++ * OW, spread);
 
       // Module (narrowest bar) width: a low percentile of element widths in
@@ -102,11 +105,14 @@ export function scanLines(lum, w, h, opts = {}) {
         slidingExtreme(row, w, hw, tmp, dq, false);
         slidingExtreme(tmp, w, hw, closed, dq, true);
         const m = findEdges(closed, w, minEdge, W, ripple, d, E);
-        if (m >= minEdges) paint(closed, w, m, E, W, up, mx, mn, dq, out, lines++ * OW, inkSpread(E, m, W, tmp));
+        if (m >= minEdges) {
+          stripOf[lines] = s;
+          paint(closed, w, m, E, W, up, mx, mn, dq, out, lines++ * OW, inkSpread(E, m, W, tmp));
+        }
       }
     }
   }
-  return { lum: out.subarray(0, lines * OW), w: OW, h: lines };
+  return { lum: out.subarray(0, lines * OW), w: OW, h: lines, stripOf: stripOf.subarray(0, lines) };
 }
 
 // Gradient peaks above minEdge (sub-pixel), minus ripples. Fills E, returns count.
@@ -170,16 +176,17 @@ function paint(src, w, n, E, W, up, mx, mn, dq, out, o, spread = 0) {
       bar = src[c] < (mx[c] + mn[c]) / 2;
     }
     if (!bar) continue;
-    const a = Math.round((pos[i] + 0.5 + spread / 2) * up);
-    const b = Math.round((pos[i + 1] + 0.5 - spread / 2) * up);
+    const a = Math.round((pos[i] + 0.5 + spread / 4) * up);
+    const b = Math.round((pos[i + 1] + 0.5 - spread / 4) * up);
     out.fill(0, o + Math.max(0, a), o + Math.min(OW, b));
   }
 }
 
 // Ink spread / bleed: how much wider than nominal the bars print (negative =
 // thinner, a starved thermal head). Bars and spaces of 1 module should be
-// equally wide; half the difference between the narrow bars and the narrow
-// spaces is taken off each bar edge (added, if negative) when painting.
+// equally wide. Bleed d on each edge makes a bar 2d wider and a space 2d
+// narrower, so their difference is 4d — a quarter of it is taken off each bar
+// edge (added, if negative) when painting.
 function inkSpread(E, n, W, buf) {
   const { pos, pol } = E;
   let nb = 0;

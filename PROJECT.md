@@ -2013,3 +2013,132 @@ Checked live (bot DB + stock-manager DB, read-only; 6 read-only Myntra calls):
   cancelled rows' release ids per variant (`cancelledBySuffix` → `altOrderIds`) and sends them with
   `unship-cancelled`; stock-manager stores and matches them (its PROJECT.md §12 addendum). Amazon
   order ids already matched.
+
+## 44. Fix-everything pass: cancellations, alerts, scanner, extension (2026-09-28)
+
+From the four-project review (§43). Every fix has an offline test in the simulated world
+(fake Myntra/Amazon/stock-manager/Telegram, in-memory DB) — 13 new Myntra scenarios, 5 Amazon.
+
+**Cancellations (`lib/cancellationSweep.js`, `checkCancellations.js`, `checkAmazonCancellations.js`)**
+- **Myntra detail lagging the list.** The cancelled list's `quantity` (= cancelled units, verified
+  on 50 of 50 records) can run ahead of the order's unit rows. What the rows show is handled at
+  once; the record stays open (not a failure) until the rest shows — then only the new units are
+  announced and removed. After 30 min still short: owner told once ("only partly visible"), accepted.
+  Before: the visible part was done and the signature finalised, so the rest was never handled.
+- **Progress survives a second cancellation mid-retry.** Work in progress (announced / removed /
+  unshipped / unresolved per variant) is carried into the new state; before, a new signature threw
+  it away and re-announced / re-removed the first unit.
+- **Orders queued by hand** (never alerted by the bot) get their cancelled units taken out of the
+  queue again — only what's queued, and never below the units still live — but are never
+  un-shipped or announced. Cancel alerts go only to orders whose new-order alert went out (Myntra
+  now like Amazon).
+- **No race with the new-order alert**: the alert records the units it's about to queue *before*
+  reserving; the sweep waits (≤15 min) while an alert hasn't recorded them.
+- **Retries don't re-ask Myntra**: the item detail is saved with the work (`work.snapshot`) and a
+  retry after a stock-manager failure reuses it. Myntra detail failing 2 h → owner told, stop
+  asking until the state changes (`gaveUpSig`). Old records whose detail can't be read are adopted
+  quietly after 3 tries (no owner alert), and count toward the 10-per-run cap.
+- **Deletes and un-ships are retry-safe**: each delete's intent (`work.deleting`) is saved first and
+  resolved against the queue on the next run; stock-manager's answer `cancelled` is what counts (a
+  row already gone = 0 → the un-ship path, not "removed"). `unship-cancelled` gets
+  `requestId = cancel:<order>:<variant>:<n>`; a 5xx is retried, only a 4xx refusal is "unresolved".
+- **Amazon partial cancellations**: a line cancelled on an order that stays open never reaches the
+  cancelled search (whole orders only) — now handled from the order check's own unshipped list
+  (`sweepPartlyCancelledAmazonOrders`, no extra Amazon call).
+
+**New-order alerts (`lib/orderClaims.js`, `alertPayload.js`)**: the built alert (text + photo URLs)
+is stored on the seen-order record; when Telegram doesn't take it, later checks resend that same
+payload — no Myntra call, no stock-manager call — until delivered, or 24 h (then owner told once,
+`expireAlerts`). Build failures still stop after 5 tries. A stored alert built before part of the
+order was cancelled is rebuilt once (shows only the live items); units it left out as cancelled
+(`cancelledWhenShown`) are never announced as cancelled later.
+
+**Telegram**: photo/album sends wait 35 s (Telegram fetches the images itself; a 15 s timeout on a
+send that still arrived meant a duplicate album on retry); with a long caption the follow-up text is
+retried once on its own instead of resending the photos.
+
+**Session / checks**: "Sync now" says what happened — "session working — same login as before",
+"session working — saved this browser's latest login" (Myntra renews its token every few hours, so
+the old "session activated" showed almost every time and read as if it had been broken), "session
+restored" only after an expiry, "session saved" for a paste. The stale-copy guard
+(`sessionReplaced`) moved to `lib/sessionAlerts.js` and now also covers the OTC check. Cron
+watchdog claims its alert flag atomically. `resolve-return` and the role-change password checks
+are constant-time. Amazon: a real sign-in form counts as signed out even if the page mentions a
+captcha.
+
+**Scanner**: ink-spread correction was 2× too strong (half the bar/space difference per edge; bleed
+d per edge makes that difference 4d) — now exact (measured: 0.00 px error for ±1–2 px bleed,
+was the full bleed the other way); 77/140 of the offline matrix, **0 wrong reads** (was 78 with 2
+junk reads). A barcode read that a second, independent strip of the same frame agrees with
+(`agree`, lines ≥ 2 strips away) is confirmed at once — 63% of correct reads, never a wrong one.
+OCR tried upright only at 1× and upside-down only at 1.5× (both toggled per miss) — now each way up
+at both sizes. The worker's first answer may take 15 s (start-up) before falling back to the main
+thread; a second decode while one is pending no longer strands the first. A cancelled line counts
+0 pieces (no number), not 1.
+
+**Dashboard**: the "Myntra packed" card is loaded by the Overview page when it opens (it was loaded
+by the app shell — opening any page did it); a failed lookup is answered from memory for 60 s
+(Refresh always retries).
+
+**Extension 1.4.2**: a new Amazon login that can't be tested right now is retried after 5, 15, 30,
+60 min (≤8 tries per login) instead of every 5 min for as long as the failure lasts, with no
+separate retry timer; the "already synced" login is the one actually sent (not whatever the cookies
+say once the answer is back); a retry counts as scheduled (heartbeat) only if the failed sync was.
+
+Checked and deliberately not changed: scan sounds (peaks ≈ −1 dBFS through Chrome's compressor —
+loud but not clipping, as intended); a Myntra ERROR envelope still fails loudly (no evidence it
+ever means "no data" — guessing would hide orders); the Amazon cookie scope stays exactly what
+Chrome sends to the orders API.
+
+**Review round (same day, before deploy)** — five independent reviews of the change set; every
+finding reproduced in the simulated world first, then fixed with a test:
+- **Queue deletes are idempotent too**: the bot sends `requestId` with each DELETE; stock-manager
+  records it (`QueueCancel`, in the same transaction). An interrupted delete is re-sent as the same
+  request instead of guessed from the queue (a row that vanished because it was *shipped* used to
+  count as removed — the cancelled unit was never un-shipped).
+- **Un-ship request ids include the baseline** (`cancel:<order>:<variant>:<baseline>:<n>`): a
+  second cancellation of the same variant reused the first one's id and put nothing back.
+- **A new-order alert being sent right now is waited for** (its claim): the sweep used to mark the
+  cancelled unit "announced" silently while the alert — showing that unit — was still going out.
+- **Every further cancellation makes a stored alert stale** (`seenCancellations.changedAt`, moved
+  whenever the cancelled units grow), not just the first. A stale rebuild whose Myntra detail fails
+  keeps the stored alert (no plain alert, no false "add it by hand"); after 3 tries it's sent as
+  stored with "⚠️ Part of this order was cancelled after this alert was prepared".
+- **Failed reservations are retried before every resend** (`payload.unreserved`) — a first build
+  with stock-manager AND Telegram down used to leave the order unreserved, owner never told.
+- **Bounded while Telegram is down**: once the lag wait is over the detail is kept (no more Myntra
+  calls, only the owner notice retried); the "gave up" state is set whether or not its notice got
+  through (the notice retries on its own).
+- An old record adopted without its detail learns its baseline when it next changes (never
+  re-announces old units); an Amazon whole-order line without a cancelled count isn't "live"; an
+  order alerted with every unit already cancelled records them as left out.
+- Kept on purpose: a long-caption album whose follow-up text fails twice is sent again whole — a
+  duplicate album beats photos without the size/SKU text.
+
+**Review round 2** (four more independent reviews):
+- **The two checks can't miss each other**: the sweep stamps the cancelled state first and only
+  then re-reads the order's alert record (in flight → announced next check; left out by the
+  delivered alert → never announced); the new-order alert re-reads the cancellation record after
+  claiming. Whichever runs second sees the first — before, both decided from lists read once per
+  run, and a stored alert showing a cancelled unit could go out while the sweep marked that unit
+  "announced" silently.
+- **Failure clocks are per cancelled state** (`failingSig`): a give-up (or 2 h of failures) on one
+  cancellation no longer makes the order's next cancellation give up on its first blip. Myntra's
+  item detail that keeps failing is asked again after 5, 10, 20, 40, 60 min (not every check).
+  The "gave up" notice is sent under the record's claim (no double send).
+- An old record adopted blind whose state changes: the packers get "STOP", the owner "more units
+  cancelled on an older order — check by hand" (which units are new can't be told).
+- A stale stored alert resent as is never re-reserves (the unreserved item may be the cancelled
+  one); the owner's "add it manually" is sent once per error, not on every resend; a rebuild never
+  sends one (its adds most likely went in at the first build — retried on the resend) and a rebuild
+  that finds nothing to show keeps the stored alert.
+- `unship-cancelled` reports everything a repeated request already put back (even beyond what the
+  repeat asks) and the bot counts all of it — else the rest would be un-shipped again.
+- Sessions: "Sync now" says "restored" only for an expiry not yet announced as restored.
+- Scanner: the OCR flips upside down only when neither size read anything that pair.
+- **Extension 1.4.3**: a new-login or back-after-login sync no longer moves that marketplace's
+  4-hourly timer (it split the two "auto-sync ok" messages apart — the §38 symptom again); the
+  "waiting for a login" re-sync and the new-login sync share one try per moment and ≤ 8 tries per
+  login; a retry started by reconnecting keeps its "scheduled" status.
+- **Deploy order: stock-manager first**, then the bot (the bot relies on the queue delete's
+  `requestId` and `cancelled` count; the new stock-manager works with the old bot).

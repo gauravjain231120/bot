@@ -21,7 +21,10 @@ import { createBarcodeEngine, BARCODE_ANGLES } from './barcodeEngine';
 //    frame: the guide-box band is contrast-stretched (faint grey ink becomes
 //    black — scanImage.stretchGray), its tilt measured (estimateSkew, ±12°)
 //    and the band redrawn straight; frames alternate normal / 1.5x size, and
-//    a frame that finds nothing is tried upside down next. `readId` pulls the
+//    when both sizes found nothing the next pair is tried upside down (both
+//    toggling on every miss used to pair upright only with normal size and
+//    upside down only with 1.5x — small upright text was never read at
+//    1.5x). `readId` pulls the
 //    id out of the text (strict shape, one line at a time).
 //    OCR ids only count via scanImage.createIdVoter: 3 identical reads from
 //    both sizes, and NO read in the last 8 differing by a digit or two. When
@@ -69,6 +72,7 @@ export function TextIdScanner({ title, hint, whitelist, readId, fromBarcode, onD
     const engine = createBarcodeEngine();
     let frameNo = 0;
     let upsideDown = false;
+    let pairHit = false; // the normal-size frame of this pair read an id
 
     function stop() {
       if (timer) clearTimeout(timer);
@@ -104,7 +108,7 @@ export function TextIdScanner({ title, hint, whitelist, readId, fromBarcode, onD
           // simply not this kind of id and are ignored.
           const candidate = r && configRef.current.fromBarcode(r.text);
           if (candidate) {
-            if (confirmBarcode(r.text, r.format)) return accept(candidate);
+            if (confirmBarcode(r.text, r.format, r.agree)) return accept(candidate);
             hold = 4; // first read — look again at this angle to confirm it
           }
           if (hold > 0) hold--;
@@ -122,15 +126,18 @@ export function TextIdScanner({ title, hint, whitelist, readId, fromBarcode, onD
       // Measure the tilt on a cleaned-up band, then re-draw it straightened.
       const skew = estimateSkew(stretchGray(drawBand(video, canvas, ctx, base, 1)));
       const variant = frameNo++ % 2 === 0 ? 'A' : 'B';
+      if (variant === 'A') pairHit = false;
       const img = stretchGray(drawBand(video, canvas, ctx, base - skew, variant === 'B' ? 1.5 : 1));
       ctx.putImageData(img, 0, 0);
       const { data } = await worker.recognize(canvas);
       if (cancelled || done) return;
       const id = configRef.current.readId(data && data.text);
       if (!id) {
-        upsideDown = !upsideDown; // nothing here — try the other way up next
+        // Both sizes found nothing this way up — try the other way up next.
+        if (variant === 'B' && !pairHit) upsideDown = !upsideDown;
         return;
       }
+      pairHit = true;
       setLastSeen(id);
       const accepted = vote({ id, variant });
       setRival(vote.rival);

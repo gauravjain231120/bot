@@ -12,7 +12,8 @@ Admin app that polls Myntra M-Direct for new orders and alerts on Telegram (with
 - `/api/check-orders?secret=...` is the endpoint an external scheduler hits on a timer. It fetches
   currently open orders, diffs against a MongoDB-tracked set of already-seen order IDs, and sends
   a Telegram message (with image + SKU, and how many orders are open right now) for each genuinely
-  new one — retried until Telegram confirms it arrived.
+  new one — retried until Telegram confirms it arrived (a built alert is resent as is, without
+  asking Myntra again, for up to a day; PROJECT.md §44).
 - Nothing polls Myntra/Amazon on its own beyond these scheduled checks: dashboard data that needs a
   live marketplace call (e.g. the "Myntra packed" card) loads only when the page opens or on Refresh
   (PROJECT.md §42 lists every automatic call).
@@ -66,5 +67,6 @@ See `PROJECT.md` §22–§26 for how each lookup works.
   outage — also when no session is saved at all. A request merely blocked by Myntra's Akamai bot
   protection is a temporary error, not an expiry: no alert. If the browser extension is installed
   and the seller's Chrome is still logged in, it re-syncs within minutes and a quiet "restored
-  automatically" note follows. "Session activated" / "session working" confirmations are silent by
-  design — only the expiry warning makes noise. Details: `PROJECT.md` §28–§30.
+  automatically" note follows. The "Sync now" confirmations ("session working — same login as
+  before", "… saved this browser's latest login", "session restored") are silent by design — only
+  the expiry warning makes noise. Details: `PROJECT.md` §28–§30, §44.
