@@ -2285,7 +2285,7 @@ PACKED, not on its cancelled list (MYSC1348906990). The new page **Myntra Cancel
    browser sends is trusted.
 2. **Mark cancelled** saves `manualCancels` (_id = tracking id, items, order, who, when). From that
    moment it's left out of the packed counts:
-   - the OTC message: `pickupPackets` skips it and the title line says "(1 cancelled)";
+   - the OTC message: `pickupPackets` skips it (not mentioned in the message, as the seller asked);
    - the Overview card: `/api/packed-count` leaves it out and says "N marked cancelled (not
      counted)". Marking or undoing drops the card's 10-min cache.
 
