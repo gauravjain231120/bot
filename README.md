@@ -29,6 +29,10 @@ scanner, or typed):
 
 - **Myntra Return** / **Myntra Pack** — scan a Myntra return or outbound label: product photo,
   SKU, size, dates; returns can be logged straight into stock-manager.
+- **Myntra Cancel** — scan a packed parcel that won't go out (the courier refused it, or the order
+  was cancelled after packing): it's left out of the packed count, and stock-manager marks its
+  Shipped entry Cancelled and puts the stock back (or takes it out of Ready to Ship). Undo for a
+  mistake; an entry can be deleted after 4 days.
 - **Amazon Pack** / **Amazon Return** — the same for Amazon, by the label's tracking barcode or by
   the order ID (the camera reads the printed number). Amazon returns log into stock-manager as
   channel AMAZON.

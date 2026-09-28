@@ -3,6 +3,7 @@ import { getDb } from '../../../lib/db';
 import { fetchPackedPackets } from '../../../lib/myntra';
 import { todayIst } from '../../../lib/telegramCommands';
 import { requireSection } from '../../../lib/access';
+import { cancelledTrackingIds } from '../../../lib/manualCancels';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,6 +27,8 @@ const ERROR_CACHE_MS = 60 * 1000;
 //                right after the pickup reads as what it is
 //   overdue      waiting packets already past their pick-by time — something
 //                to look at on Myntra, shown with its tracking ids
+//   cancelled    packets marked cancelled on the Myntra Cancel page — left
+//                out of all of the above (marking one drops this cache)
 //
 // Deliberately NOT part of the dashboard's auto-refresh loop (it's loaded
 // once when the page opens, and on Refresh) — this hits Myntra's live API,
@@ -48,15 +51,18 @@ export async function GET(request) {
   const cache = await settings.findOne({ _id: 'packed_waiting_cache' });
   const cacheAge = cache ? Date.now() - new Date(cache.at).getTime() : Infinity;
   if (cache && cache.dayKey === dayKey && cacheAge < (fresh ? FRESH_MIN_GAP_MS : PACKED_CACHE_MS)) {
-    const { count, today, todayPicked, overdue, overdueIds, capped, days } = cache;
-    return NextResponse.json({ count, today, todayPicked, overdue, overdueIds, capped, days, dayKey, cachedAt: cache.at });
+    const { count, today, todayPicked, overdue, overdueIds, capped, days, cancelled = 0 } = cache;
+    return NextResponse.json({ count, today, todayPicked, overdue, overdueIds, capped, days, cancelled, dayKey, cachedAt: cache.at });
   }
   const failed = !fresh ? await settings.findOne({ _id: 'packed_waiting_error' }) : null;
   if (failed && Date.now() - new Date(failed.at).getTime() < ERROR_CACHE_MS) {
     return NextResponse.json({ error: failed.error }, { status: failed.httpStatus || 500 });
   }
   try {
-    const { packets, capped, days, startDate } = await fetchPackedPackets(sessionDoc.headers);
+    const { packets: listed, capped, days, startDate } = await fetchPackedPackets(sessionDoc.headers);
+    const marked = await cancelledTrackingIds().catch(() => new Set());
+    const packets = listed.filter((p) => !marked.has(String(p.trackingNumber || '').toUpperCase()));
+    const cancelled = listed.length - packets.length;
     const waiting = packets.filter((p) => p.status === 'PACKED');
     const count = waiting.length;
     const packedToday = packets.filter((p) => p.packedOn && istDay(p.packedOn) === dayKey);
@@ -68,10 +74,10 @@ export async function GET(request) {
     const at = new Date().toISOString();
     await settings.updateOne(
       { _id: 'packed_waiting_cache' },
-      { $set: { dayKey, count, today, todayPicked, overdue, overdueIds, capped, days, since: startDate, at } },
+      { $set: { dayKey, count, today, todayPicked, overdue, overdueIds, capped, days, cancelled, since: startDate, at } },
       { upsert: true },
     );
-    return NextResponse.json({ count, today, todayPicked, overdue, overdueIds, capped, days, dayKey });
+    return NextResponse.json({ count, today, todayPicked, overdue, overdueIds, capped, days, cancelled, dayKey });
   } catch (err) {
     const status = err.response && err.response.status;
     const httpStatus = status === 401 || status === 403 ? 401 : 500;

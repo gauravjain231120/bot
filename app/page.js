@@ -125,6 +125,7 @@ export default function OverviewPage() {
                 waiting for pickup (last {packedCount.days || 4} days)
                 {packedCount.today != null ? ` · ${packedCount.today} packed today` : ''}
                 {packedCount.todayPicked ? ` (${packedCount.todayPicked} picked up)` : ''}
+                {packedCount.cancelled ? ` · ${packedCount.cancelled} marked cancelled (not counted)` : ''}
                 {packedCount.overdue ? (
                   <span
                     style={{ display: 'block', color: 'var(--bad)', fontWeight: 600 }}

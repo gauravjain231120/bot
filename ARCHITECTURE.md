@@ -127,6 +127,38 @@ it". An order someone queued by hand (the bot never alerted it) still has its
 cancelled units taken out of the queue — only what's queued, and never below the units still live —
 but is never un-shipped and never announced.
 
+## Flow: a packed parcel cancelled at pickup (Myntra Cancel)
+
+```mermaid
+flowchart LR
+  A["Scan the parcel on the bot's<br/>Myntra Cancel page"] --> B["Bot finds its order:<br/>the order line packed at<br/>the parcel's packing time"]
+  B --> C["Saved — left out of the<br/>packed count (OTC message,<br/>Overview card)"]
+  B --> D["POST /api/pending/<br/>cancel-packed"]
+  D --> E{"Marked shipped?"}
+  E -- "Yes" --> F["Shipped entry &rarr; Cancelled<br/>stock back on the shelf"]
+  E -- "No, still queued" --> G["Taken out of Ready to Ship<br/>(a Cancelled entry records it)"]
+```
+
+Sometimes the courier refuses a parcel at pickup, or an order is cancelled after packing, before
+Myntra's own lists say so. Someone scans it on the bot's **Myntra Cancel** page. Myntra's parcel
+answer has no order number (nor does the label). But each order line carries the moment it was
+packed, so the bot reads the orders with that product around that time and picks the one packed at
+the parcel's time; 2 seconds apart in a live check, against hours for the others. The candidates come
+from its own order records and stock-manager's database (read-only), with one Myntra read per order,
+only on a scan.
+
+stock-manager keeps the Shipped entry, turns it into a **Cancelled** one (qty 0, so the ledger
+still adds up) and puts the units back; the Shipped page lists it with a red Cancelled tag, not
+counted as shipped. It's remembered like any other put-back (`CancelReversal`, marked MANUAL). If
+Myntra's cancellation arrives later, `unship-cancelled` counts these units and claims them instead
+of reversing another shipment, and a return scan of the order won't add them twice.
+
+**Undo** (scanned by mistake, `POST /api/pending/cancel-packed/undo`) puts back exactly what that
+scan changed. It's refused once Myntra's own cancellation has claimed it, or if the units have been
+used since. An entry can be deleted from the bot's list after 4 days, once it's outside the packed
+count's window; that leaves stock as it is. On the Myntra Pack page a marked parcel shows "don't hand
+it over".
+
 ## Flow: scanning and logging a return
 
 This one's the odd-one-out: it runs on demand, not on the cron timer, and it's the one case where
@@ -243,11 +275,12 @@ self-ship, and searching it on every check was half of all Amazon traffic.
 | `/api/check-amazon-orders` | every 5 min | New Amazon orders (Easy Ship only) |
 | `/api/check-cancellations` | every 5 min | Myntra cancellations — bounded to recent ones, never re-walks the full history |
 | `/api/check-amazon-cancellations` | every 30 min | Amazon cancellations (Easy Ship only) |
-| `/api/check-otc` | every 2 min, all day | Only calls Myntra inside the OTC window (set on the dashboard in India time, default 12–1pm IST), and stops once today's code is found — faster codes, very few calls |
+| `/api/check-otc` | every 2 min, all day | Only calls Myntra inside the OTC window (set on the dashboard in India time, default 12–1pm IST), and stops once today's code is found — faster codes, very few calls. The message also shows today's packed count per courier (MYS / MYE): one packed-list read, only when it goes out, leaving out parcels marked on Myntra Cancel |
 | Browser extension sync | per marketplace, default every 4 hours (set in the popup) | The bot also keeps the Myntra session rolling itself, so this is a backstop |
 | Extension session watch | every 1 min | Asks the **bot** (never Myntra/Amazon) if its session works; re-syncs right away if it expired and the browser is still logged in |
 | Bot dashboard auto-refresh | every 60s, visible tab only | Reads only what the checks saved — makes no Myntra/Amazon calls at all |
 | Packed-order count | on demand only | Hits Myntra live — deliberately kept out of any timer, page load or "Refresh" click only |
+| Myntra Cancel scan | on demand only | One parcel read plus one read per candidate order (usually 1–6), only when a parcel is scanned |
 | stock-manager `/api/backup` | daily, ~2am IST | Full database backup to cloud storage |
 
 cron-job.org is a free external scheduler doing the actual "ticking" — Vercel's own free-tier cron
@@ -266,11 +299,12 @@ routes. Everything else on stock-manager needs a real logged-in account.
 | `GET /api/pending/check`, `/summary` | Bot → stock-manager | Shared service token |
 | `DELETE /api/pending/[id]` | Bot → stock-manager | Shared service token |
 | `POST /api/pending/unship-cancelled` | Bot → stock-manager | Shared service token |
+| `POST /api/pending/cancel-packed`, `/cancel-packed/undo` | Bot → stock-manager | Shared service token |
 | `POST /api/register` | Bot → stock-manager | Shared service token |
-| Product / stock catalog reads, return-log reads (SPF paid split) | Bot → stock-manager's database | Read-only database connection, no writes possible |
+| Product / stock catalog reads, return-log reads (SPF paid split), a packed parcel's candidate orders (Myntra Cancel) | Bot → stock-manager's database | Read-only database connection, no writes possible |
 | `POST /api/session/sync` | Extension → bot | Separate shared secret |
 | Telegram webhook & commands | Telegram → bot | Bot token + per-person role (Owner-only for commands) |
-| Bot dashboard itself | Person → bot | Real login — Owner / Viewer accounts; each Viewer opens only the sections the Owner ticked for them on the Team page (Overview, the four scan pages, Sessions, Recipients, SPF Status, Start/Stop/Check now), checked on every API call. The Team list is Owner-only |
+| Bot dashboard itself | Person → bot | Real login — Owner / Viewer accounts; each Viewer opens only the sections the Owner ticked for them on the Team page (Overview, the four scan pages, Myntra Cancel, Sessions, Recipients, SPF Status, Start/Stop/Check now), checked on every API call. The Team list is Owner-only |
 | Everything else on stock-manager | Person → stock-manager | Real login — Owner / Manager / Viewer, section by section |
 
 ## Glossary
@@ -281,6 +315,8 @@ routes. Everything else on stock-manager needs a real logged-in account.
   dashboard in India time, default 12–1pm IST).
 - **Ready to Ship queue** — stock-manager's list of orders that have been detected and reserved
   but not yet physically packed and marked shipped.
+- **Cancelled (Shipped page)** — A packed parcel marked cancelled on the bot's Myntra Cancel page
+  before it left: its stock is back, and it's shown on Shipped with a red tag, never counted as shipped.
 - **Return type** — Customer return (sent back by the customer), RTO (never delivered, came back), or Unknown. Stored separately from the condition.
 - **Condition buckets** — A return is logged as Good, Used, Faked, Wrong item, or Defective. The
   first three go back into sellable stock; the last two are parked in a separate, never-resold

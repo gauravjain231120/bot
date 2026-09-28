@@ -66,7 +66,7 @@ export default function PackedScanPage() {
       }
       // A cancelled packet sounds like a wrong scan — "don't pack" without looking.
       const p = data.packet;
-      if (p.cancelled || (p.items.length && p.items.every((it) => it.cancelled))) playScanError();
+      if (p.cancelled || p.manualCancel || (p.items.length && p.items.every((it) => it.cancelled))) playScanError();
       else playScanSuccess();
       setPacket(data.packet);
       setRecent((list) => [
@@ -81,9 +81,11 @@ export default function PackedScanPage() {
     }
   }
 
-  // Pieces to pack: none of a cancelled line (it gets the red ✕ instead).
-  const pieces = packet ? numberPieces(packet.items.map((it) => (it.cancelled ? 0 : it.quantity))) : null;
-  const cancelledUnits = packet ? packet.items.reduce((a, it) => a + (it.cancelled ? it.quantity || 1 : 0), 0) : 0;
+  // Pieces to pack: none of a cancelled line (it gets the red ✕ instead) — nor
+  // of a parcel marked cancelled on the Myntra Cancel page.
+  const isOff = (it) => it.cancelled || !!(packet && packet.manualCancel);
+  const pieces = packet ? numberPieces(packet.items.map((it) => (isOff(it) ? 0 : it.quantity))) : null;
+  const cancelledUnits = packet ? packet.items.reduce((a, it) => a + (isOff(it) ? it.quantity || 1 : 0), 0) : 0;
 
   return (
     <>
@@ -112,13 +114,19 @@ export default function PackedScanPage() {
               <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{packet.trackingNumber}</span>
               <StatusBadge status={packet.status} />
             </div>
+            {packet.manualCancel && (
+              <div className="banner bad" style={{ marginBottom: 0, fontWeight: 700 }}>
+                ✕ Marked cancelled on the Myntra Cancel page
+                {packet.manualCancel.markedBy ? ` by ${packet.manualCancel.markedBy}` : ''} — don&apos;t hand this one to the courier.
+              </div>
+            )}
             {repeatScan && (
               <div className="muted" style={{ fontSize: '0.8rem' }}>You already scanned this one earlier in this session.</div>
             )}
 
             {packet.items.map((item, i) => (
-              <div key={`${item.skuId}-${i}`} style={{ display: 'flex', gap: 12, padding: 10, border: item.cancelled ? '2px solid var(--bad)' : '1px solid var(--border)', borderRadius: 10 }}>
-                <NumberedImage src={item.image} label={pieces.labels[i]} cancelled={item.cancelled} />
+              <div key={`${item.skuId}-${i}`} style={{ display: 'flex', gap: 12, padding: 10, border: isOff(item) ? '2px solid var(--bad)' : '1px solid var(--border)', borderRadius: 10 }}>
+                <NumberedImage src={item.image} label={pieces.labels[i]} cancelled={isOff(item)} />
                 <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem' }}>
                   <div style={{ fontWeight: 600 }}>{item.productName || 'Unknown product'}</div>
                   <div className="muted" style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{item.sellerSkuCode || item.myntraSku || `skuId ${item.skuId}`}</div>
@@ -133,7 +141,7 @@ export default function PackedScanPage() {
                     {item.finalAmount != null ? ` · ₹${item.finalAmount}` : ''}
                     {item.mrp != null && item.mrp !== item.finalAmount ? ` (MRP ₹${item.mrp})` : ''}
                   </div>
-                  {item.cancelled && (
+                  {isOff(item) && (
                     <div style={{ marginTop: 6, fontWeight: 800, color: 'var(--bad)' }}>✕ Cancelled — don&apos;t pack this</div>
                   )}
                 </div>

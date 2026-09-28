@@ -2259,3 +2259,61 @@ Return MYE: 808353
   0) and with a live test message to the **Owner only**. That message used today's stored codes
   and one packed-list read, with no DB write, and showed 18 = 17 packed today plus 1 older packet
   still at PACKED.
+
+## 49. Myntra Cancel page — a packed parcel cancelled at pickup (2026-09-28)
+
+The seller's case: the courier refused a packed parcel at pickup, and Myntra still shows it
+PACKED, not on its cancelled list (MYSC1348906990). The new page **Myntra Cancel**
+(`app/myntra-cancel`, `lib/manualCancels.js`, `/api/dashboard/myntra-cancel`, section
+`myntraCancel` on the Team page, not in the standard Viewer set) handles it:
+
+1. **Scan** the label (or packet id) → the parcel from Myntra (`lookupPackedShipment`), then its
+   **order**. The parcel answer has no order id and the label shows none. But every order line
+   carries `packedOn`, the same moment as the parcel's (live 2026-09-28: 2 s and 1 s apart, others
+   hours or days off). Candidates are orders with that product up to 5 days before packing, from
+   three places:
+   - `seenOrders.units` (kept only since 2026-09-28);
+   - the `myntraOrderItems` cache (~5 days);
+   - stock-manager's shipped, cancelled and queued rows and put-backs (read-only, `lib/stock.js`
+     `myntraOrdersWithSku`; skipped if unreachable).
+
+   Up to 12 candidates are read, closest first, 3 at a time (one Myntra call each). It stops one
+   batch after a match within 3 min. One match is "sure". Two within 30 s of each other → the
+   closest is taken and the person can pick the other. No match → saved without a stock change.
+   Only orders packed within 30 min can be picked by hand. The scan's result is kept 30 min
+   (`manualCancelPreviews`) for the press, so there's no second round of calls and nothing the
+   browser sends is trusted.
+2. **Mark cancelled** saves `manualCancels` (_id = tracking id, items, order, who, when). From that
+   moment it's left out of the packed counts:
+   - the OTC message: `pickupPackets` skips it and the title line says "(1 cancelled)";
+   - the Overview card: `/api/packed-count` leaves it out and says "N marked cancelled (not
+     counted)". Marking or undoing drops the card's 10-min cache.
+
+   Then stock-manager gets one `cancel-packed` per product, with request id
+   `mcancel:<tracking>:<suffix>`: Shipped → Cancelled with stock back, or out of Ready to Ship
+   (stock-manager §14). Its answer is kept and shown in words on the list: back in stock / out of
+   Ready to Ship / already put back when Myntra cancelled it / not found (nothing changed). A
+   failure is saved as FAILED with **Retry stock**, which sends the same request ids and is never
+   applied twice.
+3. **List** of every marked parcel (newest first), with **Undo** and **Delete**:
+   - **Undo** (scanned by mistake) has stock-manager undo each product; then the parcel is off the
+     list and counted again. If it's refused (Myntra has cancelled the order too, or the units were
+     used since), the entry stays and shows why.
+   - **Delete** only works once 4 days have passed since marking, when the parcel is outside the
+     packed count's window. It removes the entry only; stock stays as it is.
+4. **Myntra Pack** page: scanning a marked parcel shows "✕ Marked cancelled … don't hand this one
+   to the courier" and treats it as zero pieces to pack.
+
+- Myntra's own cancellation later: the bot's cancel check runs as usual (alert, then queue / un-ship).
+  stock-manager counts the hand-cancelled units, so nothing is reversed twice and no "not fully found"
+  owner alert goes out. If Myntra cancelled first, a later scan finds nothing to change and says the
+  stock was already put back.
+- Calls: only on a scan. One parcel read plus usually 1–6 order reads. Nothing on a timer; the list
+  is database only.
+- `/packed` on Telegram (the older per-day PACKED count) is unchanged.
+- Tested: offline (`test_manual_cancel`: the time window, the best-seller early stop, sure/unsure,
+  hand pick rules, no match, unreadable order, rejected session, all three candidate sources and
+  stock-manager down, mark + stock + cache drop, repeat, packet-id scan, no-order, stock-manager down
+  → retry with the same ids, undo refused/ok, delete after 4 days only, summaries, OTC exclusion);
+  the whole suite; the build. Live and read-only: MYSC1349191579 → 6034830666 (2 s) and MYSC1348906990
+  → 6033650199 (1 s), the order traced by hand before.

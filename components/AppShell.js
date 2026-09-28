@@ -8,7 +8,7 @@ import { sectionForPath } from '../lib/sections';
 import { LoginScreen } from './LoginScreen';
 import {
   SunIcon, MoonIcon, BellIcon, PlayIcon, StopIcon, RefreshIcon, MenuIcon, CloseIcon,
-  HomeIcon, ScanIcon, BoxIcon, KeyIcon, UsersIcon, ShieldIcon, ChartIcon, LogoutIcon,
+  HomeIcon, ScanIcon, BoxIcon, BoxCancelIcon, KeyIcon, UsersIcon, ShieldIcon, ChartIcon, LogoutIcon,
 } from './icons';
 
 // No standalone Orders nav entry — the orders grid is shown directly on
@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { href: '/', label: 'Overview', Icon: HomeIcon },
   { href: '/returns', label: 'Myntra Return', Icon: ScanIcon },
   { href: '/packed', label: 'Myntra Pack', Icon: BoxIcon },
+  { href: '/myntra-cancel', label: 'Myntra Cancel', Icon: BoxCancelIcon },
   { href: '/amazon-packed', label: 'Amazon Pack', Icon: BoxIcon },
   { href: '/amazon-returns', label: 'Amazon Return', Icon: ScanIcon },
   { href: '/sessions', label: 'Sessions', Icon: KeyIcon },

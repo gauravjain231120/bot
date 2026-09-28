@@ -37,7 +37,10 @@ export async function GET(request) {
         : ' It may not be packed yet, or the label belongs to another warehouse.';
       return NextResponse.json({ error: `No packed shipment found for ${id}.${hint}` }, { status: 404 });
     }
-    return NextResponse.json({ packet });
+    // Marked cancelled on the Myntra Cancel page — the Pack page says don't hand it over.
+    const key = String(packet.trackingNumber || id).toUpperCase();
+    const marked = await db.collection('manualCancels').findOne({ _id: key }, { projection: { markedAt: 1, markedBy: 1 } });
+    return NextResponse.json({ packet: { ...packet, manualCancel: marked ? { markedAt: marked.markedAt, markedBy: marked.markedBy || null } : null } });
   } catch (err) {
     const status = err.response && err.response.status;
     if (status === 401 || status === 403) {
