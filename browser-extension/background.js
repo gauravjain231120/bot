@@ -27,7 +27,7 @@ const LEGACY_SYNC_ALARM = 'session-sync'; // the old single shared alarm, migrat
 // a perfectly healthy Myntra session (and vice versa).
 const RETRY_ALARM_PREFIX = 'session-sync-retry-';
 const HEALTH_ALARM = 'session-health';
-const HEALTH_PERIOD_MINUTES = 1;
+const HEALTH_PERIOD_MINUTES = 5;
 
 const DEFAULT_PERIOD_MINUTES = 240; // 4 hours
 const MIN_PERIOD_MINUTES = 15;
