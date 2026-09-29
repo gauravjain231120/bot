@@ -7,6 +7,7 @@ import { runCheckAmazonCancellations } from '../../../lib/checkAmazonCancellatio
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 // Called by an external scheduler every ~30 minutes, same cadence as
 // /api/check-cancellations (Myntra's equivalent).

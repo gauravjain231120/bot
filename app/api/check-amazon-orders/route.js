@@ -8,6 +8,7 @@ import { checkStoppedWatchdog } from '../../../lib/watchdog';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 // Called by an external scheduler (cron-job.org, every 5 minutes), like /api/check-orders.
 export async function GET(request) {
