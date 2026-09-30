@@ -55,7 +55,7 @@ function NoAccess({ username }) {
 export function AppShell({ children }) {
   const {
     authed, account, can, loadError, theme, toggleTheme,
-    running, toggling, checking, handleToggle, handleCheckNow, handleLogout,
+    running, toggling, checking, testingServer, handleToggle, handleCheckNow, handleTestServer, handleLogout,
   } = useDashboard();
   const pathname = usePathname();
   const router = useRouter();
@@ -164,6 +164,11 @@ export function AppShell({ children }) {
                   <RefreshIcon spinning={checking} />
                   {checking ? 'Checking...' : 'Check now'}
                 </button>
+                {account.role === 'OWNER' && (
+                  <button className="secondary" onClick={handleTestServer} disabled={testingServer}>
+                    {testingServer ? 'Testing...' : 'Test Server'}
+                  </button>
+                )}
               </>
             )}
           </div>
