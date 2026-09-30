@@ -47,7 +47,7 @@ const RECOVERY_BACKOFF_MINUTES = [5, 10, 20, 30];
 const RECENT_SYNC_GRACE_MS = 10 * 60 * 1000;
 // A copy the bot rejected isn't re-sent for this long (unless you log in again
 // and the cookies change) — never forever, in case the rejection was a fluke.
-const BAD_COPY_HOLD_MS = 15 * 60 * 1000;
+const BAD_COPY_HOLD_MS = 10 * 60 * 1000;
 // New-login syncs (resyncOnNewLogin): at most one per marketplace every
 // NEW_LOGIN_MIN_GAP_MS, however many cookie changes a login produces; if they
 // keep failing for a reason that isn't the login (the bot or the marketplace
