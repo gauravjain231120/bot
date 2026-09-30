@@ -44,12 +44,30 @@ export function stretchGray(img) {
   const range = hi - lo;
   const lut = new Uint8ClampedArray(256);
   for (let v = 0; v < 256; v++) lut[v] = range < 8 ? v : ((v - lo) * 255) / range;
+  
+  // Apply LUT and store in a temporary buffer for the erosion pass
+  const temp = new Uint8Array(n);
   for (let i = 0, p = 0; i < n; i++, p += 4) {
-    const g = lut[data[p]];
-    data[p] = g;
-    data[p + 1] = g;
-    data[p + 2] = g;
-    data[p + 3] = 255;
+    temp[i] = lut[data[p]];
+  }
+  
+  // Erosion: dark pixels expand by 1px to close gaps in thermal/dot-matrix prints.
+  // This drastically reduces OCR confusing '8' for '0' due to faint crossbars.
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const idx = y * width + x;
+      let min = temp[idx];
+      if (temp[idx - 1] < min) min = temp[idx - 1];
+      if (temp[idx + 1] < min) min = temp[idx + 1];
+      if (temp[idx - width] < min) min = temp[idx - width];
+      if (temp[idx + width] < min) min = temp[idx + width];
+      
+      const p = idx * 4;
+      data[p] = min;
+      data[p + 1] = min;
+      data[p + 2] = min;
+      data[p + 3] = 255;
+    }
   }
   return img;
 }
@@ -196,13 +214,12 @@ export function nearMiss(a, b) {
   return diff > 0 && diff <= 2;
 }
 
-// Amazon order ids are 3-7-7 digits. Matched ONE LINE AT A TIME and only
-// with no other digit touching either end — otherwise the reader happily
-// glues the id's last group onto the date on the next line ("280-4187546-
-// 2309120", seen in testing). Letters OCR commonly mistakes for digits are
-// mapped first (O->0, I/l/|->1, S->5, B->8) — the digit whitelist mostly
-// prevents them, this is the safety net.
-const ORDER_ID_RE = /(?:^|[^0-9])(\d{3})[ \t\-–—_.]{0,3}(\d{7})[ \t\-–—_.]{0,3}(\d{7})(?![0-9])/;
+// Amazon order ids are 3-7-7 digits (17 digits total).
+// Because dot-matrix prints (like "171 - 08910 30 - 2889138") often cause
+// Tesseract to insert random spaces, we strip all spaces, dashes, dots,
+// and underscores first. Then we just look for exactly 17 consecutive digits.
+// Letters OCR commonly mistakes for digits are mapped first.
+const ORDER_ID_RE = /(?:^|[^0-9])(\d{17})(?![0-9])/;
 
 export function readOrderId(text) {
   for (const line of String(text || '').split(/\r?\n/)) {
@@ -210,9 +227,13 @@ export function readOrderId(text) {
       .replace(/[Oo]/g, '0')
       .replace(/[Il|]/g, '1')
       .replace(/S/g, '5')
-      .replace(/B/g, '8');
+      .replace(/B/g, '8')
+      .replace(/[ \t\-–—_.]/g, '');
     const m = cleaned.match(ORDER_ID_RE);
-    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    if (m) {
+      const d = m[1];
+      return `${d.slice(0, 3)}-${d.slice(3, 10)}-${d.slice(10, 17)}`;
+    }
   }
   return null;
 }
