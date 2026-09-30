@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '../../../../lib/db';
-import { secretMatches } from '../../../../lib/secrets';
-import { sendOwnerAlert } from '../../../../lib/telegram';
-import { fetchUnshippedByProgram } from '../../../../lib/amazon';
-import { fetchOpenOrders } from '../../../../lib/myntra';
+import { getDb } from '../../../lib/db';
+import { secretMatches } from '../../../lib/secrets';
+import { sendOwnerAlert } from '../../../lib/telegram';
+import { fetchUnshippedByProgram } from '../../../lib/amazon';
+import { fetchOpenOrders } from '../../../lib/myntra';
 
 export const runtime = 'nodejs';
 export const maxDuration = 45;

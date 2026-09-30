@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { runCheckAmazonOrders } from '../../../../lib/checkAmazonOrders';
-import { runCheckOrders } from '../../../../lib/checkOrders';
+import { runCheckAmazonOrders } from '../../../lib/checkAmazonOrders';
+import { runCheckOrders } from '../../../lib/checkOrders';
 
 export const runtime = 'nodejs';
 export const maxDuration = 45; // Need time to process database writes/Telegram alerts
 
-import { secretMatches } from '../../../../lib/secrets';
+import { secretMatches } from '../../../lib/secrets';
 
 export async function POST(req) {
   if (!secretMatches(req.headers.get('x-sync-secret'), process.env.EXTENSION_SYNC_SECRET)) {
