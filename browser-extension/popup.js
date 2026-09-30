@@ -315,13 +315,25 @@ function handleLocalCheckChange() {
   const pAmz = Math.max(1, parseInt(proxyPeriodAmzEl.value) || 5);
   const pMyn = Math.max(1, parseInt(proxyPeriodMynEl.value) || 2);
   
+  const isAmz = !!localAmazonEl.checked;
+  const isMyn = !!localMyntraEl.checked;
+
   chrome.storage.local.set({
-    localMyntra: !!localMyntraEl.checked,
-    localAmazon: !!localAmazonEl.checked,
+    localMyntra: isMyn,
+    localAmazon: isAmz,
     proxyPeriodAmazon: pAmz,
     proxyPeriodMyntra: pMyn
+  }, () => {
+    chrome.runtime.sendMessage({ type: 'update-proxy-alarms' });
+    
+    // Instant Mode Switch Triggers (Only if toggle was clicked, skip if just interval changed)
+    if (this && this.id === 'localAmazon') {
+      chrome.runtime.sendMessage({ type: 'manual-mode-switch', marketplace: 'amazon', mode: isAmz ? 'local' : 'cloud' });
+    } else if (this && this.id === 'localMyntra') {
+      chrome.runtime.sendMessage({ type: 'manual-mode-switch', marketplace: 'myntra', mode: isMyn ? 'local' : 'cloud' });
+    }
   });
-  chrome.runtime.sendMessage({ type: 'update-proxy-alarms' });
+
   localCheckStatus.style.color = 'var(--good)';
   localCheckStatus.textContent = 'Saved. Check Engine updated.';
   setTimeout(() => { localCheckStatus.textContent = ''; }, 2000);

@@ -98,7 +98,8 @@ async function runAmazonScrape() {
     const amzCancelUrl = 'https://sellercentral.amazon.in/orders-api/search?limit=100&offset=0&sort=ship_by_desc&date-range=last-90&fulfillmentType=mfn&orderStatus=canceled&program=easyship&forceOrdersTableRefreshTrigger=false';
     const cancelData = await fetchWithRetry(amzCancelUrl);
     
-    const payload = { marketplace: 'amazon', orders: data.orders };
+    const pAmz = (await chrome.storage.local.get(['proxyPeriodAmazon'])).proxyPeriodAmazon || 5;
+    const payload = { marketplace: 'amazon', orders: data.orders, interval: pAmz };
     if (cancelData && !cancelData._error && Array.isArray(cancelData.orders)) {
        payload.canceledOrders = cancelData.orders;
     }
@@ -128,7 +129,8 @@ async function runMyntraScrape() {
       const mynCancelUrl = `https://partnersapi.myntrainfo.com/api/mdirect/orders/cancel?fetchSize=100&start=0&sortBy=lastModifiedOn&sortOrder=DESC&warehouseId=${warehouseId}`;
       const cancelData = await fetchWithRetry(mynCancelUrl);
       
-      const payload = { marketplace: 'myntra', orders };
+      const pMyn = (await chrome.storage.local.get(['proxyPeriodMyntra'])).proxyPeriodMyntra || 2;
+      const payload = { marketplace: 'myntra', orders, interval: pMyn };
       if (cancelData && !cancelData._error) {
          const canceledOrders = extractMyntraOrders(cancelData);
          if (canceledOrders) payload.canceledOrders = canceledOrders;
@@ -934,6 +936,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'update-proxy-alarms') {
     ensureProxyAlarms().then(() => { if (sendResponse) sendResponse({ok: true}); });
+    return true;
+  }
+  if (msg.type === 'manual-mode-switch') {
+    if (msg.mode === 'local') {
+      if (msg.marketplace === 'amazon') runAmazonScrape();
+      if (msg.marketplace === 'myntra') runMyntraScrape();
+    } else {
+      getConfig().then(({appUrl, syncSecret}) => {
+        if (!appUrl || !syncSecret) return;
+        fetch(`${appUrl}/api/proxy-submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
+          body: JSON.stringify({ marketplace: msg.marketplace, stateChange: 'cloud' })
+        }).catch(console.error);
+      });
+    }
     return true;
   }
 });
