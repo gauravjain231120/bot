@@ -2342,3 +2342,27 @@ before.
 **If the OTC window is changed on the dashboard, change the cron-job.org job's hours to match.**
 Otherwise the check won't run in the new window, and the watchdog will say so 15 min into it.
 Tested offline (`test_otc_watchdog`) with the whole suite.
+
+## 51. Instant Mode Toggles & Local Engine Tags (2026-09-30)
+
+Following the new Local Hybrid scraping engine, several deep architecture upgrades were made to make failovers instant and completely transparent:
+
+1. **Instant UI Toggles & Power Locks**:
+   - The browser extension `popup.html` now uses `chrome.power.requestKeepAwake('system')` to prevent the OS from sleeping while the `Local Scraping` toggle is ON (the display can still turn off to save battery).
+   - Toggling the local engine ON or OFF now instantly sends a state-change signal to Vercel via `/api/proxy-submit`. This guarantees a 0-second wait time for the `💻 Switched to Local` and `☁️ Switched to Cloud` Telegram alerts instead of waiting for heavy scrape loops to finish or timeout.
+   - The UI toggles stay ON even if the laptop sleeps and fails over to Vercel. This ensures recovery is 100% automatic: opening the lid wakes the browser alarms, resumes data transmission, and seamlessly switches Vercel back to Local without manual intervention.
+
+2. **Custom Interval Safety Padding**:
+   - The extension now allows custom proxy scraping intervals per marketplace (e.g., 2 mins Myntra, 5 mins Amazon).
+   - The `status` collection in the DB saves these user-defined intervals on each proxy submit.
+   - Vercel's failover safety timer (`lib/checkAmazonOrders.js` and `lib/checkOrders.js`) dynamically adjusts its timeout to `Math.max(5 mins, userInterval + 90 seconds)`. This guarantees that if the user sets a slow 8-minute scrape interval, Vercel will safely wait 9.5 minutes before falsely declaring the laptop dead.
+
+3. **Owner-Only Engine Tagging ([`💻 Local`] vs [`☁️ Cloud`])**:
+   - Every single new order alert generated natively via Vercel now tracks its origin state (the `engineMode` flag is passed deeply from the `runCheckOrders` proxy handler down to the Telegram payload builders).
+   - The notification dispatcher (`lib/telegram.js` `sendToChats`) intercepts outgoing payloads. If the recipient is an `OWNER`, it deep-clones the payload and appends `[💻 Fetched via Local Engine]` (or Cloud) to the bottom of the text, photo captions, or media group albums before calling the Telegram API.
+   - The team/broadcast chats continue to receive the pristine, untagged original payload. Rebuilt and retried orders from the cache are also securely caught and tagged.
+
+4. **Proxied Cancellations**:
+   - The browser extension now fetches Amazon/Myntra cancellations locally (to avoid WAF blocks) and submits them via `/api/proxy-submit`.
+   - Vercel persists them in `proxy_canceled_amazon` and `proxy_canceled_myntra`.
+   - The server cron jobs for `checkCancellations` bypass their own network requests and read from this DB cache instead when running in Local Mode.

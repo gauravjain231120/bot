@@ -263,6 +263,14 @@ stock carries the bundle's existing units across. The dashboard no longer calls 
 itself — it shows what the scheduled checks saved — which cut the marketplace traffic by roughly
 10–15x and keeps it looking like normal use.
 
+**Local Hybrid Engine (2026-09-30):** To bypass aggressive WAF blocks (Cloudflare/Akamai) that block Vercel IPs, a Chrome Extension acts as a "Local Scraping Engine".
+- When enabled, the extension runs background alarms (e.g. 2 mins for Myntra, 5 mins for Amazon) to fetch orders and cancellations from the seller's live browser, posting them to Vercel via `/api/proxy-submit`.
+- Vercel skips its own cloud fetches and uses the proxy data.
+- If the browser closes, Vercel waits a dynamic grace period (e.g., 5-7 minutes) and automatically fails over to the "Cloud Backup" engine, alerting the Owner.
+- When the browser reopens, the extension resumes sending data, and Vercel instantly recovers back to the "Local Engine".
+- Order alerts append `[💻 Fetched via Local Engine]` strictly to the Owner's chat to monitor system state transparently.
+- `chrome.power.requestKeepAwake('system')` is used to prevent the scraping laptop from sleeping.
+
 **Amazon gets the same keep-alive** (Seller Central also refreshes its `session-token` in every
 reply, which the bot now saves), and only Easy Ship is searched — this account doesn't use
 self-ship, and searching it on every check was half of all Amazon traffic.
