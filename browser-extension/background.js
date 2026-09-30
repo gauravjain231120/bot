@@ -532,7 +532,7 @@ async function resyncAfterLogin(entry) {
   if (r.ok) {
     // Its periodic timer is left alone, so both marketplaces' syncs (and their
     // "auto-sync ok") keep arriving together.
-    await patchStore(key, { resyncAt: null, resyncCount: 0, resyncFingerprint: null });
+    await patchStore(key, { resyncAt: null, resyncCount: 0, resyncFingerprint: null, needsLogin: false });
     await clearRetry(m);
   } else {
     await patchStore(key, { resyncAt: now, resyncCount: tries + 1, resyncFingerprint: fingerprint });
@@ -633,7 +633,7 @@ async function checkHealth() {
       const rec = (await chrome.storage.local.get([key]))[key] || {};
 
       if (state === 'ok') {
-        if (rec.count) await patchStore(key, { count: 0 });
+        if (rec.count || rec.needsLogin) await patchStore(key, { count: 0, needsLogin: false });
         // Bot is fine, but this browser's row may be waiting for a login, or
         // hold a newer login than the bot's — sync it now if so (backup for
         // the cookie event, which a sleeping worker can miss).
@@ -660,7 +660,7 @@ async function checkHealth() {
 
       const [r] = await syncSome([m], 'recovery');
       if (!r) continue; // another sync of this marketplace is already running
-      await patchStore(key, { lastAt: now, count: (rec.count || 0) + 1 });
+      await patchStore(key, { lastAt: now, count: (rec.count || 0) + 1, ...(r.ok ? { needsLogin: false } : {}) });
       if (r.ok) await clearRetry(m);
     }
   } finally {
