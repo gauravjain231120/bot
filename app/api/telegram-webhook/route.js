@@ -57,6 +57,7 @@ const COMMAND_LIST =
   '/packedall [date] — same, sent to everyone\n' +
   '/otc — pickup/return OTC codes, right now (just you)\n' +
   '/otcall — same, sent to everyone\n' +
+  '/status — engine status (Local/Cloud) for Amazon & Myntra\n' +
   '/command — this list';
 
 // A brand-new chat id (never before recorded) gets this once, right after
@@ -265,6 +266,34 @@ export async function POST(request) {
       case '/make': {
         const summary = await fetchQueueSummary();
         await replyToChat(chatId, formatMakeList(summary));
+        break;
+      }
+      case '/status': {
+        const db = await getDb();
+        const st = (await db.collection('settings').findOne({ _id: 'status' })) || {};
+        const mynMode = st.myntraScrapeMode || 'cloud';
+        const amzMode = st.amazonScrapeMode || 'cloud';
+        const mynIcon = mynMode === 'local' ? '💻' : '☁️';
+        const amzIcon = amzMode === 'local' ? '💻' : '☁️';
+        const mynLabel = mynMode === 'local' ? 'Local Browser' : 'Cloud Backup';
+        const amzLabel = amzMode === 'local' ? 'Local Browser' : 'Cloud Backup';
+
+        let mynAge = '';
+        if (mynMode === 'local' && st.myntraLastProxyCheck) {
+          const mins = Math.round((Date.now() - new Date(st.myntraLastProxyCheck).getTime()) / 60000);
+          mynAge = ` (last data ${mins} min ago)`;
+        }
+        let amzAge = '';
+        if (amzMode === 'local' && st.amazonLastProxyCheck) {
+          const mins = Math.round((Date.now() - new Date(st.amazonLastProxyCheck).getTime()) / 60000);
+          amzAge = ` (last data ${mins} min ago)`;
+        }
+
+        const text =
+          `📊 <b>Engine Status</b>\n\n` +
+          `${mynIcon} <b>Myntra:</b> ${mynLabel}${mynAge}\n` +
+          `${amzIcon} <b>Amazon:</b> ${amzLabel}${amzAge}`;
+        await replyToChat(chatId, text);
         break;
       }
       case '/command': {
