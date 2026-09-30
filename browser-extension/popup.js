@@ -258,13 +258,11 @@ saveBtn.addEventListener('click', () => {
 
 refreshUI();
 loadPeriods();
-// Ask the bot right away so the watch line is current, not up to a minute old.
-chrome.runtime.sendMessage('check-health-now', () => {
-  void chrome.runtime.lastError;
-  renderWatch().then(showReloadNote);
-});
+// Just render cached health data — the background 5-minute alarm handles
+// actual checks. No extra Vercel call on every popup open.
+renderWatch().then(showReloadNote);
 setInterval(tick, 1000);
-// Keep the watch line fresh while the popup stays open.
+// Keep the "ago" text fresh while the popup stays open.
 setInterval(renderWatch, 15000);
 
 syncBtn.addEventListener('click', () => {
