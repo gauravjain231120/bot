@@ -44,5 +44,11 @@ export async function GET() {
     amazonLastCancelCheck: statusDoc?.amazonLastCancelCheck ?? null,
     amazonCancelledCount: statusDoc?.amazonCancelledCount ?? null,
     amazonLastCancelError: statusDoc?.amazonLastCancelError ?? null,
+    myntraScrapeMode: statusDoc?.myntraScrapeMode || 'cloud',
+    amazonScrapeMode: statusDoc?.amazonScrapeMode || 'cloud',
+    myntraLastProxyCheck: statusDoc?.myntraLastProxyCheck ?? null,
+    amazonLastProxyCheck: statusDoc?.amazonLastProxyCheck ?? null,
+    myntraProxyInterval: statusDoc?.myntraProxyInterval ?? null,
+    amazonProxyInterval: statusDoc?.amazonProxyInterval ?? null,
   });
 }
