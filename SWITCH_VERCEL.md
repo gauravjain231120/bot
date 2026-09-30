@@ -32,3 +32,12 @@ You must tell Telegram which server should receive and reply to your messages. P
 2. Go to your Telegram bot and type `/vercel`. It should reply with the domain of the new server!
 3. Type `/status`. It should show **[💻 Local Mode Active]** for both Amazon and Myntra.
 4. Go to your Vercel Dashboard, open the new server, click the **Engine** page on the sidebar, and confirm everything is green!
+
+---
+
+### How to Deploy Code Updates (Private Repo Mode)
+Because both repositories are now **Private**, you can no longer use the "Sync fork" button on GitHub. 
+
+To update the code for **both** Vercel servers at the same time, open your computer terminal inside this folder and run:
+1. `git push origin main` *(Updates Vercel 1)*
+2. `git push vercel2 main` *(Updates Vercel 2)*
