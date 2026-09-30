@@ -311,7 +311,7 @@ async function loadLocalCheck() {
 }
 loadLocalCheck();
 
-function handleLocalCheckChange() {
+function handleLocalCheckChange(e) {
   const pAmz = Math.max(1, parseInt(proxyPeriodAmzEl.value) || 5);
   const pMyn = Math.max(1, parseInt(proxyPeriodMynEl.value) || 2);
   
@@ -327,9 +327,9 @@ function handleLocalCheckChange() {
     chrome.runtime.sendMessage({ type: 'update-proxy-alarms' });
     
     // Instant Mode Switch Triggers (Only if toggle was clicked, skip if just interval changed)
-    if (this && this.id === 'localAmazon') {
+    if (e && e.target && e.target.id === 'localAmazon') {
       chrome.runtime.sendMessage({ type: 'manual-mode-switch', marketplace: 'amazon', mode: isAmz ? 'local' : 'cloud' });
-    } else if (this && this.id === 'localMyntra') {
+    } else if (e && e.target && e.target.id === 'localMyntra') {
       chrome.runtime.sendMessage({ type: 'manual-mode-switch', marketplace: 'myntra', mode: isMyn ? 'local' : 'cloud' });
     }
   });

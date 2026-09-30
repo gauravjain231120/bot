@@ -1,4 +1,6 @@
-import { NextResponse } from 'next/server';
+const fs = require('fs');
+
+const code = `import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { sendOwnerAlert } from '../../../lib/telegram';
 import { runCheckAmazonOrders } from '../../../lib/checkAmazonOrders';
@@ -22,20 +24,20 @@ export async function POST(req) {
     if (interval) {
       await db.collection('settings').updateOne(
         { _id: 'status' },
-        { $set: { [`${marketplace}ProxyInterval`]: interval } },
+        { $set: { [\`\${marketplace}ProxyInterval\`]: interval } },
         { upsert: true }
       );
     }
 
     if (stateChange === 'cloud') {
       const statusDoc = await db.collection('settings').findOne({ _id: 'status' }) || {};
-      if (statusDoc[`${marketplace}ScrapeMode`] === 'local') {
+      if (statusDoc[\`\${marketplace}ScrapeMode\`] === 'local') {
         const Name = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
-        await sendOwnerAlert(`☁️ <b>${Name} switched to Cloud Backup</b>\nManual toggle turned OFF.`, { silent: true }).catch(() => {});
+        await sendOwnerAlert(\`☁️ <b>\${Name} switched to Cloud Backup</b>\\nManual toggle turned OFF.\`, { silent: true }).catch(() => {});
       }
       await db.collection('settings').updateOne(
         { _id: 'status' },
-        { $set: { [`${marketplace}ScrapeMode`]: 'cloud', [`${marketplace}LastProxyCheck`]: null } },
+        { $set: { [\`\${marketplace}ScrapeMode\`]: 'cloud', [\`\${marketplace}LastProxyCheck\`]: null } },
         { upsert: true }
       );
       return NextResponse.json({ ok: true, status: 'cloud-forced' });
@@ -43,7 +45,7 @@ export async function POST(req) {
 
     if (canceledOrders) {
       await db.collection('settings').updateOne(
-        { _id: `proxy_canceled_${marketplace}` },
+        { _id: \`proxy_canceled_\${marketplace}\` },
         { $set: { data: canceledOrders, updatedAt: new Date().toISOString() } },
         { upsert: true }
       );
@@ -71,4 +73,6 @@ export async function POST(req) {
     console.error('Proxy submit failed:', err);
     return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
   }
-}
+}`;
+
+fs.writeFileSync('app/api/proxy-submit/route.js', code);
