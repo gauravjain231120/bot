@@ -146,10 +146,15 @@
       <div class="engine-row">
         <div class="engine-header">
           <span class="engine-name">Amazon</span>
-          <label class="switch">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="font-size:11px; color:var(--muted); display:flex; align-items:center; gap:3px;">
+              Every <input type="number" id="proxyPeriodAmz" style="width:36px; padding:2px; border:1px solid var(--border); border-radius:4px; text-align:center; font-size:11px;" min="1" max="60" value="5"> min
+            </div>
+            <label class="switch">
             <input type="checkbox" id="localAmazon">
             <span class="slider round"></span>
           </label>
+          </div>
         </div>
         <div class="engine-actions">
           <button class="btn-test" id="testAmzLocal">Test Local</button>
@@ -162,10 +167,15 @@
       <div class="engine-row" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
         <div class="engine-header">
           <span class="engine-name">Myntra</span>
-          <label class="switch">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="font-size:11px; color:var(--muted); display:flex; align-items:center; gap:3px;">
+              Every <input type="number" id="proxyPeriodMyn" style="width:36px; padding:2px; border:1px solid var(--border); border-radius:4px; text-align:center; font-size:11px;" min="1" max="60" value="2"> min
+            </div>
+            <label class="switch">
             <input type="checkbox" id="localMyntra">
             <span class="slider round"></span>
           </label>
+          </div>
         </div>
         <div class="engine-actions">
           <button class="btn-test" id="testMynLocal">Test Local</button>
