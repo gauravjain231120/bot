@@ -41,13 +41,13 @@ const RETRY_DELAYS_MINUTES = [1, 2, 4, 8, 15];
 // Recovery (health check saw the bot's session expired): at most one attempt
 // per this many minutes, growing if the session keeps dying right after being
 // restored — so a flaky session can never turn into a sync every minute.
-const RECOVERY_BACKOFF_MINUTES = [10, 20, 40, 60];
+const RECOVERY_BACKOFF_MINUTES = [5, 10, 20, 30];
 // Don't "recover" a marketplace that was synced successfully this recently —
 // the bot's next 5-minute check just hasn't confirmed it yet.
 const RECENT_SYNC_GRACE_MS = 10 * 60 * 1000;
 // A copy the bot rejected isn't re-sent for this long (unless you log in again
 // and the cookies change) — never forever, in case the rejection was a fluke.
-const BAD_COPY_HOLD_MS = 2 * 60 * 60 * 1000;
+const BAD_COPY_HOLD_MS = 15 * 60 * 1000;
 // New-login syncs (resyncOnNewLogin): at most one per marketplace every
 // NEW_LOGIN_MIN_GAP_MS, however many cookie changes a login produces; if they
 // keep failing for a reason that isn't the login (the bot or the marketplace
@@ -217,7 +217,17 @@ async function buildHeaders({ cookieDomain, requestUrl, loginCookies, staticHead
 // exists and hasn't expired.) Also returns a fingerprint of those cookies so a
 // copy the bot already rejected is never re-sent until you log in again.
 async function loginState(entry) {
-  const cookies = await chrome.cookies.getAll({ domain: entry.cookieDomain });
+  let cookies = await chrome.cookies.getAll({ domain: entry.cookieDomain });
+  // Amazon's auth cookies (at-acbin, sess-at-acbin) may be scoped to
+  // sellercentral.amazon.in and missed by a broad domain search on amazon.in.
+  // Try the requestUrl too if the entry has one.
+  if (entry.requestUrl) {
+    const urlCookies = await chrome.cookies.getAll({ url: entry.requestUrl });
+    const existingKeys = new Set(cookies.map((c) => `${c.domain}|${c.name}|${c.path}`));
+    for (const c of urlCookies) {
+      if (!existingKeys.has(`${c.domain}|${c.name}|${c.path}`)) cookies.push(c);
+    }
+  }
   const now = Date.now() / 1000;
   const live = cookies.filter(
     (c) => entry.loginCookies.includes(c.name) && c.value && (c.session || !c.expirationDate || c.expirationDate > now)
