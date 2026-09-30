@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
-import { requireAdmin } from '../../../../lib/adminAuth';
+import { requireOwner } from '../../../../lib/adminAuth';
 import { sendOwnerAlert } from '../../../../lib/telegram';
 import { fetchPackedCount } from '../../../../lib/myntra';
 import { todayIst, toDMY } from '../../../../lib/telegramCommands';
@@ -9,10 +9,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
-  const admin = await requireAdmin(request);
-  if (!admin || admin.role !== 'OWNER') {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const check = await requireOwner();
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: check.status });
   }
+  const admin = check.account;
 
   try {
     const db = await getDb();
