@@ -919,7 +919,12 @@ async function handleTestLocal(marketplace) {
       body: JSON.stringify({ marketplace, type: 'local', orders })
     });
     
-    return await res.json();
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch(e) {
+      return { ok: false, error: 'Vercel server error (Deployment might be building)' };
+    }
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -933,7 +938,13 @@ async function handleTestCloud(marketplace) {
       headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
       body: JSON.stringify({ marketplace, type: 'cloud' })
     });
-    return await res.json();
+    
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch(e) {
+      return { ok: false, error: 'Vercel server error (Deployment might be building)' };
+    }
   } catch (err) {
     return { ok: false, error: err.message };
   }
