@@ -27,6 +27,20 @@ export async function POST(req) {
       );
     }
 
+    if (stateChange === 'local') {
+      const statusDoc = await db.collection('settings').findOne({ _id: 'status' }) || {};
+      if (statusDoc[`${marketplace}ScrapeMode`] !== 'local') {
+        const Name = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
+        await sendOwnerAlert(`💻 <b>${Name} switched to Local Browser</b>\nManual toggle turned ON.`, { silent: true }).catch(() => {});
+      }
+      await db.collection('settings').updateOne(
+        { _id: 'status' },
+        { $set: { [`${marketplace}ScrapeMode`]: 'local', [`${marketplace}LastProxyCheck`]: new Date().toISOString() } },
+        { upsert: true }
+      );
+      return NextResponse.json({ ok: true, status: 'local-forced' });
+    }
+
     if (stateChange === 'cloud') {
       const statusDoc = await db.collection('settings').findOne({ _id: 'status' }) || {};
       if (statusDoc[`${marketplace}ScrapeMode`] === 'local') {

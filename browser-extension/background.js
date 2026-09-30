@@ -949,6 +949,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'manual-mode-switch') {
     if (msg.mode === 'local') {
+      getConfig().then(({appUrl, syncSecret}) => {
+        if (!appUrl || !syncSecret) return;
+        fetch(`${appUrl}/api/proxy-submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
+          body: JSON.stringify({ marketplace: msg.marketplace, stateChange: 'local' })
+        }).catch(console.error);
+      });
       if (msg.marketplace === 'amazon') runAmazonScrape();
       if (msg.marketplace === 'myntra') runMyntraScrape();
     } else {
