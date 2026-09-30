@@ -58,6 +58,7 @@ const COMMAND_LIST =
   '/otc — pickup/return OTC codes, right now (just you)\n' +
   '/otcall — same, sent to everyone\n' +
   '/status — engine status (Local/Cloud) for Amazon & Myntra\n' +
+  '/vercel — see which Vercel server is currently active\n' +
   '/command — this list';
 
 // A brand-new chat id (never before recorded) gets this once, right after
@@ -294,6 +295,11 @@ export async function POST(request) {
           `${mynIcon} <b>Myntra:</b> ${mynLabel}${mynAge}\n` +
           `${amzIcon} <b>Amazon:</b> ${amzLabel}${amzAge}`;
         await replyToChat(chatId, text);
+        break;
+      }
+      case '/vercel': {
+        const host = request.headers.get('host') || process.env.VERCEL_URL || 'Unknown Server';
+        await replyToChat(chatId, `🌐 **Active Server:**\n${host}`);
         break;
       }
       case '/command': {
