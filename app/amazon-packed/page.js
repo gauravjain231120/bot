@@ -116,10 +116,6 @@ export default function AmazonPackedPage() {
     <>
       <div className="page-header">
         <h1>Amazon Pack</h1>
-        <p className="muted">
-          Scan the shipping label&apos;s tracking barcode, or switch to Order ID and read the printed order number
-          with the camera — shows the product, SKU, size and the order&apos;s dates.
-        </p>
       </div>
 
       <div className="card">

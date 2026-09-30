@@ -91,10 +91,6 @@ export default function PackedScanPage() {
     <>
       <div className="page-header">
         <h1>Myntra Pack</h1>
-        <p className="muted">
-          Scan or type a shipping label&apos;s tracking number (MYSP… / MYSC… / MYEC… / MYEP…) or packet ID —
-          shows the product, SKU, size, color and when it was packed, picked and shipped.
-        </p>
       </div>
 
       <div className="card">

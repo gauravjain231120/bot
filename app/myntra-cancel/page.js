@@ -255,11 +255,6 @@ export default function MyntraCancelPage() {
     <>
       <div className="page-header">
         <h1>Myntra Cancel</h1>
-        <p className="muted">
-          Scan a packed parcel that won&apos;t go out — the courier refused it, or the order was cancelled after packing. It&apos;s left
-          out of the packed count (OTC message and Overview), and in stock-manager its Shipped entry is marked Cancelled and the stock
-          goes back (or, if it wasn&apos;t marked shipped yet, it&apos;s taken out of Ready to Ship).
-        </p>
       </div>
 
       <div className="card">

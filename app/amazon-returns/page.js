@@ -129,11 +129,6 @@ export default function AmazonReturnsPage() {
     <>
       <div className="page-header">
         <h1>Amazon Return</h1>
-        <p className="muted">
-          Scan the return parcel&apos;s tracking barcode, or switch to Order ID and read the printed order number with the
-          camera — shows what&apos;s coming back and logs it into stock-manager as an Amazon return. Works for customer
-          returns and RTOs (parcels that never reached the customer); for an RTO, use Order ID.
-        </p>
       </div>
 
       <div className="card">
