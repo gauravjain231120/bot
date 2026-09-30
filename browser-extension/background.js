@@ -149,6 +149,15 @@ async function runMyntraScrape() {
 
 async function ensureProxyAlarms() {
   const stored = await chrome.storage.local.get(['localMyntra', 'localAmazon', 'proxyPeriodAmazon', 'proxyPeriodMyntra']);
+  
+  if (chrome.power) {
+    if (stored.localAmazon || stored.localMyntra) {
+      chrome.power.requestKeepAwake('system');
+    } else {
+      chrome.power.releaseKeepAwake();
+    }
+  }
+
   if (stored.localAmazon) {
     chrome.alarms.create('proxy-scrape-amazon', { periodInMinutes: stored.proxyPeriodAmazon || 5 });
   } else {
