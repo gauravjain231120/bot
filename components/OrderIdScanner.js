@@ -20,7 +20,7 @@ export function OrderIdScanner({ onDetected, onClose }) {
     <TextIdScanner
       title="Read order ID"
       hint="Hold the order ID inside the box — any way up, faint print is fine"
-      whitelist="0123456789-"
+      whitelist="0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
       readId={readOrderId}
       fromBarcode={orderIdFromBarcode}
       onDetected={onDetected}

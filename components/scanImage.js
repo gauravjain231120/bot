@@ -43,7 +43,18 @@ export function stretchGray(img) {
   }
   const range = hi - lo;
   const lut = new Uint8ClampedArray(256);
-  for (let v = 0; v < 256; v++) lut[v] = range < 8 ? v : ((v - lo) * 255) / range;
+  for (let v = 0; v < 256; v++) {
+    if (range < 8) {
+      lut[v] = v;
+    } else {
+      // Normalize to 0.0 - 1.0 (where 0 is black, 1 is white)
+      let norm = (v - lo) / range;
+      norm = Math.max(0, Math.min(1, norm));
+      // Apply gamma curve to darken mid-tones (faint text).
+      // Squaring/cubing the value pulls light grey (e.g. 0.8) down to much darker (0.64 or 0.51).
+      lut[v] = Math.pow(norm, 2.5) * 255;
+    }
+  }
   
   // Apply LUT and store in a temporary buffer for the erosion pass
   const temp = new Uint8Array(n);
@@ -224,10 +235,12 @@ const ORDER_ID_RE = /(?:^|[^0-9])(\d{17})(?![0-9])/;
 export function readOrderId(text) {
   for (const line of String(text || '').split(/\r?\n/)) {
     const cleaned = line
-      .replace(/[Oo]/g, '0')
+      .replace(/[OoQqDd]/g, '0')
       .replace(/[Il|]/g, '1')
-      .replace(/S/g, '5')
-      .replace(/B/g, '8')
+      .replace(/[Zz]/g, '2')
+      .replace(/[Ss]/g, '5')
+      .replace(/[Gg]/g, '6')
+      .replace(/[Bb]/g, '8')
       .replace(/[ \t\-–—_.]/g, '');
     const m = cleaned.match(ORDER_ID_RE);
     if (m) {
