@@ -28,7 +28,8 @@ function stateFor(sessionDoc, lastError) {
 
 export async function GET(request) {
   if (!secretMatches(request.headers.get('x-sync-secret'), process.env.EXTENSION_SYNC_SECRET)) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    return NextResponse.json({
+    warehouseId: process.env.WAREHOUSE_ID || '89623', error: 'unauthorized' }, { status: 401 });
   }
 
   const db = await getDb();

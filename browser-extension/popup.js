@@ -291,3 +291,28 @@ document.getElementById('openOptions').addEventListener('click', (e) => {
   e.preventDefault();
   chrome.runtime.openOptionsPage();
 });
+
+
+const localMyntraEl = document.getElementById('localMyntra');
+const localAmazonEl = document.getElementById('localAmazon');
+const localCheckStatus = document.getElementById('localCheckStatus');
+
+async function loadLocalCheck() {
+  const stored = await chrome.storage.local.get(['localMyntra', 'localAmazon']);
+  if (localMyntraEl) localMyntraEl.checked = !!stored.localMyntra;
+  if (localAmazonEl) localAmazonEl.checked = !!stored.localAmazon;
+}
+loadLocalCheck();
+
+function handleLocalCheckChange() {
+  chrome.storage.local.set({
+    localMyntra: !!localMyntraEl.checked,
+    localAmazon: !!localAmazonEl.checked
+  });
+  localCheckStatus.style.color = 'var(--good)';
+  localCheckStatus.textContent = 'Saved. Proxy active.';
+  setTimeout(() => { localCheckStatus.textContent = ''; }, 2000);
+}
+
+if (localMyntraEl) localMyntraEl.addEventListener('change', handleLocalCheckChange);
+if (localAmazonEl) localAmazonEl.addEventListener('change', handleLocalCheckChange);
