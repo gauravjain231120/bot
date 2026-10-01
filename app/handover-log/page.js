@@ -93,11 +93,11 @@ function HandoverForm() {
         <div style={{ display: 'flex', gap: 10 }}>
           <div style={{ flex: 1 }}>
             <label style={{ display: 'block', fontWeight: 600, marginBottom: 5 }}>{type} Device</label>
-            <input type="number" min="0" value={device} onChange={(e) => setDevice(e.target.value)} placeholder="0" style={inputStyle} required />
+            <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={device} onChange={(e) => setDevice(e.target.value)} placeholder="0" style={inputStyle} required />
           </div>
           <div style={{ flex: 1 }}>
             <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, color: device && received !== device ? '#b91c1c' : 'inherit' }}>{type} Received</label>
-            <input type="number" min="0" value={received} onChange={(e) => setReceived(e.target.value)} placeholder="0" style={inputStyle} required />
+            <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={received} onChange={(e) => setReceived(e.target.value)} placeholder="0" style={inputStyle} required />
           </div>
         </div>
 
