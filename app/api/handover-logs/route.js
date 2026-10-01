@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { requireSection } from '../../../lib/access';
+import { verifyPassword } from '../../../lib/accounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,8 +32,9 @@ export async function PUT(request) {
     const data = await request.json();
     const { date, mysDevice, mysReceived, mysNotes, myeDevice, myeReceived, myeNotes, password } = data;
 
-    if (password !== process.env.ADMIN_PASSWORD) {
-      return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
+    const isValid = await verifyPassword(access.account.username, password);
+    if (!isValid) {
+      return NextResponse.json({ error: 'Incorrect password. Use your login password.' }, { status: 401 });
     }
 
     if (!date) return NextResponse.json({ error: 'Date required' }, { status: 400 });
@@ -71,8 +73,9 @@ export async function DELETE(request) {
     const data = await request.json();
     const { date, password } = data;
 
-    if (password !== process.env.ADMIN_PASSWORD) {
-      return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
+    const isValid = await verifyPassword(access.account.username, password);
+    if (!isValid) {
+      return NextResponse.json({ error: 'Incorrect password. Use your login password.' }, { status: 401 });
     }
 
     if (!date) return NextResponse.json({ error: 'Date required' }, { status: 400 });
