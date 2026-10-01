@@ -41,16 +41,54 @@ export async function POST(request) {
       { upsert: true }
     );
 
-    // Send telegram message
-    const flag = device !== received ? ' ❌' : ' ✅';
-    let msg = `📦 <b>Courier Handover Logged</b> (${date})\n\n`;
-    msg += `<b>${type}:</b> ${received}/${device}${flag}\n`;
+    // Read full log to check if everything is filled
+    const log = await db.collection('handover_logs').findOne({ _id: date });
+    const otcStatus = await db.collection('settings').findOne({ _id: 'otc_status' });
     
-    if (notes) {
-      msg += `\n<i>Notes: ${notes}</i>`;
+    let expectMys = false;
+    let expectMye = false;
+    
+    if (otcStatus && otcStatus.alertedDate === date && otcStatus.values) {
+      expectMys = Boolean(otcStatus.values.pickupMys || otcStatus.values.returnMys);
+      expectMye = Boolean(otcStatus.values.pickupMye || otcStatus.values.returnMye);
+    } else {
+      // Fallback: If we don't have OTC status for this exact date, 
+      // just expect whatever they just submitted to be the only thing.
+      expectMys = type === 'MYS';
+      expectMye = type === 'MYE';
+    }
+
+    const mysFilled = log.mysDevice != null && log.mysReceived != null;
+    const myeFilled = log.myeDevice != null && log.myeReceived != null;
+
+    // Wait until all expected fields are filled before sending the summary
+    if (expectMys && !mysFilled) return NextResponse.json({ success: true, pending: true });
+    if (expectMye && !myeFilled) return NextResponse.json({ success: true, pending: true });
+
+    // Send combined telegram message
+    let msg = `📦 <b>Courier Handover Logged</b> (${date})\n\n`;
+    let hasDiscrepancy = false;
+    const notesArr = [];
+    
+    const flag = (dev, rec) => (dev !== rec ? ' ❌' : ' ✅');
+
+    if (expectMys && mysFilled) {
+      msg += `<b>MYS:</b> ${log.mysReceived}/${log.mysDevice}${flag(log.mysDevice, log.mysReceived)}\n`;
+      if (log.mysDevice !== log.mysReceived) hasDiscrepancy = true;
+      if (log.mysNotes) notesArr.push(`MYS: ${log.mysNotes}`);
+    }
+
+    if (expectMye && myeFilled) {
+      msg += `<b>MYE:</b> ${log.myeReceived}/${log.myeDevice}${flag(log.myeDevice, log.myeReceived)}\n`;
+      if (log.myeDevice !== log.myeReceived) hasDiscrepancy = true;
+      if (log.myeNotes) notesArr.push(`MYE: ${log.myeNotes}`);
+    }
+
+    if (notesArr.length > 0) {
+      msg += `\n<i>Notes: ${notesArr.join(' | ')}</i>`;
     }
     
-    if (device !== received) {
+    if (hasDiscrepancy) {
       msg += `\n\n⚠️ <b>Discrepancy detected!</b> Check with the courier or raise a dispute.`;
     }
 
