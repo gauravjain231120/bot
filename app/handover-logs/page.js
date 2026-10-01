@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useDashboard } from '../../lib/DashboardContext';
 
 export default function HandoverLogsPage() {
+  const { promptPassword } = useDashboard();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -55,7 +57,7 @@ export default function HandoverLogsPage() {
   }
 
   async function handleSaveClick(date, formData, isNew = false) {
-    const pwd = prompt('Enter admin password to save changes:');
+    const pwd = await promptPassword('Enter admin password to save changes:');
     if (!pwd) return;
 
     try {
@@ -85,7 +87,7 @@ export default function HandoverLogsPage() {
   }
 
   async function handleDeleteClick(date) {
-    const pwd = prompt(`Enter admin password to permanently delete log for ${date}:`);
+    const pwd = await promptPassword(`Enter admin password to permanently delete log for ${date}:`);
     if (!pwd) return;
 
     try {
