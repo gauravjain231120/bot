@@ -22,3 +22,63 @@ export async function GET(request) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
+export async function PUT(request) {
+  const access = await requireSection('handovers');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
+  try {
+    const data = await request.json();
+    const { date, mysDevice, mysReceived, mysNotes, myeDevice, myeReceived, myeNotes, password } = data;
+
+    if (password !== process.env.ADMIN_PASSWORD) {
+      return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
+    }
+
+    if (!date) return NextResponse.json({ error: 'Date required' }, { status: 400 });
+
+    const db = await getDb();
+    const update = { updatedAt: new Date() };
+    
+    // Only update fields if they are explicitly provided in the payload (or allow nulls)
+    if (mysDevice !== undefined) update.mysDevice = mysDevice === '' ? null : Number(mysDevice);
+    if (mysReceived !== undefined) update.mysReceived = mysReceived === '' ? null : Number(mysReceived);
+    if (mysNotes !== undefined) update.mysNotes = mysNotes;
+
+    if (myeDevice !== undefined) update.myeDevice = myeDevice === '' ? null : Number(myeDevice);
+    if (myeReceived !== undefined) update.myeReceived = myeReceived === '' ? null : Number(myeReceived);
+    if (myeNotes !== undefined) update.myeNotes = myeNotes;
+
+    await db.collection('handover_logs').updateOne(
+      { _id: date },
+      { $set: update }
+    );
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request) {
+  const access = await requireSection('handovers');
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
+  try {
+    const data = await request.json();
+    const { date, password } = data;
+
+    if (password !== process.env.ADMIN_PASSWORD) {
+      return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
+    }
+
+    if (!date) return NextResponse.json({ error: 'Date required' }, { status: 400 });
+
+    const db = await getDb();
+    await db.collection('handover_logs').deleteOne({ _id: date });
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
