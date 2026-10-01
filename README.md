@@ -74,3 +74,8 @@ See `PROJECT.md` §22–§26 for how each lookup works.
   automatically" note follows. The "Sync now" confirmations ("session working — same login as
   before", "… saved this browser's latest login", "session restored") are silent by design — only
   the expiry warning makes noise. Details: `PROJECT.md` §28–§30, §44.
+
+## Recent Updates (Oct 2026)
+- **App Icons (PWA)**: Implemented dynamic `apple-icon.jsx` (Next.js ImageResponse) for all major scanner routes (`/packed`, `/returns`, `/amazon-packed`, `/amazon-returns`). iOS Safari now perfectly renders "MP", "MR", "AP", "AR", and "RS" color-coded app icons when saving bookmarks to the Home Screen.
+- **Smart Handover Wait**: Added smart delay logic in `POST /api/handover-log` so that Telegram alerts wait for both MYS and MYE scans before triggering a combined receipt alert.
+- **Custom Auth Modal**: Stripped hardcoded environment variable passwords. Admin areas now use the DB-authenticated dashboard owner password, via a custom built-in React Modal replacing the native `window.prompt`.
