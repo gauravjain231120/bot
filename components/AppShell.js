@@ -30,6 +30,7 @@ const NAV_ITEMS = [
   { href: '/team', label: 'Team', Icon: ShieldIcon },
   { href: '/spf-status', label: 'SPF Status', Icon: ChartIcon },
   { href: '/engine', label: 'Engine', Icon: ChartIcon },
+  { href: '/handover-logs', label: 'Handovers', Icon: ChartIcon },
 ].map((item) => ({ ...item, section: sectionForPath(item.href) }));
 
 // A page this account may not open: nothing of it is rendered (its data
