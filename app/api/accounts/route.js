@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireOwner } from '../../../lib/adminAuth';
+import { verifyPassword } from '../../../lib/accounts';
 import { listAccounts, createAccount } from '../../../lib/accounts';
 import { secretMatches } from '../../../lib/secrets';
 import { cleanSections } from '../../../lib/sections';
@@ -14,8 +15,8 @@ export const dynamic = 'force-dynamic';
 // pattern already used for Telegram recipient role changes/removals
 // (app/api/recipients/[chatId]/route.js) — one shared confirmation password
 // for "this changes who has access", not a second one to remember.
-function checkConfirmPassword(body) {
-  return secretMatches(body.confirmPassword, process.env.ROLE_CHANGE_PASSWORD);
+async function checkConfirmPassword(account, body) {
+  return await verifyPassword(account.username, body.confirmPassword);
 }
 
 export async function GET() {
@@ -34,7 +35,7 @@ export async function POST(request) {
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const body = await request.json().catch(() => ({}));
-  if (!checkConfirmPassword(body)) {
+  if (!(await checkConfirmPassword(check.account, body))) {
     return NextResponse.json({ error: 'Wrong confirmation password' }, { status: 403 });
   }
 

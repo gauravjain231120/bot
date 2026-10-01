@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { ROLES, setRole, deleteRecipient } from '../../../../lib/recipients';
 import { secretMatches } from '../../../../lib/secrets';
 import { requireSection } from '../../../../lib/access';
+import { verifyPassword } from '../../../../lib/accounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,8 +11,8 @@ export const dynamic = 'force-dynamic';
 // changes and removals affect who gets alerted about real orders/returns, so
 // this is a deliberate extra confirmation step, checked server-side (never
 // trust a client-side-only prompt for this).
-function checkRolePassword(body) {
-  return secretMatches(body.password, process.env.ROLE_CHANGE_PASSWORD);
+async function checkRolePassword(account, body) {
+  return await verifyPassword(account.username, body.password);
 }
 
 export async function PATCH(request, ctx) {
@@ -23,7 +24,7 @@ export async function PATCH(request, ctx) {
   if (!ROLES.includes(body.role)) {
     return NextResponse.json({ error: `role must be one of ${ROLES.join(', ')}` }, { status: 400 });
   }
-  if (!checkRolePassword(body)) {
+  if (!(await checkRolePassword(check.account, body))) {
     return NextResponse.json({ error: 'Wrong password' }, { status: 403 });
   }
 
@@ -42,7 +43,7 @@ export async function DELETE(request, ctx) {
   const { chatId } = await ctx.params;
   const body = await request.json().catch(() => ({}));
 
-  if (!checkRolePassword(body)) {
+  if (!(await checkRolePassword(check.account, body))) {
     return NextResponse.json({ error: 'Wrong password' }, { status: 403 });
   }
 

@@ -10,8 +10,8 @@ export const dynamic = 'force-dynamic';
 // Same confirmation-password pattern as app/api/accounts/route.js (POST) and
 // the Telegram recipients routes — one shared ROLE_CHANGE_PASSWORD for any
 // change to who has dashboard access or what they can do with it.
-function checkConfirmPassword(body) {
-  return secretMatches(body.confirmPassword, process.env.ROLE_CHANGE_PASSWORD);
+async function checkConfirmPassword(account, body) {
+  return await verifyPassword(account.username, body.confirmPassword);
 }
 
 /**
@@ -30,7 +30,7 @@ export async function PATCH(request, { params }) {
   if (!settingSections && !ROLES.includes(body.role)) {
     return NextResponse.json({ error: `role must be one of ${ROLES.join(', ')}` }, { status: 400 });
   }
-  if (!checkConfirmPassword(body)) {
+  if (!(await checkConfirmPassword(check.account, body))) {
     return NextResponse.json({ error: 'Wrong confirmation password' }, { status: 403 });
   }
 
@@ -48,7 +48,7 @@ export async function DELETE(request, { params }) {
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const body = await request.json().catch(() => ({}));
-  if (!checkConfirmPassword(body)) {
+  if (!(await checkConfirmPassword(check.account, body))) {
     return NextResponse.json({ error: 'Wrong confirmation password' }, { status: 403 });
   }
 
