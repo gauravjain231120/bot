@@ -45,11 +45,17 @@ const RECOVERY_BACKOFF_MINUTES = [5, 10, 20, 30];
 // Don't "recover" a marketplace that was synced successfully this recently —
 // the bot's next 5-minute check just hasn't confirmed it yet.
 
-async function fetchWithRetry(url, maxTries = 2) {
+async function fetchWithRetry(url, maxTries = 4) {
   let lastErr;
   for (let i = 0; i < maxTries; i++) {
     try {
-      const res = await fetch(url, { credentials: 'include' });
+      const res = await fetch(url, { 
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json, text/javascript, */*; q=0.01',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      });
       if (res.status === 401 || res.status === 403) return { _error: `HTTP ${res.status} Unauthorized (Check login)` };
       
       const text = await res.text();
@@ -63,7 +69,9 @@ async function fetchWithRetry(url, maxTries = 2) {
       }
     } catch (e) {
       lastErr = e;
-      await new Promise(r => setTimeout(r, 1000));
+      // Exponential backoff to survive laptop wake-from-sleep network drops
+      const delay = (i === 0) ? 2000 : (i === 1) ? 5000 : 10000;
+      await new Promise(r => setTimeout(r, delay));
     }
   }
   return { _error: lastErr ? lastErr.message : 'Network error' };
