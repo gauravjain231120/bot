@@ -72,6 +72,7 @@ export default function ReturnsPage() {
           returnType: c.returnType,
           sku: c.matchedSku ?? c.resolvedSku,
           size: c.size,
+          productName: c.productName || c.resolvedName || '',
           // A rescan keeps what was already added from this tracking id.
           addedCondition: (previous && (previous.items.find((it) => it.unitKey === c.unitKey) || {}).addedCondition) || null,
         }));
@@ -225,7 +226,7 @@ export default function ReturnsPage() {
                 <div className="muted" style={{ fontSize: '0.8rem' }}>
                   {r.items.length
                     ? (isOwner ? `${r.items[0].returnType === 'RTO' ? 'RTO' : r.items[0].returnType === 'CUSTOMER' ? 'Customer return' : 'Unknown'} · ` : '') +
-                      r.items.map((it) => `${it.sku || '?'} · ${it.size || '?'}`).join(', ')
+                      r.items.map((it) => `${it.productName ? it.productName + ' · ' : ''}${it.sku || '?'} · ${it.size || '?'}`).join(', ')
                     : 'No item found'}
                 </div>
               </div>

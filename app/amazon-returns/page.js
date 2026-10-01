@@ -55,7 +55,7 @@ export default function AmazonReturnsPage() {
           orderId: rr.orderId,
           trackingId: rr.trackingId,
           returnType: rr.returnType,
-          items: rr.items.map((it) => `${it.sku || '?'} · ${it.size || '?'}${Number(it.quantity) > 1 ? ` ×${it.quantity}` : ''}`),
+          items: rr.items.map((it) => `${it.title || it.catalogName ? (it.title || it.catalogName) + ' · ' : ''}${it.sku || '?'} · ${it.size || '?'}${Number(it.quantity) > 1 ? ` ×${it.quantity}` : ''}`),
           unitKeys: amazonUnits(rr).map((u) => u.key),
         })),
         ...list.filter((r) => !ids.includes(r.returnRequestId)),

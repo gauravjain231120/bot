@@ -169,7 +169,7 @@ export default function PackedScanPage() {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.trackingNumber}</div>
                 <div className="muted" style={{ fontSize: '0.8rem' }}>
-                  {r.items.map((it) => `${it.sellerSkuCode || it.skuId} · ${it.size || '?'}`).join(', ')}
+                  {r.items.map((it) => `${it.productName ? it.productName + ' · ' : ''}${it.sellerSkuCode || it.skuId} · ${it.size || '?'}`).join(', ')}
                 </div>
               </div>
               <StatusBadge status={r.status} />

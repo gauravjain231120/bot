@@ -86,7 +86,7 @@ export default function AmazonPackedPage() {
           orderId: o.orderId,
           status: o.status,
           tracking: (o.packages[0] && o.packages[0].trackingId) || null,
-          items: orderItems(o).map((it) => `${it.sku || '?'} · ${it.size || '?'}`),
+          items: orderItems(o).map((it) => `${it.title || it.catalogName ? (it.title || it.catalogName) + ' · ' : ''}${it.sku || '?'} · ${it.size || '?'}`),
         })),
         ...list.filter((r) => !orderIds.includes(r.orderId)),
       ].slice(0, RECENT_LIMIT));
