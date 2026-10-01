@@ -38,9 +38,8 @@ export async function PUT(request) {
     if (!date) return NextResponse.json({ error: 'Date required' }, { status: 400 });
 
     const db = await getDb();
-    const update = { updatedAt: new Date() };
+    const update = { date, updatedAt: new Date() };
     
-    // Only update fields if they are explicitly provided in the payload (or allow nulls)
     if (mysDevice !== undefined) update.mysDevice = mysDevice === '' ? null : Number(mysDevice);
     if (mysReceived !== undefined) update.mysReceived = mysReceived === '' ? null : Number(mysReceived);
     if (mysNotes !== undefined) update.mysNotes = mysNotes;
@@ -51,7 +50,11 @@ export async function PUT(request) {
 
     await db.collection('handover_logs').updateOne(
       { _id: date },
-      { $set: update }
+      { 
+        $set: update,
+        $setOnInsert: { createdAt: new Date() }
+      },
+      { upsert: true }
     );
 
     return NextResponse.json({ success: true });

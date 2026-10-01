@@ -10,6 +10,19 @@ export default function HandoverLogsPage() {
   // Editing state
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  
+  // Adding state
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addForm, setAddForm] = useState(getEmptyForm());
+
+  function getEmptyForm() {
+    const d = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    return {
+      date: d.toISOString().split('T')[0],
+      mysDevice: '', mysReceived: '', mysNotes: '',
+      myeDevice: '', myeReceived: '', myeNotes: ''
+    };
+  }
 
   useEffect(() => {
     fetchLogs();
@@ -41,7 +54,7 @@ export default function HandoverLogsPage() {
     });
   }
 
-  async function handleSaveClick(date) {
+  async function handleSaveClick(date, formData, isNew = false) {
     const pwd = prompt('Enter admin password to save changes:');
     if (!pwd) return;
 
@@ -52,13 +65,19 @@ export default function HandoverLogsPage() {
         body: JSON.stringify({
           date,
           password: pwd,
-          ...editForm
+          ...formData
         })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save');
       
-      setEditingId(null);
+      if (isNew) {
+        setShowAddForm(false);
+        setAddForm(getEmptyForm());
+      } else {
+        setEditingId(null);
+      }
+      
       fetchLogs(); // refresh
     } catch (err) {
       alert(err.message);
@@ -84,20 +103,26 @@ export default function HandoverLogsPage() {
     }
   }
 
+  const btnStyle = { padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', borderRadius: 4, marginLeft: 5, color: 'var(--text)' };
+  const addBtnStyle = { padding: '8px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' };
+
   return (
     <>
-      <div className="page-header">
-        <h1>Handover Logs</h1>
-        <p className="muted">Courier device count vs physically received count.</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1>Handover Logs</h1>
+          <p className="muted">Courier device count vs physically received count.</p>
+        </div>
+        <button style={addBtnStyle} onClick={() => setShowAddForm(!showAddForm)}>
+          {showAddForm ? 'Cancel' : '➕ Add Log'}
+        </button>
       </div>
 
       <div className="card">
-        {error ? (
-          <div style={{ color: 'var(--bad)', marginBottom: 20 }}>{error}</div>
-        ) : loading ? (
+        {error && <div style={{ color: 'var(--bad)', marginBottom: 20 }}>{error}</div>}
+        
+        {loading && !logs.length ? (
           <div className="muted">Loading logs...</div>
-        ) : logs.length === 0 ? (
-          <div className="muted">No handover logs recorded yet. Use the Telegram button to log one.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
@@ -112,6 +137,39 @@ export default function HandoverLogsPage() {
                 </tr>
               </thead>
               <tbody>
+                {/* New Record Form Row */}
+                {showAddForm && (
+                  <tr style={{ borderBottom: '2px solid #3b82f6', background: 'var(--bg-hover)' }}>
+                    <td style={{ padding: '12px 5px' }}>
+                      <input type="date" style={{ width: 120 }} value={addForm.date} onChange={e => setAddForm({...addForm, date: e.target.value})} />
+                    </td>
+                    <td style={{ padding: '12px 5px', textAlign: 'center' }}>
+                      <input type="number" style={{ width: 40 }} value={addForm.mysReceived} onChange={e => setAddForm({...addForm, mysReceived: e.target.value})} placeholder="R" /> / 
+                      <input type="number" style={{ width: 40, marginLeft: 5 }} value={addForm.mysDevice} onChange={e => setAddForm({...addForm, mysDevice: e.target.value})} placeholder="D" />
+                    </td>
+                    <td style={{ padding: '12px 5px', textAlign: 'center' }}>
+                      <input type="number" style={{ width: 40 }} value={addForm.myeReceived} onChange={e => setAddForm({...addForm, myeReceived: e.target.value})} placeholder="R" /> / 
+                      <input type="number" style={{ width: 40, marginLeft: 5 }} value={addForm.myeDevice} onChange={e => setAddForm({...addForm, myeDevice: e.target.value})} placeholder="D" />
+                    </td>
+                    <td style={{ padding: '12px 5px' }}>
+                      <input type="text" style={{ width: 80, marginBottom: 2 }} placeholder="MYS notes" value={addForm.mysNotes} onChange={e => setAddForm({...addForm, mysNotes: e.target.value})} /><br/>
+                      <input type="text" style={{ width: 80 }} placeholder="MYE notes" value={addForm.myeNotes} onChange={e => setAddForm({...addForm, myeNotes: e.target.value})} />
+                    </td>
+                    <td style={{ padding: '12px 5px' }}>
+                      <span style={{ color: '#3b82f6', fontWeight: 600 }}>New Entry</span>
+                    </td>
+                    <td style={{ padding: '12px 5px', textAlign: 'right' }}>
+                      <button style={{...btnStyle, color: 'white', background: '#3b82f6', borderColor: '#3b82f6'}} onClick={() => handleSaveClick(addForm.date, addForm, true)}>Save</button>
+                    </td>
+                  </tr>
+                )}
+
+                {logs.length === 0 && !showAddForm && (
+                  <tr>
+                    <td colSpan="6" style={{ padding: 20, textAlign: 'center' }} className="muted">No handover logs recorded yet.</td>
+                  </tr>
+                )}
+
                 {logs.map((log) => {
                   const isEditing = editingId === log.date;
 
@@ -134,8 +192,6 @@ export default function HandoverLogsPage() {
                   if (log.myeNotes) notesArray.push(`MYE: ${log.myeNotes}`);
                   if (log.notes) notesArray.push(`Gen: ${log.notes}`);
 
-                  const btnStyle = { padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', borderRadius: 4, marginLeft: 5, color: 'var(--text)' };
-
                   if (isEditing) {
                     return (
                       <tr key={log.date} style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-hover)' }}>
@@ -154,7 +210,7 @@ export default function HandoverLogsPage() {
                         </td>
                         <td style={{ padding: '12px 5px' }}>—</td>
                         <td style={{ padding: '12px 5px', textAlign: 'right' }}>
-                          <button style={{...btnStyle, color: 'white', background: '#3b82f6', borderColor: '#3b82f6'}} onClick={() => handleSaveClick(log.date)}>Save</button>
+                          <button style={{...btnStyle, color: 'white', background: '#3b82f6', borderColor: '#3b82f6'}} onClick={() => handleSaveClick(log.date, editForm)}>Save</button>
                           <button style={btnStyle} onClick={() => setEditingId(null)}>Cancel</button>
                         </td>
                       </tr>
