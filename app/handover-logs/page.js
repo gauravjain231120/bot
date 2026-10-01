@@ -51,26 +51,36 @@ export default function HandoverLogsPage() {
               </thead>
               <tbody>
                 {logs.map((log) => {
+                  const mysRec = log.mysReceived ?? '-';
+                  const mysDev = log.mysDevice ?? '-';
+                  const myeRec = log.myeReceived ?? '-';
+                  const myeDev = log.myeDevice ?? '-';
+                  
                   const mysOk = log.mysReceived === log.mysDevice;
                   const myeOk = log.myeReceived === log.myeDevice;
-                  const discrepancy = !mysOk || !myeOk;
+                  const discrepancy = (log.mysDevice != null && !mysOk) || (log.myeDevice != null && !myeOk);
 
-                  const colorStyle = (ok) => ({
-                    color: ok ? 'var(--text)' : 'var(--bad)',
-                    fontWeight: ok ? 'normal' : 'bold'
+                  const colorStyle = (ok, isNull) => ({
+                    color: isNull ? 'var(--text-dim)' : (ok ? 'var(--text)' : 'var(--bad)'),
+                    fontWeight: isNull ? 'normal' : (ok ? 'normal' : 'bold')
                   });
 
+                  const notesArray = [];
+                  if (log.mysNotes) notesArray.push(`MYS: ${log.mysNotes}`);
+                  if (log.myeNotes) notesArray.push(`MYE: ${log.myeNotes}`);
+                  if (log.notes) notesArray.push(`Gen: ${log.notes}`);
+                  
                   return (
                     <tr key={log.date} style={{ borderBottom: '1px solid var(--border)' }}>
                       <td style={{ padding: '12px 5px', fontWeight: 600 }}>{log.date}</td>
-                      <td style={{ padding: '12px 5px', textAlign: 'center', ...colorStyle(mysOk) }}>
-                        {log.mysReceived} / {log.mysDevice}
+                      <td style={{ padding: '12px 5px', textAlign: 'center', ...colorStyle(mysOk, log.mysDevice == null) }}>
+                        {mysRec} / {mysDev}
                       </td>
-                      <td style={{ padding: '12px 5px', textAlign: 'center', ...colorStyle(myeOk) }}>
-                        {log.myeReceived} / {log.myeDevice}
+                      <td style={{ padding: '12px 5px', textAlign: 'center', ...colorStyle(myeOk, log.myeDevice == null) }}>
+                        {myeRec} / {myeDev}
                       </td>
                       <td style={{ padding: '12px 5px', color: 'var(--text-dim)' }}>
-                        {log.notes || '—'}
+                        {notesArray.join(' | ') || '—'}
                       </td>
                       <td style={{ padding: '12px 5px' }}>
                         {discrepancy ? (

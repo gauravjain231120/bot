@@ -8,23 +8,32 @@ export const dynamic = 'force-dynamic';
 export async function POST(request) {
   try {
     const data = await request.json();
-    const { date, mysDevice, mysReceived, myeDevice, myeReceived, notes } = data;
+    const { date, type, device, received, notes } = data;
 
     if (!date) {
       return NextResponse.json({ error: 'Date is required' }, { status: 400 });
     }
+    if (type !== 'MYS' && type !== 'MYE') {
+      return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
+    }
 
     const db = await getDb();
     
+    // Set fields for the specific type
+    const prefix = type.toLowerCase();
+    const updateFields = {
+      [`${prefix}Device`]: device,
+      [`${prefix}Received`]: received,
+      [`${prefix}Notes`]: notes,
+    };
+
     // Save to database
     await db.collection('handover_logs').updateOne(
       { _id: date },
       { 
         $set: { 
           date, 
-          mysDevice, mysReceived, 
-          myeDevice, myeReceived, 
-          notes,
+          ...updateFields,
           updatedAt: new Date()
         },
         $setOnInsert: { createdAt: new Date() }
@@ -33,19 +42,15 @@ export async function POST(request) {
     );
 
     // Send telegram message
+    const flag = device !== received ? ' ❌' : ' ✅';
     let msg = `📦 <b>Courier Handover Logged</b> (${date})\n\n`;
-    
-    const flag = (dev, rec) => (dev !== rec ? ' ❌' : ' ✅');
-    
-    msg += `<b>MYS:</b> ${mysReceived}/${mysDevice}${flag(mysDevice, mysReceived)}\n`;
-    msg += `<b>MYE:</b> ${myeReceived}/${myeDevice}${flag(myeDevice, myeReceived)}\n`;
+    msg += `<b>${type}:</b> ${received}/${device}${flag}\n`;
     
     if (notes) {
       msg += `\n<i>Notes: ${notes}</i>`;
     }
     
-    // Check if discrepancy
-    if (mysDevice !== mysReceived || myeDevice !== myeReceived) {
+    if (device !== received) {
       msg += `\n\n⚠️ <b>Discrepancy detected!</b> Check with the courier or raise a dispute.`;
     }
 
