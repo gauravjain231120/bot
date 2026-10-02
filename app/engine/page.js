@@ -3,11 +3,14 @@
 import { useEffect, useState } from 'react';
 import { useDashboard } from '../../lib/DashboardContext';
 
+// Hardcoded start date of when the logging feature was built
+const TRACKING_START = new Date('2026-10-02T00:00:00');
+
 export default function EngineStatusPage() {
   const { status, isOwner } = useDashboard();
   const [hostname, setHostname] = useState('Loading...');
-
   const [history, setHistory] = useState([]);
+  const [selectedDay, setSelectedDay] = useState({ platform: null, dateStr: null });
 
   useEffect(() => {
     setHostname(window.location.hostname);
@@ -52,6 +55,8 @@ export default function EngineStatusPage() {
       days.push(d);
     }
 
+    const isSelected = selectedDay.platform === platform && selectedDay.dateStr;
+
     return (
       <div className="card" style={{ marginBottom: '20px' }}>
         <h3>{platform} Engine</h3>
@@ -68,22 +73,23 @@ export default function EngineStatusPage() {
         {isLocal && <p><strong>Expected Interval:</strong> Every {intervalMinutes} minutes</p>}
         
         <div style={{ marginTop: 25 }}>
-          <h4 style={{ marginBottom: 10, fontSize: '0.9rem', opacity: 0.9 }}>30-Day Uptime History</h4>
+          <h4 style={{ marginBottom: 10, fontSize: '0.9rem', opacity: 0.9 }}>30-Day Uptime History <span style={{ fontWeight: 'normal', opacity: 0.7 }}>(Click a day for insight)</span></h4>
           <div style={{ display: 'flex', gap: '4px', height: '35px' }}>
             {days.map((date, i) => {
               const dateStr = date.toDateString();
               const dayLogs = platLogs.filter(l => new Date(l.createdAt).toDateString() === dateStr);
-              
-              const hasDowntime = dayLogs.some(l => l.type === 'downtime');
-              const hasFallback = dayLogs.some(l => l.message.includes('Cloud'));
+              const beforeTracking = date < TRACKING_START && date.toDateString() !== TRACKING_START.toDateString();
               
               let color = '#28a745'; // Green
               let title = `${dateStr}: No issues (100% Uptime)`;
               
-              if (hasDowntime) {
+              if (beforeTracking) {
+                color = 'var(--border-color, #444)';
+                title = `${dateStr}: No data (Logger installed Oct 2, 2026)`;
+              } else if (dayLogs.some(l => l.type === 'downtime')) {
                 color = '#dc3545'; // Red
                 title = `${dateStr}: Downtime recorded`;
-              } else if (hasFallback) {
+              } else if (dayLogs.some(l => l.message.includes('Cloud'))) {
                 color = '#f5a623'; // Yellow
                 title = `${dateStr}: Switched to Cloud backup`;
               }
@@ -92,10 +98,14 @@ export default function EngineStatusPage() {
                 <div 
                   key={i} 
                   title={title}
+                  onClick={() => setSelectedDay({ platform, dateStr })}
                   style={{ 
                     flex: 1, 
                     backgroundColor: color, 
-                    borderRadius: '3px'
+                    borderRadius: '3px',
+                    cursor: beforeTracking ? 'not-allowed' : 'pointer',
+                    boxShadow: selectedDay.platform === platform && selectedDay.dateStr === dateStr ? '0 0 0 2px #fff' : 'none',
+                    border: '1px solid rgba(0,0,0,0.2)'
                   }} 
                 />
               );
@@ -106,6 +116,86 @@ export default function EngineStatusPage() {
             <span>Today</span>
           </div>
         </div>
+
+        {isSelected && (
+          <div style={{ marginTop: 15, padding: 15, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }}>
+             <h4 style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
+               <span>Insight: {selectedDay.dateStr}</span>
+               <button onClick={() => setSelectedDay({ platform: null, dateStr: null })} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}>✕</button>
+             </h4>
+             {(() => {
+               const dayObj = new Date(selectedDay.dateStr);
+               if (dayObj < TRACKING_START && dayObj.toDateString() !== TRACKING_START.toDateString()) {
+                 return <p className="muted">No data available before the logger was installed on Oct 2, 2026.</p>;
+               }
+
+               const startOfDay = new Date(dayObj); startOfDay.setHours(0,0,0,0);
+               const endOfDay = new Date(dayObj); endOfDay.setHours(23,59,59,999);
+               const dayLogsAsc = platLogs.filter(l => new Date(l.createdAt).toDateString() === selectedDay.dateStr).slice().reverse();
+               
+               // Find initial state by checking the most recent log BEFORE startOfDay
+               const previousLogs = platLogs.filter(l => new Date(l.createdAt) < startOfDay);
+               let currentState = previousLogs[0]?.message.includes('Cloud') ? 'cloud' : 'local';
+               
+               let cloudMs = 0, localMs = 0;
+               let lastEventTime = startOfDay.getTime();
+               
+               dayLogsAsc.forEach(log => {
+                 const eventTime = new Date(log.createdAt).getTime();
+                 const duration = eventTime - lastEventTime;
+                 if (currentState === 'cloud') cloudMs += duration; else localMs += duration;
+                 
+                 if (log.message.includes('Cloud')) currentState = 'cloud';
+                 else if (log.message.includes('Local')) currentState = 'local';
+                 lastEventTime = eventTime;
+               });
+               
+               const endTime = Math.min(endOfDay.getTime(), Date.now());
+               const finalDuration = endTime - lastEventTime;
+               if (finalDuration > 0) {
+                 if (currentState === 'cloud') cloudMs += finalDuration; else localMs += finalDuration;
+               }
+               
+               const formatMs = (ms) => {
+                 if (ms <= 0) return '0h 0m';
+                 const h = Math.floor(ms / 3600000);
+                 const m = Math.floor((ms % 3600000) / 60000);
+                 return `${h}h ${m}m`;
+               };
+
+               return (
+                 <>
+                   <div style={{ display: 'flex', gap: '20px', marginBottom: '15px' }}>
+                     <div>
+                       <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', opacity: 0.7 }}>Time on Local (Laptop)</div>
+                       <div style={{ fontSize: '1.2rem', color: 'var(--success-color)' }}>{formatMs(localMs)}</div>
+                     </div>
+                     <div>
+                       <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', opacity: 0.7 }}>Time on Cloud (Backup)</div>
+                       <div style={{ fontSize: '1.2rem', color: '#f5a623' }}>{formatMs(cloudMs)}</div>
+                     </div>
+                   </div>
+                   
+                   <div style={{ fontSize: '0.85rem' }}>
+                     <strong style={{ opacity: 0.8 }}>Events Timeline:</strong>
+                     {dayLogsAsc.length === 0 ? (
+                       <div style={{ marginTop: '5px', opacity: 0.6 }}>No disruptions recorded today. Ran 100% on {currentState === 'cloud' ? 'Cloud' : 'Local'}.</div>
+                     ) : (
+                       <ul style={{ listStyleType: 'none', padding: 0, margin: '8px 0 0 0' }}>
+                         {dayLogsAsc.map((l, idx) => (
+                           <li key={idx} style={{ padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                             <span style={{ opacity: 0.6, marginRight: '10px' }}>{new Date(l.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                             <span>{l.message}</span>
+                           </li>
+                         ))}
+                       </ul>
+                     )}
+                   </div>
+                 </>
+               );
+             })()}
+          </div>
+        )}
 
         <div style={{ marginTop: 20, paddingTop: 15, borderTop: '1px solid var(--border-color)', fontSize: '0.85rem' }}>
            <p className="muted" style={{ marginBottom: 4 }}><strong>Last Cloud Fallback:</strong> {lastCloud ? new Date(lastCloud.createdAt).toLocaleString() : 'No recent fallbacks'}</p>
