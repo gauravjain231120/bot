@@ -233,7 +233,8 @@ export function nearMiss(a, b) {
 const ORDER_ID_RE = /(?:^|[^0-9])(\d{17})(?![0-9])/;
 
 export function readOrderId(text) {
-  for (const line of String(text || '').split(/\r?\n/)) {
+  if (typeof text !== 'string') return null;
+  for (const line of text.split(/\r?\n/)) {
     const cleaned = line
       .replace(/[OoQqDd]/g, '0')
       .replace(/[Il|]/g, '1')

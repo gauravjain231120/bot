@@ -28,7 +28,6 @@ const NAV_ITEMS = [
   { href: '/sessions', label: 'Sessions', Icon: KeyIcon },
   { href: '/recipients', label: 'Recipients', Icon: UsersIcon },
   { href: '/team', label: 'Team', Icon: ShieldIcon },
-  { href: '/spf-status', label: 'SPF Status', Icon: ChartIcon },
   { href: '/engine', label: 'Engine', Icon: ChartIcon },
   { href: '/handover-logs', label: 'Handovers', Icon: ChartIcon },
 ].map((item) => ({ ...item, section: sectionForPath(item.href) }));
