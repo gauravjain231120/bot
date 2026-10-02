@@ -44,6 +44,14 @@ export default function EngineStatusPage() {
     const lastDown = platLogs.find(l => l.type === 'downtime');
     const lastCloud = platLogs.find(l => l.message.includes('Switched to Cloud'));
 
+    const days = [];
+    const now = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(now.getDate() - i);
+      days.push(d);
+    }
+
     return (
       <div className="card" style={{ marginBottom: '20px' }}>
         <h3>{platform} Engine</h3>
@@ -59,7 +67,47 @@ export default function EngineStatusPage() {
         <p><strong>Last Data Received:</strong> {hasCheck ? new Date(lastCheck).toLocaleString() : 'Never'} {timeAgo !== null ? `(${timeAgo} mins ago)` : ''}</p>
         {isLocal && <p><strong>Expected Interval:</strong> Every {intervalMinutes} minutes</p>}
         
-        <div style={{ marginTop: 15, paddingTop: 15, borderTop: '1px solid var(--border-color)', fontSize: '0.9rem' }}>
+        <div style={{ marginTop: 25 }}>
+          <h4 style={{ marginBottom: 10, fontSize: '0.9rem', opacity: 0.9 }}>30-Day Uptime History</h4>
+          <div style={{ display: 'flex', gap: '4px', height: '35px' }}>
+            {days.map((date, i) => {
+              const dateStr = date.toDateString();
+              const dayLogs = platLogs.filter(l => new Date(l.createdAt).toDateString() === dateStr);
+              
+              const hasDowntime = dayLogs.some(l => l.type === 'downtime');
+              const hasFallback = dayLogs.some(l => l.message.includes('Cloud'));
+              
+              let color = '#28a745'; // Green
+              let title = `${dateStr}: No issues (100% Uptime)`;
+              
+              if (hasDowntime) {
+                color = '#dc3545'; // Red
+                title = `${dateStr}: Downtime recorded`;
+              } else if (hasFallback) {
+                color = '#f5a623'; // Yellow
+                title = `${dateStr}: Switched to Cloud backup`;
+              }
+  
+              return (
+                <div 
+                  key={i} 
+                  title={title}
+                  style={{ 
+                    flex: 1, 
+                    backgroundColor: color, 
+                    borderRadius: '3px'
+                  }} 
+                />
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '0.75rem', opacity: 0.6 }}>
+            <span>30 days ago</span>
+            <span>Today</span>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 20, paddingTop: 15, borderTop: '1px solid var(--border-color)', fontSize: '0.85rem' }}>
            <p className="muted" style={{ marginBottom: 4 }}><strong>Last Cloud Fallback:</strong> {lastCloud ? new Date(lastCloud.createdAt).toLocaleString() : 'No recent fallbacks'}</p>
            <p className="muted"><strong>Last Complete Downtime:</strong> {lastDown ? `${new Date(lastDown.createdAt).toLocaleString()} - ${lastDown.message}` : 'No recent downtime recorded'}</p>
         </div>

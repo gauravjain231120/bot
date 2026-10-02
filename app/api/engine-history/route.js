@@ -10,7 +10,7 @@ export async function GET() {
   if (!account) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const db = await getDb();
-  const logs = await db.collection('engineLogs').find({}).sort({ createdAt: -1 }).limit(100).toArray();
+  const logs = await db.collection('engineLogs').find({}).sort({ createdAt: -1 }).limit(1000).toArray();
   
   return NextResponse.json({ logs });
 }
