@@ -62,6 +62,16 @@ See `PROJECT.md` §22–§26 for how each lookup works.
 4. Point an external scheduler (e.g. cron-job.org — the real schedule is in `PROJECT.md` §6) at
    `https://<your-deployment>/api/check-orders?secret=<CRON_SECRET>`.
 
+## Deployment (CRITICAL)
+
+This repository is linked to **two separate GitHub accounts**. Vercel is specifically configured to build from the secondary account (`gauravjain231120`). 
+If you only run `git push`, the code will push to the primary GitHub account (`gauravbhandari23`) and Vercel will **NOT** deploy it!
+
+To deploy updates to the live Vercel dashboard, you must explicitly push to the `vercel2` remote:
+```bash
+git push vercel2 main
+```
+
 ## Notes
 
 - This uses an unofficial, reverse-engineered internal API — it can break if Myntra changes their
