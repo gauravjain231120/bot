@@ -101,6 +101,13 @@ async function runAmazonScrape() {
   const data = await fetchWithRetry(amzUrl);
   if (data && data._error) {
      console.error('Amazon local scrape failed:', data._error);
+     if (data._error.includes('login') || data._error.includes('Sign-In') || data._error.includes('Unauthorized')) {
+       await fetch(`${appUrl}/api/proxy-submit`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
+         body: JSON.stringify({ marketplace: 'amazon', stateChange: 'logout' })
+       }).catch(console.error);
+     }
   } else if (data && Array.isArray(data.orders)) {
     // Also fetch Amazon cancellations locally!
     const amzCancelUrl = 'https://sellercentral.amazon.in/orders-api/search?limit=100&offset=0&sort=ship_by_desc&date-range=last-90&fulfillmentType=mfn&orderStatus=canceled&program=easyship&forceOrdersTableRefreshTrigger=false';
@@ -152,6 +159,14 @@ async function runMyntraScrape() {
     }
   } else {
     console.error('Myntra local scrape failed:', data ? data._error : 'Unknown error');
+    const errStr = data && data._error ? data._error : '';
+    if (errStr.includes('login') || errStr.includes('Sign-In') || errStr.includes('Unauthorized')) {
+       await fetch(`${appUrl}/api/proxy-submit`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
+         body: JSON.stringify({ marketplace: 'myntra', stateChange: 'logout' })
+       }).catch(console.error);
+    }
   }
 }
 

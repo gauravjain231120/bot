@@ -41,6 +41,20 @@ export async function POST(req) {
       return NextResponse.json({ ok: true, status: 'local-forced' });
     }
 
+    
+    if (stateChange === 'logout') {
+      const statusDoc = await db.collection('settings').findOne({ _id: 'status' }) || {};
+      const Name = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
+      if (!statusDoc[`${marketplace}LogoutAlertSent`]) {
+        await sendOwnerAlert(`🚨 <b>${Name} logged out</b>\nPlease log in to ${Name} in this Chrome again.`, { silent: false }).catch(() => {});
+        await db.collection('settings').updateOne(
+          { _id: 'status' },
+          { $set: { [`${marketplace}LogoutAlertSent`]: true, [`${marketplace}ScrapeMode`]: 'cloud', [`${marketplace}LastProxyCheck`]: null } },
+          { upsert: true }
+        );
+      }
+      return NextResponse.json({ ok: true, status: 'logout-recorded' });
+    }
     if (stateChange === 'cloud') {
       const statusDoc = await db.collection('settings').findOne({ _id: 'status' }) || {};
       if (statusDoc[`${marketplace}ScrapeMode`] === 'local') {
@@ -70,6 +84,14 @@ export async function POST(req) {
 
     if (!marketplace || !Array.isArray(orders)) {
       return NextResponse.json({ ok: false, error: 'Invalid payload' }, { status: 400 });
+    }
+
+    
+    if (marketplace && Array.isArray(orders)) {
+      await db.collection('settings').updateOne(
+        { _id: 'status' },
+        { $unset: { [`${marketplace}LogoutAlertSent`]: "" } }
+      );
     }
 
     if (marketplace === 'amazon') {
