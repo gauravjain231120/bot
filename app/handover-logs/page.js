@@ -143,19 +143,19 @@ export default function HandoverLogsPage() {
                 {showAddForm && (
                   <tr style={{ borderBottom: '2px solid #3b82f6', background: 'var(--bg-hover)' }}>
                     <td style={{ padding: '12px 5px' }}>
-                      <input type="date" style={{ width: 120 }} value={addForm.date} onChange={e => setAddForm({...addForm, date: e.target.value})} />
+                      <input type="date" style={{ width: 140 }} value={addForm.date} onChange={e => setAddForm({...addForm, date: e.target.value})} />
                     </td>
                     <td style={{ padding: '12px 5px', textAlign: 'center' }}>
-                      <input type="number" style={{ width: 40 }} value={addForm.mysReceived} onChange={e => setAddForm({...addForm, mysReceived: e.target.value})} placeholder="R" /> / 
-                      <input type="number" style={{ width: 40, marginLeft: 5 }} value={addForm.mysDevice} onChange={e => setAddForm({...addForm, mysDevice: e.target.value})} placeholder="D" />
+                      <input type="number" style={{ width: 70 }} value={addForm.mysReceived} onChange={e => setAddForm({...addForm, mysReceived: e.target.value})} placeholder="R" /> / 
+                      <input type="number" style={{ width: 70, marginLeft: 5 }} value={addForm.mysDevice} onChange={e => setAddForm({...addForm, mysDevice: e.target.value})} placeholder="D" />
                     </td>
                     <td style={{ padding: '12px 5px', textAlign: 'center' }}>
-                      <input type="number" style={{ width: 40 }} value={addForm.myeReceived} onChange={e => setAddForm({...addForm, myeReceived: e.target.value})} placeholder="R" /> / 
-                      <input type="number" style={{ width: 40, marginLeft: 5 }} value={addForm.myeDevice} onChange={e => setAddForm({...addForm, myeDevice: e.target.value})} placeholder="D" />
+                      <input type="number" style={{ width: 70 }} value={addForm.myeReceived} onChange={e => setAddForm({...addForm, myeReceived: e.target.value})} placeholder="R" /> / 
+                      <input type="number" style={{ width: 70, marginLeft: 5 }} value={addForm.myeDevice} onChange={e => setAddForm({...addForm, myeDevice: e.target.value})} placeholder="D" />
                     </td>
                     <td style={{ padding: '12px 5px' }}>
-                      <input type="text" style={{ width: 80, marginBottom: 2 }} placeholder="MYS notes" value={addForm.mysNotes} onChange={e => setAddForm({...addForm, mysNotes: e.target.value})} /><br/>
-                      <input type="text" style={{ width: 80 }} placeholder="MYE notes" value={addForm.myeNotes} onChange={e => setAddForm({...addForm, myeNotes: e.target.value})} />
+                      <input type="text" style={{ width: 130, marginBottom: 2 }} placeholder="MYS notes" value={addForm.mysNotes} onChange={e => setAddForm({...addForm, mysNotes: e.target.value})} /><br/>
+                      <input type="text" style={{ width: 130 }} placeholder="MYE notes" value={addForm.myeNotes} onChange={e => setAddForm({...addForm, myeNotes: e.target.value})} />
                     </td>
                     <td style={{ padding: '12px 5px' }}>
                       <span style={{ color: '#3b82f6', fontWeight: 600 }}>New Entry</span>
@@ -199,16 +199,16 @@ export default function HandoverLogsPage() {
                       <tr key={log.date} style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-hover)' }}>
                         <td style={{ padding: '12px 5px', fontWeight: 600 }}>{log.date}</td>
                         <td style={{ padding: '12px 5px', textAlign: 'center' }}>
-                          <input type="number" style={{ width: 40 }} value={editForm.mysReceived} onChange={e => setEditForm({...editForm, mysReceived: e.target.value})} placeholder="R" /> / 
-                          <input type="number" style={{ width: 40, marginLeft: 5 }} value={editForm.mysDevice} onChange={e => setEditForm({...editForm, mysDevice: e.target.value})} placeholder="D" />
+                          <input type="number" style={{ width: 70 }} value={editForm.mysReceived} onChange={e => setEditForm({...editForm, mysReceived: e.target.value})} placeholder="R" /> / 
+                          <input type="number" style={{ width: 70, marginLeft: 5 }} value={editForm.mysDevice} onChange={e => setEditForm({...editForm, mysDevice: e.target.value})} placeholder="D" />
                         </td>
                         <td style={{ padding: '12px 5px', textAlign: 'center' }}>
-                          <input type="number" style={{ width: 40 }} value={editForm.myeReceived} onChange={e => setEditForm({...editForm, myeReceived: e.target.value})} placeholder="R" /> / 
-                          <input type="number" style={{ width: 40, marginLeft: 5 }} value={editForm.myeDevice} onChange={e => setEditForm({...editForm, myeDevice: e.target.value})} placeholder="D" />
+                          <input type="number" style={{ width: 70 }} value={editForm.myeReceived} onChange={e => setEditForm({...editForm, myeReceived: e.target.value})} placeholder="R" /> / 
+                          <input type="number" style={{ width: 70, marginLeft: 5 }} value={editForm.myeDevice} onChange={e => setEditForm({...editForm, myeDevice: e.target.value})} placeholder="D" />
                         </td>
                         <td style={{ padding: '12px 5px' }}>
-                          <input type="text" style={{ width: 80, marginBottom: 2 }} placeholder="MYS notes" value={editForm.mysNotes} onChange={e => setEditForm({...editForm, mysNotes: e.target.value})} /><br/>
-                          <input type="text" style={{ width: 80 }} placeholder="MYE notes" value={editForm.myeNotes} onChange={e => setEditForm({...editForm, myeNotes: e.target.value})} />
+                          <input type="text" style={{ width: 130, marginBottom: 2 }} placeholder="MYS notes" value={editForm.mysNotes} onChange={e => setEditForm({...editForm, mysNotes: e.target.value})} /><br/>
+                          <input type="text" style={{ width: 130 }} placeholder="MYE notes" value={editForm.myeNotes} onChange={e => setEditForm({...editForm, myeNotes: e.target.value})} />
                         </td>
                         <td style={{ padding: '12px 5px' }}>—</td>
                         <td style={{ padding: '12px 5px', textAlign: 'right' }}>
