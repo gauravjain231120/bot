@@ -72,9 +72,6 @@ export async function GET(request) {
     // "Add to Return" reuses this answer instead of calling Myntra again.
     await rememberReturnLookup('myntra', [trackingId], items.map((i) => ({ sku: i.sku || null, returnType: i.returnType || 'UNKNOWN' })));
 
-    // Customer return vs RTO is Owner-only.
-    const account = await getCurrentAccount();
-    if (!account || account.role !== 'OWNER') for (const c of candidates) delete c.returnType;
     return NextResponse.json({ candidates });
   } catch (err) {
     const status = err.response && err.response.status;

@@ -147,12 +147,12 @@ export default function AmazonReturnsPage() {
               <div key={rr.returnRequestId} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{rr.orderId}</span>
-                  {isOwner && <ReturnTypeTag type={rr.returnType} />}
+                  <ReturnTypeTag type={rr.returnType} />
                   <StatusBadge status={rr.status} />
                   {rr.exchange && <span className="muted" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Exchange</span>}
                   {rr.cod && <span className="muted" style={{ fontSize: '0.8rem', fontWeight: 600 }}>COD</span>}
                 </div>
-                {isOwner && <div className="muted" style={{ fontSize: '0.8rem' }}>{RETURN_TYPE_HINTS[rr.returnType] || RETURN_TYPE_HINTS.UNKNOWN}</div>}
+                <div className="muted" style={{ fontSize: '0.8rem' }}>{RETURN_TYPE_HINTS[rr.returnType] || RETURN_TYPE_HINTS.UNKNOWN}</div>
 
                 {unitLists[ri].map((unit, ui) => {
                   const { key, item } = unit;
@@ -220,7 +220,7 @@ export default function AmazonReturnsPage() {
               <div key={r.returnRequestId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.trackingId || r.orderId}</div>
-                  <div className="muted" style={{ fontSize: '0.8rem' }}>{isOwner ? `${r.returnType === 'RTO' ? 'RTO' : r.returnType === 'CUSTOMER' ? 'Customer return' : 'Unknown'} · ` : ''}{r.orderId} · {r.items.join(', ')}</div>
+                  <div className="muted" style={{ fontSize: '0.8rem' }}>{`${r.returnType === 'RTO' ? 'RTO' : r.returnType === 'CUSTOMER' ? 'Customer return' : 'Unknown'} · `}{r.orderId} · {r.items.join(', ')}</div>
                 </div>
                 <span style={{ fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap', color: added.length ? 'var(--good)' : 'var(--text-dim)' }}>
                   {added.length ? `✓ Added (${added.join(', ')})` : 'Not added'}

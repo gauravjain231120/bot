@@ -155,7 +155,7 @@ export default function ReturnsPage() {
               <div key={i} style={{ display: 'flex', gap: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
                 <NumberedImage src={c.image} label={String(i + 1)} />
                 <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem' }}>
-                  {isOwner && <div style={{ marginBottom: 4 }}><ReturnTypeTag type={c.returnType} /></div>}
+                  <div style={{ marginBottom: 4 }}><ReturnTypeTag type={c.returnType} /></div>
                   <div style={{ fontWeight: 600 }}>{c.productName ?? c.resolvedSku}</div>
                   <div className="muted" style={{ fontFamily: 'monospace' }}>{c.matchedSku ?? c.resolvedSku}</div>
                   {c.size && (
@@ -225,7 +225,7 @@ export default function ReturnsPage() {
                 <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.trackingId}</div>
                 <div className="muted" style={{ fontSize: '0.8rem' }}>
                   {r.items.length
-                    ? (isOwner ? `${r.items[0].returnType === 'RTO' ? 'RTO' : r.items[0].returnType === 'CUSTOMER' ? 'Customer return' : 'Unknown'} · ` : '') +
+                    ? `${r.items[0].returnType === 'RTO' ? 'RTO' : r.items[0].returnType === 'CUSTOMER' ? 'Customer return' : 'Unknown'} · ` +
                       r.items.map((it) => `${it.productName ? it.productName + ' · ' : ''}${it.sku || '?'} · ${it.size || '?'}`).join(', ')
                     : 'No item found'}
                 </div>

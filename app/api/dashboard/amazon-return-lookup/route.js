@@ -55,16 +55,6 @@ export async function GET(request) {
       await rememberReturnLookup('amazon', ids, [{ returnType: rr.returnType || 'UNKNOWN' }]);
     }
 
-    // Customer return vs RTO is Owner-only — strip it (and the RTO flag) for
-    // anyone else; the add route works it out again server-side.
-    const account = await getCurrentAccount();
-    if (!account || account.role !== 'OWNER') {
-      for (const rr of result.returns) {
-        if (rr.rto) for (const item of rr.items) item.reason = null;
-        delete rr.returnType;
-        delete rr.rto;
-      }
-    }
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: err.sessionExpired ? 401 : 500 });
