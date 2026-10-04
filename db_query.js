@@ -6,8 +6,8 @@ async function run() {
   try {
     await client.connect();
     const db = client.db();
-    const all = await db.collection('settings').find({}).toArray();
-    console.log(all);
+    const all = await db.collection('flipkart_seen_orders').find({}).toArray();
+    console.log("Seen Orders:", all.length);
   } finally {
     await client.close();
   }
