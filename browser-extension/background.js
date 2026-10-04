@@ -214,6 +214,7 @@ async function runFlipkartScrape() {
         'referer': 'https://seller.flipkart.com/index.html',
       },
       credentials: 'include',
+      body: fkBody,
     });
 
     if (res.status === 401 || res.status === 403) {
@@ -226,7 +227,14 @@ async function runFlipkartScrape() {
       return;
     }
 
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error('Flipkart scrape JSON parse error. HTML returned instead.');
+      return;
+    }
     if (!data || !data.data || !data.data.filteredShipmentGroups) {
       console.error('Flipkart local scrape: unexpected response');
       return;

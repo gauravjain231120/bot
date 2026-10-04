@@ -82,7 +82,12 @@ async function renderWatch() {
     span.textContent = `${LABEL[n]} ${st === 'ok' ? 'OK' : st === 'expired' ? 'expired' : st === 'missing' ? 'not set up' : st === 'error' ? 'check failing' : '?'}`;
     return span;
   });
-  watchEl.append('Bot: ', parts[0], ' · ', parts[1], ` — checked ${ago(health.at)}`);
+  watchEl.append('Bot: ');
+  parts.forEach((p, i) => {
+    watchEl.append(p);
+    if (i < parts.length - 1) watchEl.append(' · ');
+  });
+  watchEl.append(` — checked ${ago(health.at)}`);
   if (health.running === false) watchEl.append(' (bot checks are stopped)');
 }
 
