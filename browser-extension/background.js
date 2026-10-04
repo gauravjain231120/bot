@@ -180,10 +180,7 @@ async function runFlipkartScrape() {
   if (healthObj.flipkart && healthObj.flipkart.state === 'missing') return;
 
   const fkUrl = 'https://seller.flipkart.com/orchestrator/graphql?';
-  const fkBody = JSON.stringify({
-    query: 'query GetShipmentGroups($input: ShipmentGroupFilterRequestInput!) {   filteredShipmentGroups(input: $input) {     shipmentGroups {       groupId       subGroupIndex       logisticsPartnerCounts {         partner         count       }       groupDetails {         shipmentGroupSpecs {           listing {             listingId             status             product {               productId               title               fsn               sku               primaryImageUrl               productUrl             }           }           quantity         }         packages {           packageId           dimensions {             length             breadth             height             weight           }         }       }       sellerInputAttributes {         shippingId         orderId       }       shipmentCount       subShipmentCount       priceRange {         minPrice         maxPrice       }       missingDimensions       isMps       packagingPolicy       channelOfSale     }     pageInfo {       hasMore       total     }     timestamp   } } quantity } } shipments { orderId shippingId internalId creationTime sellerPrice paymentMode dispatchByDate tracking { trackingId courierName logisticsPartner } } } } }',
-    variables: { input: { status: 'pendingToAccept', viewType: { groupedByFsn: true }, paginationInput: { pageNum: 1, pageSize: 50 }, shipmentParams: { seller_id: sellerId, location_id: '' } } }
-  });
+  let fkBody = null;
 
   // We need cookies from seller.flipkart.com
   let cookies = await chrome.cookies.getAll({ url: 'https://seller.flipkart.com' });
@@ -199,6 +196,12 @@ async function runFlipkartScrape() {
   const csrfToken = csrfCookie ? csrfCookie.value : '';
   const sellerIdCookie = cookies.find(c => c.name === 'sellerId');
   const sellerId = sellerIdCookie ? sellerIdCookie.value : '';
+
+  const correctQuery = "query GetShipmentGroups($input: ShipmentGroupFilterRequestInput!) { filteredShipmentGroups(input: $input) { shipmentGroups { groupId subGroupIndex logisticsPartnerCounts { partner count } groupDetails { shipmentGroupSpecs { listing { listingId status product { productId title fsn sku primaryImageUrl productUrl } } quantity } packages { packageId dimensions { length breadth height weight } } } sellerInputAttributes { shippingId orderId } shipmentCount subShipmentCount priceRange { minPrice maxPrice } missingDimensions isMps packagingPolicy channelOfSale } pageInfo { hasMore total } timestamp } }";
+  fkBody = JSON.stringify({
+    query: correctQuery,
+    variables: { input: { status: 'pendingToAccept', viewType: { groupedByFsn: true }, paginationInput: { pageNum: 1, pageSize: 50 }, shipmentParams: { seller_id: sellerId, location_id: '' } } }
+  });
 
   try {
     const res = await fetch(fkUrl, {
