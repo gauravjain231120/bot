@@ -171,34 +171,21 @@ async function runMyntraScrape() {
 }
 
 
-async function runFlipkartScrape() {
-  const { appUrl, syncSecret } = await getConfig();
-  if (!appUrl || !syncSecret) return;
-  const healthObj = (await chrome.storage.local.get(['health'])).health || {};
-  const isMasterFk = (await chrome.storage.local.get(['masterFlipkart'])).masterFlipkart;
-  if (isMasterFk === false) return;
-  if (healthObj.flipkart && healthObj.flipkart.state === 'missing') return;
 
+async function scrapeFlipkartData() {
   const fkUrl = 'https://seller.flipkart.com/orchestrator/graphql?';
-  let fkBody = null;
-
-  // We need cookies from seller.flipkart.com
   let cookies = await chrome.cookies.getAll({ url: 'https://seller.flipkart.com' });
   if (!cookies.length) cookies = await chrome.cookies.getAll({ domain: 'flipkart.com' });
-  if (!cookies.length) {
-    console.error('Flipkart local scrape: no cookies found');
-    return;
-  }
+  if (!cookies.length) return { error: 'No cookies found' };
+  
   const cookieHeader = cookies.map(c => c.name + '=' + c.value).join('; ');
-
-  // Extract CSRF token
   const csrfCookie = cookies.find(c => c.name === 'XyZ7pQ9rS2T1uV8wA3bC6dE4fG0h');
   const csrfToken = csrfCookie ? csrfCookie.value : '';
   const sellerIdCookie = cookies.find(c => c.name === 'sellerId');
   const sellerId = sellerIdCookie ? sellerIdCookie.value : '';
 
   const correctQuery = "query GetShipmentGroups($input: ShipmentGroupFilterRequestInput!) { filteredShipmentGroups(input: $input) { shipmentGroups { groupId subGroupIndex logisticsPartnerCounts { partner count } groupDetails { shipmentGroupSpecs { listing { listingId status product { productId title fsn sku primaryImageUrl productUrl } } quantity } packages { packageId dimensions { length breadth height weight } } } sellerInputAttributes { shippingId orderId } shipmentCount subShipmentCount priceRange { minPrice maxPrice } missingDimensions isMps packagingPolicy channelOfSale } pageInfo { hasMore total } timestamp } }";
-  fkBody = JSON.stringify({
+  const fkBody = JSON.stringify({
     query: correctQuery,
     variables: { input: { status: 'pendingToAccept', viewType: { groupedByFsn: true }, paginationInput: { pageNum: 1, pageSize: 50 }, shipmentParams: { seller_id: sellerId, location_id: '' } } }
   });
@@ -222,27 +209,14 @@ async function runFlipkartScrape() {
       body: fkBody,
     });
 
-    if (res.status === 401 || res.status === 403) {
-      console.error('Flipkart local scrape: auth error', res.status);
-      await fetch(appUrl + '/api/proxy-submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
-        body: JSON.stringify({ marketplace: 'flipkart', stateChange: 'logout' })
-      }).catch(console.error);
-      return;
-    }
+    if (res.status === 401 || res.status === 403) return { authError: true, error: `Auth error ${res.status}` };
 
     const text = await res.text();
     let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      console.error('Flipkart scrape JSON parse error. HTML returned instead.');
-      return;
-    }
+    try { data = JSON.parse(text); } catch (e) { return { error: 'JSON parse error. HTML returned instead.' }; }
+    
     if (!data || !data.data || !data.data.filteredShipmentGroups) {
-      console.error('Flipkart local scrape: unexpected response', JSON.stringify(data).substring(0, 1000));
-      return;
+      return { error: 'Unexpected response format' };
     }
 
     const groups = data.data.filteredShipmentGroups.shipmentGroups || [];
@@ -252,10 +226,7 @@ async function runFlipkartScrape() {
       if (group.sellerInputAttributes && group.sellerInputAttributes.length) {
         for (const attr of group.sellerInputAttributes) {
           orders.push({
-            groupId: group.groupId,
-            orderId: attr.orderId,
-            shippingId: attr.shippingId,
-            channelOfSale: group.channelOfSale || 'FLIPKART',
+            groupId: group.groupId, orderId: attr.orderId, shippingId: attr.shippingId, channelOfSale: group.channelOfSale || 'FLIPKART',
             sellerPrice: group.priceRange ? group.priceRange.maxPrice : null,
             items: specs.map(s => ({
               title: (s.listing && s.listing.product && (s.listing.product.title)) || 'Unknown',
@@ -267,9 +238,7 @@ async function runFlipkartScrape() {
         }
       } else {
         orders.push({
-          groupId: group.groupId,
-          orderId: null,
-          channelOfSale: group.channelOfSale || 'FLIPKART',
+          groupId: group.groupId, orderId: null, channelOfSale: group.channelOfSale || 'FLIPKART',
           sellerPrice: group.priceRange ? group.priceRange.maxPrice : null,
           items: specs.map(s => ({
             title: (s.listing && s.listing.product && (s.listing.product.displayTitle || s.listing.product.title)) || 'Unknown',
@@ -282,18 +251,38 @@ async function runFlipkartScrape() {
         });
       }
     }
-
-    const pFk = (await chrome.storage.local.get(['proxyPeriodFlipkart'])).proxyPeriodFlipkart || 5;
-    await fetch(appUrl + '/api/proxy-submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
-      body: JSON.stringify({ marketplace: 'flipkart', orders, interval: pFk })
-    }).catch(console.error);
-
-  } catch (err) {
-    console.error('Flipkart local scrape error:', err.message);
-  }
+    return { orders };
+  } catch (err) { return { error: err.message }; }
 }
+
+async function runFlipkartScrape() {
+  const { appUrl, syncSecret } = await getConfig();
+  if (!appUrl || !syncSecret) return;
+  const healthObj = (await chrome.storage.local.get(['health'])).health || {};
+  const isMasterFk = (await chrome.storage.local.get(['masterFlipkart'])).masterFlipkart;
+  if (isMasterFk === false) return;
+  if (healthObj.flipkart && healthObj.flipkart.state === 'missing') return;
+
+  const res = await scrapeFlipkartData();
+  if (res.authError) {
+    await fetch(appUrl + '/api/proxy-submit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
+      body: JSON.stringify({ marketplace: 'flipkart', stateChange: 'logout' })
+    }).catch(console.error);
+    return;
+  }
+  if (res.error) {
+    console.error('Flipkart local scrape error:', res.error);
+    return;
+  }
+  
+  const pFk = (await chrome.storage.local.get(['proxyPeriodFlipkart'])).proxyPeriodFlipkart || 5;
+  await fetch(appUrl + '/api/proxy-submit', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
+    body: JSON.stringify({ marketplace: 'flipkart', orders: res.orders, interval: pFk })
+  }).catch(console.error);
+}
+
 
 async function ensureProxyAlarms() {
   const stored = await chrome.storage.local.get(['localMyntra', 'localAmazon', 'localFlipkart', 'proxyPeriodAmazon', 'proxyPeriodMyntra', 'proxyPeriodFlipkart']);
@@ -1178,8 +1167,9 @@ async function handleTestLocal(marketplace) {
       if (data && Array.isArray(data.orders)) orders = data.orders;
       else return { ok: false, error: 'Could not parse Amazon orders array' };
     } else if (marketplace === 'flipkart') {
-      // Flipkart local test - reuse the scrape logic
-      return { ok: true, count: 0, message: 'Flipkart local test not yet implemented' };
+      const res = await scrapeFlipkartData();
+      if (res.error) return { ok: false, error: res.error };
+      orders = res.orders;
     } else {
       const healthObj = (await chrome.storage.local.get(['health'])).health || {};
       const warehouseId = healthObj.warehouseId || '89623';

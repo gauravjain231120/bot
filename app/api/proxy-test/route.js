@@ -4,6 +4,7 @@ import { secretMatches } from '../../../lib/secrets';
 import { sendOwnerAlert } from '../../../lib/telegram';
 import { fetchUnshippedByProgram } from '../../../lib/amazon';
 import { fetchOpenOrders } from '../../../lib/myntra';
+import { fetchFlipkartOrders } from '../../../lib/flipkart';
 
 export const runtime = 'nodejs';
 export const maxDuration = 45;
@@ -16,7 +17,7 @@ export async function POST(req) {
   try {
     const body = await req.json();
     const { marketplace, type, orders } = body;
-    const label = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
+    const label = marketplace === 'amazon' ? 'Amazon' : marketplace === 'flipkart' ? 'Flipkart' : 'Myntra';
 
     if (type === 'local') {
       // Local Test: The extension already fetched the orders and handed them to us
@@ -30,7 +31,7 @@ export async function POST(req) {
     if (type === 'cloud') {
       // Cloud Test: We must fetch them ourselves from Vercel using saved cookies
       const db = await getDb();
-      const sessionDoc = await db.collection('settings').findOne({ _id: marketplace === 'amazon' ? 'session_amazon' : 'session' });
+      const sessionDoc = await db.collection('settings').findOne({ _id: marketplace === 'amazon' ? 'session_amazon' : marketplace === 'flipkart' ? 'session_flipkart' : 'session' });
       
       if (!sessionDoc || !sessionDoc.headers) {
         await sendOwnerAlert(`❌ <b>${label} Cloud Check Test Failed!</b>\nNo session is saved on the server.`);
@@ -42,6 +43,9 @@ export async function POST(req) {
         if (marketplace === 'amazon') {
           const results = await fetchUnshippedByProgram(sessionDoc.headers);
           fetchedOrders = Object.values(results).flat();
+        } else if (marketplace === 'flipkart') {
+          const results = await fetchFlipkartOrders(sessionDoc.headers);
+          fetchedOrders = results.orders || [];
         } else {
           fetchedOrders = await fetchOpenOrders(sessionDoc.headers);
         }
