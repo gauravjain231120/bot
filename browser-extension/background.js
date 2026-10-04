@@ -395,6 +395,25 @@ const MARKETPLACES = [
     // fills those in from this actual browser at sync time.
     browserLike: true,
   },
+  {
+    marketplace: 'flipkart',
+    cookieDomain: 'seller.flipkart.com',
+    loginCookies: ['connect.sid', 'at', 'sellerId', 'XyZ7pQ9rS2T1uV8wA3bC6dE4fG0h', 'fk-csrf-token'],
+    fingerprintCookies: ['connect.sid'],
+    requestUrl: 'https://seller.flipkart.com/orchestrator/graphql',
+    staticHeaders: {
+      accept: '*/*',
+      'x-requested-with': 'XMLHttpRequest',
+      'x-client-id': 'SD',
+      'x-internal-env-type': 'WEB',
+      origin: 'https://seller.flipkart.com',
+      referer: 'https://seller.flipkart.com/index.html',
+      'sec-fetch-site': 'same-origin',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-dest': 'empty',
+    },
+    browserLike: true,
+  },
 ];
 const MARKETPLACE_NAMES = MARKETPLACES.map((m) => m.marketplace);
 const EXT_VERSION = chrome.runtime.getManifest().version;
