@@ -35,10 +35,11 @@ export async function GET(request) {
   const db = await getDb();
   const settings = db.collection('settings');
   const projection = { capturedAt: 1, source: 1, headers: 1, cookiesRolledAt: 1 };
-  const [status, myntra, amazon] = await Promise.all([
+  const [status, myntra, amazon, flipkart] = await Promise.all([
     settings.findOne({ _id: 'status' }),
     settings.findOne({ _id: 'session' }, { projection }),
     settings.findOne({ _id: 'session_amazon' }, { projection }),
+    settings.findOne({ _id: 'session_flipkart' }, { projection }),
   ]);
   const st = status || {};
   // Remember which extension build is polling (written only when it changes).
@@ -60,6 +61,11 @@ export async function GET(request) {
       state: stateFor(amazon, st.amazonLastError),
       lastCheck: st.amazonLastCheck || null,
       capturedAt: (amazon && amazon.capturedAt) || null,
+    },
+    flipkart: {
+      state: stateFor(flipkart, st.flipkartLastError),
+      lastCheck: st.flipkartLastCheck || null,
+      capturedAt: (flipkart && flipkart.capturedAt) || null,
     },
   });
 }
