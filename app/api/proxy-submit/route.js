@@ -3,6 +3,7 @@ import { getDb } from '../../../lib/db';
 import { sendOwnerAlert } from '../../../lib/telegram';
 import { runCheckAmazonOrders } from '../../../lib/checkAmazonOrders';
 import { runCheckOrders } from '../../../lib/checkOrders';
+import { runCheckFlipkartOrders } from '../../../lib/checkFlipkartOrders';
 
 export const runtime = 'nodejs';
 export const maxDuration = 45; // Need time to process database writes/Telegram alerts
@@ -30,7 +31,7 @@ export async function POST(req) {
     if (stateChange === 'local') {
       const statusDoc = await db.collection('settings').findOne({ _id: 'status' }) || {};
       if (statusDoc[`${marketplace}ScrapeMode`] !== 'local') {
-        const Name = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
+        const Name = marketplace === 'amazon' ? 'Amazon' : marketplace === 'flipkart' ? 'Flipkart' : 'Myntra';
         await sendOwnerAlert(`💻 <b>${Name} switched to Local Browser</b>\nManual toggle turned ON.`, { silent: true }).catch(() => {});
       }
       await db.collection('settings').updateOne(
@@ -44,7 +45,7 @@ export async function POST(req) {
     
     if (stateChange === 'logout') {
       const statusDoc = await db.collection('settings').findOne({ _id: 'status' }) || {};
-      const Name = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
+      const Name = marketplace === 'amazon' ? 'Amazon' : marketplace === 'flipkart' ? 'Flipkart' : 'Myntra';
       if (!statusDoc[`${marketplace}LogoutAlertSent`]) {
         await sendOwnerAlert(`🚨 <b>${Name} logged out</b>\nPlease log in to ${Name} in this Chrome again.`, { silent: false }).catch(() => {});
         await db.collection('settings').updateOne(
@@ -58,7 +59,7 @@ export async function POST(req) {
     if (stateChange === 'cloud') {
       const statusDoc = await db.collection('settings').findOne({ _id: 'status' }) || {};
       if (statusDoc[`${marketplace}ScrapeMode`] === 'local') {
-        const Name = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
+        const Name = marketplace === 'amazon' ? 'Amazon' : marketplace === 'flipkart' ? 'Flipkart' : 'Myntra';
         await sendOwnerAlert(`☁️ <b>${Name} switched to Cloud Backup</b>\nManual toggle turned OFF.`, { silent: true }).catch(() => {});
       }
       await db.collection('settings').updateOne(
@@ -98,6 +99,8 @@ export async function POST(req) {
       await runCheckAmazonOrders({ proxyData: orders });
     } else if (marketplace === 'myntra') {
       await runCheckOrders({ proxyData: orders });
+    } else if (marketplace === 'flipkart') {
+      await runCheckFlipkartOrders({ proxyData: orders });
     } else {
       return NextResponse.json({ ok: false, error: 'Unknown marketplace' }, { status: 400 });
     }

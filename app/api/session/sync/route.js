@@ -9,6 +9,7 @@ import {
   isSameWorkingLogin,
 } from '../../../../lib/sessionStore';
 import { testSession } from '../../../../lib/sessionProbe';
+import { testFlipkartSession } from '../../../../lib/flipkartProbe';
 import { secretMatches } from '../../../../lib/secrets';
 
 export const runtime = 'nodejs';
@@ -64,8 +65,8 @@ export async function POST(request) {
     return NextResponse.json({ error: 'missing headers' }, { status: 400 });
   }
 
-  const marketplace = body.marketplace === 'amazon' ? 'amazon' : 'myntra';
-  const label = marketplace === 'amazon' ? 'Amazon' : 'Myntra';
+  const marketplace = body.marketplace === 'amazon' ? 'amazon' : body.marketplace === 'flipkart' ? 'flipkart' : 'myntra';
+  const label = marketplace === 'amazon' ? 'Amazon' : marketplace === 'flipkart' ? 'Flipkart' : 'Myntra';
   const trigger = ['manual', 'recovery'].includes(body.trigger) ? body.trigger : 'auto';
   const period = Number(body.periodMinutes);
   const syncPeriodMinutes = Number.isFinite(period) ? Math.min(MAX_PERIOD, Math.max(MIN_PERIOD, Math.round(period))) : null;

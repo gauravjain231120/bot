@@ -1,11 +1,25 @@
 {
   "manifest_version": 3,
   "name": "Order Alert Session Sync",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "description": "Reads your already-logged-in Myntra and Amazon Seller Central sessions and sends them to the order-alert app automatically, so nobody has to paste one by hand.",
-  "permissions": ["cookies", "storage", "alarms", "power"],
-  "host_permissions": ["*://*.myntrainfo.com/*", "*://myntrainfo.com/*", "*://*.amazon.in/*", "*://amazon.in/*"],
-  "optional_host_permissions": ["https://*/*"],
+  "permissions": [
+    "cookies",
+    "storage",
+    "alarms",
+    "power"
+  ],
+  "host_permissions": [
+    "*://*.myntrainfo.com/*",
+    "*://myntrainfo.com/*",
+    "*://*.amazon.in/*",
+    "*://amazon.in/*",
+    "*://*.flipkart.com/*",
+    "*://flipkart.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },

@@ -11,9 +11,16 @@ export default function EngineStatusPage() {
   const [hostname, setHostname] = useState('Loading...');
   const [history, setHistory] = useState([]);
   const [selectedDay, setSelectedDay] = useState({ platform: null, dateStr: null });
+  const [flipkartEnabled, setFlipkartEnabled] = useState(false);
+  const [fkLoading, setFkLoading] = useState(true);
 
   useEffect(() => {
     setHostname(window.location.hostname);
+    fetch('/api/flipkart-config').then(res => res.json()).then(data => {
+      setFlipkartEnabled(data.enabled);
+      setFkLoading(false);
+    }).catch(console.error);
+
     fetch('/api/engine-history').then(res => res.json()).then(data => {
       if (data.logs) setHistory(data.logs);
     }).catch(console.error);
@@ -34,8 +41,28 @@ export default function EngineStatusPage() {
     amazonLastProxyCheck,
     myntraProxyInterval,
     amazonProxyInterval,
+    flipkartScrapeMode,
+    flipkartLastProxyCheck,
+    flipkartProxyInterval,
     running
   } = status;
+
+
+  async function toggleFlipkart() {
+    setFkLoading(true);
+    try {
+      const res = await fetch('/api/flipkart-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !flipkartEnabled })
+      });
+      const data = await res.json();
+      setFlipkartEnabled(data.enabled);
+    } catch (err) {
+      console.error(err);
+    }
+    setFkLoading(false);
+  }
 
   function renderStatus(platform, mode, lastCheck, intervalMinutes) {
     const isLocal = mode === 'local';
@@ -218,9 +245,28 @@ export default function EngineStatusPage() {
         <p className="muted" style={{ marginTop: '5px' }}>This is the exact Vercel server you are currently logged into.</p>
       </div>
 
+
+      <div className="card" style={{ marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Flipkart Integration</h3>
+            <p className="muted" style={{ margin: '4px 0 0' }}>When enabled, checks Flipkart alongside Amazon/Myntra.</p>
+          </div>
+          <button 
+            className={`btn-primary ${flipkartEnabled ? 'danger' : ''}`}
+            onClick={toggleFlipkart}
+            disabled={fkLoading || !isOwner}
+            style={{ width: 'auto', background: flipkartEnabled ? '#dc3545' : 'var(--brand)', color: 'white' }}
+          >
+            {fkLoading ? 'Wait...' : flipkartEnabled ? 'Disable Flipkart' : 'Enable Flipkart'}
+          </button>
+        </div>
+      </div>
+  
       <div className="dashboard-grid">
         {renderStatus('Myntra', myntraScrapeMode, myntraLastProxyCheck, myntraProxyInterval || 1)}
         {renderStatus('Amazon', amazonScrapeMode, amazonLastProxyCheck, amazonProxyInterval || 5)}
+        {flipkartEnabled && renderStatus('Flipkart', flipkartScrapeMode, flipkartLastProxyCheck, flipkartProxyInterval || 5)}
       </div>
     </main>
   );

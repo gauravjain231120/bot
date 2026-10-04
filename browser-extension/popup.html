@@ -116,7 +116,7 @@
   </head>
   <body>
     <h1>Session Sync</h1>
-    <div class="subtitle">Myntra &amp; Amazon, kept fresh automatically</div>
+    <div class="subtitle">Myntra, Amazon &amp; Flipkart</div>
 
     <div class="card">
       <div class="section-label">Session watch</div>
@@ -182,6 +182,28 @@
           <button class="btn-test" id="testMynCloud">Test Cloud</button>
         </div>
         <div class="test-result" id="resMyn"></div>
+      </div>
+
+
+      <!-- Flipkart Row -->
+      <div class="engine-row" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+        <div class="engine-header">
+          <span class="engine-name">Flipkart</span>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="font-size:11px; color:var(--muted); display:flex; align-items:center; gap:3px;">
+              Every <input type="number" id="proxyPeriodFk" style="width:36px; padding:2px; border:1px solid var(--border); border-radius:4px; text-align:center; font-size:11px;" min="1" max="60" value="5"> min
+            </div>
+            <label class="switch">
+            <input type="checkbox" id="localFlipkart">
+            <span class="slider round"></span>
+          </label>
+          </div>
+        </div>
+        <div class="engine-actions">
+          <button class="btn-test" id="testFkLocal">Test Local</button>
+          <button class="btn-test" id="testFkCloud">Test Cloud</button>
+        </div>
+        <div class="test-result" id="resFk"></div>
       </div>
 
       <div class="save-status" id="localCheckStatus"></div>

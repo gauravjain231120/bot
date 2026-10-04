@@ -170,11 +170,130 @@ async function runMyntraScrape() {
   }
 }
 
+
+async function runFlipkartScrape() {
+  const { appUrl, syncSecret } = await getConfig();
+  if (!appUrl || !syncSecret) return;
+  const healthObj = (await chrome.storage.local.get(['health'])).health || {};
+  if (healthObj.flipkart && healthObj.flipkart.state === 'missing') return;
+
+  const fkUrl = 'https://seller.flipkart.com/orchestrator/graphql?';
+  const fkBody = JSON.stringify({
+    query: 'query GetShipmentGroups($filter: ShipmentGroupFilter!, $pagination: PaginationInput) { filteredShipmentGroups(filter: $filter, pagination: $pagination) { pageInfo { hasMore total } shipmentGroups { groupId shipmentCount channelOfSale priceRange { minPrice maxPrice } groupDetails { shipmentGroupSpecs { listing { product { title displayTitle brand sku size primaryImageUrl } } quantity } } shipments { orderId shippingId internalId creationTime sellerPrice paymentMode dispatchByDate tracking { trackingId courierName logisticsPartner } } } } }',
+    variables: { filter: { type: 'pending', states: ['APPROVED'] }, pagination: { pageNumber: 1, pageSize: 50 } }
+  });
+
+  // We need cookies from seller.flipkart.com
+  let cookies = await chrome.cookies.getAll({ url: 'https://seller.flipkart.com' });
+  if (!cookies.length) cookies = await chrome.cookies.getAll({ domain: 'flipkart.com' });
+  if (!cookies.length) {
+    console.error('Flipkart local scrape: no cookies found');
+    return;
+  }
+  const cookieHeader = cookies.map(c => c.name + '=' + c.value).join('; ');
+
+  // Extract CSRF token
+  const csrfCookie = cookies.find(c => c.name === 'XyZ7pQ9rS2T1uV8wA3bC6dE4fG0h');
+  const csrfToken = csrfCookie ? csrfCookie.value : '';
+  const sellerIdCookie = cookies.find(c => c.name === 'sellerId');
+  const sellerId = sellerIdCookie ? sellerIdCookie.value : '';
+
+  try {
+    const res = await fetch(fkUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': '*/*',
+        'Cookie': cookieHeader,
+        'fk-csrf-token': csrfToken,
+        'x-client-id': 'SD',
+        'x-internal-env-type': 'WEB',
+        'x-user-id': sellerId,
+        'x-requested-with': 'XMLHttpRequest',
+        'origin': 'https://seller.flipkart.com',
+        'referer': 'https://seller.flipkart.com/index.html',
+      },
+      credentials: 'include',
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      console.error('Flipkart local scrape: auth error', res.status);
+      await fetch(appUrl + '/api/proxy-submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
+        body: JSON.stringify({ marketplace: 'flipkart', stateChange: 'logout' })
+      }).catch(console.error);
+      return;
+    }
+
+    const data = await res.json();
+    if (!data || !data.data || !data.data.filteredShipmentGroups) {
+      console.error('Flipkart local scrape: unexpected response');
+      return;
+    }
+
+    const groups = data.data.filteredShipmentGroups.shipmentGroups || [];
+    const orders = [];
+    for (const group of groups) {
+      const specs = (group.groupDetails && group.groupDetails.shipmentGroupSpecs) || [];
+      if (group.shipments && group.shipments.length) {
+        for (const shipment of group.shipments) {
+          orders.push({
+            groupId: group.groupId,
+            orderId: shipment.orderId,
+            shippingId: shipment.shippingId,
+            internalId: shipment.internalId,
+            channelOfSale: group.channelOfSale || 'FLIPKART',
+            sellerPrice: shipment.sellerPrice,
+            paymentMode: shipment.paymentMode,
+            creationTime: shipment.creationTime,
+            dispatchByDate: shipment.dispatchByDate,
+            tracking: shipment.tracking || {},
+            items: specs.map(s => ({
+              title: (s.listing && s.listing.product && (s.listing.product.displayTitle || s.listing.product.title)) || 'Unknown',
+              brand: (s.listing && s.listing.product && s.listing.product.brand) || '',
+              sku: (s.listing && s.listing.product && s.listing.product.sku) || '',
+              size: (s.listing && s.listing.product && s.listing.product.size) || '',
+              image: (s.listing && s.listing.product && s.listing.product.primaryImageUrl) || null,
+              quantity: s.quantity || 1,
+            })),
+          });
+        }
+      } else {
+        orders.push({
+          groupId: group.groupId,
+          orderId: null,
+          channelOfSale: group.channelOfSale || 'FLIPKART',
+          sellerPrice: group.priceRange ? group.priceRange.maxPrice : null,
+          items: specs.map(s => ({
+            title: (s.listing && s.listing.product && (s.listing.product.displayTitle || s.listing.product.title)) || 'Unknown',
+            brand: (s.listing && s.listing.product && s.listing.product.brand) || '',
+            sku: (s.listing && s.listing.product && s.listing.product.sku) || '',
+            size: (s.listing && s.listing.product && s.listing.product.size) || '',
+            image: (s.listing && s.listing.product && s.listing.product.primaryImageUrl) || null,
+            quantity: s.quantity || 1,
+          })),
+        });
+      }
+    }
+
+    const pFk = (await chrome.storage.local.get(['proxyPeriodFlipkart'])).proxyPeriodFlipkart || 5;
+    await fetch(appUrl + '/api/proxy-submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
+      body: JSON.stringify({ marketplace: 'flipkart', orders, interval: pFk })
+    }).catch(console.error);
+
+  } catch (err) {
+    console.error('Flipkart local scrape error:', err.message);
+  }
+}
+
 async function ensureProxyAlarms() {
-  const stored = await chrome.storage.local.get(['localMyntra', 'localAmazon', 'proxyPeriodAmazon', 'proxyPeriodMyntra']);
+  const stored = await chrome.storage.local.get(['localMyntra', 'localAmazon', 'localFlipkart', 'proxyPeriodAmazon', 'proxyPeriodMyntra', 'proxyPeriodFlipkart']);
   
   if (chrome.power) {
-    if (stored.localAmazon || stored.localMyntra) {
+    if (stored.localAmazon || stored.localMyntra || stored.localFlipkart) {
       chrome.power.requestKeepAwake('system');
     } else {
       chrome.power.releaseKeepAwake();
@@ -191,6 +310,12 @@ async function ensureProxyAlarms() {
     chrome.alarms.create('proxy-scrape-myntra', { periodInMinutes: stored.proxyPeriodMyntra || 2 });
   } else {
     chrome.alarms.clear('proxy-scrape-myntra');
+  }
+
+  if (stored.localFlipkart) {
+    chrome.alarms.create('proxy-scrape-flipkart', { periodInMinutes: stored.proxyPeriodFlipkart || 5 });
+  } else {
+    chrome.alarms.clear('proxy-scrape-flipkart');
   }
 }
 
@@ -415,7 +540,7 @@ async function syncOne(entry, appUrl, syncSecret, trigger, scheduled, periodMinu
       return {
         marketplace: entry.marketplace,
         ok: false,
-        error: `Logged out — log in to ${entry.marketplace === 'amazon' ? 'Amazon Seller Central' : 'Myntra'} in this Chrome`,
+        error: `Logged out — log in to ${entry.marketplace === 'amazon' ? 'Amazon Seller Central' : entry.marketplace === 'flipkart' ? 'Flipkart Seller Hub' : 'Myntra'} in this Chrome`,
         reason: 'logged-out',
         at: new Date().toISOString(),
         trigger,
@@ -884,6 +1009,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     runAmazonScrape();
   } else if (alarm.name === 'proxy-scrape-myntra') {
     runMyntraScrape();
+  } else if (alarm.name === 'proxy-scrape-flipkart') {
+    runFlipkartScrape();
   } else if (alarm.name === HEALTH_ALARM) {
     checkHealth();
   } else if (alarm.name.startsWith(RETRY_ALARM_PREFIX)) {
@@ -982,6 +1109,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       });
       if (msg.marketplace === 'amazon') runAmazonScrape();
       if (msg.marketplace === 'myntra') runMyntraScrape();
+      if (msg.marketplace === 'flipkart') runFlipkartScrape();
     } else {
       getConfig().then(({appUrl, syncSecret}) => {
         if (!appUrl || !syncSecret) return;
@@ -1007,6 +1135,9 @@ async function handleTestLocal(marketplace) {
       if (data && data._error) return { ok: false, error: data._error };
       if (data && Array.isArray(data.orders)) orders = data.orders;
       else return { ok: false, error: 'Could not parse Amazon orders array' };
+    } else if (marketplace === 'flipkart') {
+      // Flipkart local test - reuse the scrape logic
+      return { ok: true, count: 0, message: 'Flipkart local test not yet implemented' };
     } else {
       const healthObj = (await chrome.storage.local.get(['health'])).health || {};
       const warehouseId = healthObj.warehouseId || '89623';

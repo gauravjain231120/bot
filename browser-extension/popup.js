@@ -296,39 +296,49 @@ document.getElementById('openOptions').addEventListener('click', (e) => {
 
 
 
+const localFlipkartEl = document.getElementById('localFlipkart');
 const localMyntraEl = document.getElementById('localMyntra');
 const localAmazonEl = document.getElementById('localAmazon');
 const proxyPeriodAmzEl = document.getElementById('proxyPeriodAmz');
 const proxyPeriodMynEl = document.getElementById('proxyPeriodMyn');
+const proxyPeriodFkEl = document.getElementById('proxyPeriodFk');
 const localCheckStatus = document.getElementById('localCheckStatus');
 
 async function loadLocalCheck() {
-  const stored = await chrome.storage.local.get(['localMyntra', 'localAmazon', 'proxyPeriodAmazon', 'proxyPeriodMyntra']);
+  const stored = await chrome.storage.local.get(['localMyntra', 'localAmazon', 'localFlipkart', 'proxyPeriodAmazon', 'proxyPeriodMyntra', 'proxyPeriodFlipkart']);
   if (localMyntraEl) localMyntraEl.checked = !!stored.localMyntra;
   if (localAmazonEl) localAmazonEl.checked = !!stored.localAmazon;
   if (proxyPeriodAmzEl) proxyPeriodAmzEl.value = stored.proxyPeriodAmazon || 5;
   if (proxyPeriodMynEl) proxyPeriodMynEl.value = stored.proxyPeriodMyntra || 2;
+  if (localFlipkartEl) localFlipkartEl.checked = !!stored.localFlipkart;
+  if (proxyPeriodFkEl) proxyPeriodFkEl.value = stored.proxyPeriodFlipkart || 5;
 }
 loadLocalCheck();
 
 function handleLocalCheckChange(e) {
   const pAmz = Math.max(1, parseInt(proxyPeriodAmzEl.value) || 5);
   const pMyn = Math.max(1, parseInt(proxyPeriodMynEl.value) || 2);
+  const pFk = Math.max(1, parseInt(proxyPeriodFkEl ? proxyPeriodFkEl.value : 5) || 5);
   
   const isAmz = !!localAmazonEl.checked;
   const isMyn = !!localMyntraEl.checked;
+  const isFk = !!(localFlipkartEl && localFlipkartEl.checked);
 
   chrome.storage.local.set({
     localMyntra: isMyn,
     localAmazon: isAmz,
+    localFlipkart: isFk,
     proxyPeriodAmazon: pAmz,
-    proxyPeriodMyntra: pMyn
+    proxyPeriodMyntra: pMyn,
+    proxyPeriodFlipkart: pFk
   }, () => {
     chrome.runtime.sendMessage({ type: 'update-proxy-alarms' });
     
     // Instant Mode Switch Triggers (Only if toggle was clicked, skip if just interval changed)
     if (e && e.target && e.target.id === 'localAmazon') {
       chrome.runtime.sendMessage({ type: 'manual-mode-switch', marketplace: 'amazon', mode: isAmz ? 'local' : 'cloud' });
+    } else if (e && e.target && e.target.id === 'localFlipkart') {
+      chrome.runtime.sendMessage({ type: 'manual-mode-switch', marketplace: 'flipkart', mode: isFk ? 'local' : 'cloud' });
     } else if (e && e.target && e.target.id === 'localMyntra') {
       chrome.runtime.sendMessage({ type: 'manual-mode-switch', marketplace: 'myntra', mode: isMyn ? 'local' : 'cloud' });
     }
@@ -339,10 +349,12 @@ function handleLocalCheckChange(e) {
   setTimeout(() => { localCheckStatus.textContent = ''; }, 2000);
 }
 
+if (localFlipkartEl) localFlipkartEl.addEventListener('change', handleLocalCheckChange);
 if (localMyntraEl) localMyntraEl.addEventListener('change', handleLocalCheckChange);
 if (localAmazonEl) localAmazonEl.addEventListener('change', handleLocalCheckChange);
 if (proxyPeriodAmzEl) proxyPeriodAmzEl.addEventListener('input', handleLocalCheckChange);
 if (proxyPeriodMynEl) proxyPeriodMynEl.addEventListener('input', handleLocalCheckChange);
+if (proxyPeriodFkEl) proxyPeriodFkEl.addEventListener('input', handleLocalCheckChange);
 
 function wireTestButton(btnId, type, marketplace, resId) {
   const btn = document.getElementById(btnId);
@@ -377,3 +389,6 @@ wireTestButton('testAmzLocal', 'test-local', 'amazon', 'resAmz');
 wireTestButton('testAmzCloud', 'test-cloud', 'amazon', 'resAmz');
 wireTestButton('testMynLocal', 'test-local', 'myntra', 'resMyn');
 wireTestButton('testMynCloud', 'test-cloud', 'myntra', 'resMyn');
+
+wireTestButton('testFkLocal', 'test-local', 'flipkart', 'resFk');
+wireTestButton('testFkCloud', 'test-cloud', 'flipkart', 'resFk');
