@@ -2,14 +2,14 @@ const watchEl = document.getElementById('watch');
 const rowsEl = document.getElementById('rows');
 const toggleBtn = document.getElementById('toggle');
 const syncBtn = document.getElementById('sync');
-const periodInputs = { myntra: document.getElementById('periodMyntra'), amazon: document.getElementById('periodAmazon') };
-const periodHuman = { myntra: document.getElementById('periodMyntraHuman'), amazon: document.getElementById('periodAmazonHuman') };
+const periodInputs = { myntra: document.getElementById('periodMyntra'), amazon: document.getElementById('periodAmazon'), flipkart: document.getElementById('periodFlipkart') };
+const periodHuman = { myntra: document.getElementById('periodMyntraHuman'), amazon: document.getElementById('periodAmazonHuman'), flipkart: document.getElementById('periodFlipkartHuman') };
 const saveBtn = document.getElementById('savePeriods');
 const saveStatus = document.getElementById('saveStatus');
 const periodHint = document.getElementById('periodHint');
 
-const NAMES = ['myntra', 'amazon'];
-const LABEL = { myntra: 'Myntra', amazon: 'Amazon' };
+const NAMES = ['myntra', 'amazon', 'flipkart'];
+const LABEL = { myntra: 'Myntra', amazon: 'Amazon', flipkart: 'Flipkart' };
 
 let nextAt = {}; // marketplace -> ms epoch of its next scheduled sync
 let enabled = true;
@@ -251,7 +251,7 @@ saveBtn.addEventListener('click', () => {
       periodHuman[n].textContent = humanPeriod(res.periods[n]);
     }
     saveStatus.style.color = 'var(--good)';
-    saveStatus.textContent = `Saved ✓ Myntra every ${res.periods.myntra} min, Amazon every ${res.periods.amazon} min.`;
+    saveStatus.textContent = `Saved ✓ Myntra every ${res.periods.myntra} min, Amazon every ${res.periods.amazon} min, Flipkart every ${res.periods.flipkart} min.`;
     refreshUI();
   });
 });
