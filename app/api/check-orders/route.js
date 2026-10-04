@@ -20,7 +20,7 @@ export async function GET(request) {
 
   const db = await getDb();
   await recordTick(db, 'orders');
-  await checkTicks(db, ['amazonOrders', 'cancellations', 'amazonCancellations', 'otc']);
+  await checkTicks(db, ['amazonOrders', 'cancellations', 'amazonCancellations', 'flipkartOrders', 'otc']);
   // The extension syncs on its own 4h timer, independent of whether checking
   // is running or stopped — watch it unconditionally, same as every tick.
   // A watchdog problem must never block the order check itself.
