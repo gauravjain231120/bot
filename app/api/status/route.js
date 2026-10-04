@@ -21,9 +21,10 @@ export async function GET() {
     const statusDoc = await db.collection('settings').findOne({ _id: 'status' }, { projection: { running: 1 } });
     return NextResponse.json({ account: me, running: Boolean(statusDoc && statusDoc.running) });
   }
-  const [sessionDoc, amazonSessionDoc, statusDoc] = await Promise.all([
+  const [sessionDoc, amazonSessionDoc, flipkartSessionDoc, statusDoc] = await Promise.all([
     db.collection('settings').findOne({ _id: 'session' }),
     db.collection('settings').findOne({ _id: 'session_amazon' }),
+    db.collection('settings').findOne({ _id: 'session_flipkart' }),
     db.collection('settings').findOne({ _id: 'status' }),
   ]);
 
@@ -44,6 +45,13 @@ export async function GET() {
     amazonLastCancelCheck: statusDoc?.amazonLastCancelCheck ?? null,
     amazonCancelledCount: statusDoc?.amazonCancelledCount ?? null,
     amazonLastCancelError: statusDoc?.amazonLastCancelError ?? null,
+    flipkartLastCheck: statusDoc?.flipkartLastCheck ?? null,
+    flipkartOpenCount: statusDoc?.flipkartOpenCount ?? null,
+    flipkartLastError: statusDoc?.flipkartLastError ?? null,
+    flipkartSessionCapturedAt: flipkartSessionDoc?.capturedAt ?? null,
+    flipkartScrapeMode: statusDoc?.flipkartScrapeMode || 'cloud',
+    flipkartLastProxyCheck: statusDoc?.flipkartLastProxyCheck ?? null,
+    flipkartProxyInterval: statusDoc?.flipkartProxyInterval ?? null,
     myntraScrapeMode: statusDoc?.myntraScrapeMode || 'cloud',
     amazonScrapeMode: statusDoc?.amazonScrapeMode || 'cloud',
     myntraLastProxyCheck: statusDoc?.myntraLastProxyCheck ?? null,
