@@ -181,8 +181,8 @@ async function runFlipkartScrape() {
 
   const fkUrl = 'https://seller.flipkart.com/orchestrator/graphql?';
   const fkBody = JSON.stringify({
-    query: 'query GetShipmentGroups($filter: ShipmentGroupFilter!, $pagination: PaginationInput) { filteredShipmentGroups(filter: $filter, pagination: $pagination) { pageInfo { hasMore total } shipmentGroups { groupId shipmentCount channelOfSale priceRange { minPrice maxPrice } groupDetails { shipmentGroupSpecs { listing { product { title displayTitle brand sku size primaryImageUrl } } quantity } } shipments { orderId shippingId internalId creationTime sellerPrice paymentMode dispatchByDate tracking { trackingId courierName logisticsPartner } } } } }',
-    variables: { filter: { type: 'pending', states: ['APPROVED'] }, pagination: { pageNumber: 1, pageSize: 50 } }
+    query: 'query GetShipmentGroups($input: ShipmentGroupFilterRequestInput!) {   filteredShipmentGroups(input: $input) {     shipmentGroups {       groupId       subGroupIndex       logisticsPartnerCounts {         partner         count       }       groupDetails {         shipmentGroupSpecs {           listing {             listingId             status             product {               productId               title               fsn               sku               primaryImageUrl               productUrl             }           }           quantity         }         packages {           packageId           dimensions {             length             breadth             height             weight           }         }       }       sellerInputAttributes {         shippingId         orderId       }       shipmentCount       subShipmentCount       priceRange {         minPrice         maxPrice       }       missingDimensions       isMps       packagingPolicy       channelOfSale     }     pageInfo {       hasMore       total     }     timestamp   } } quantity } } shipments { orderId shippingId internalId creationTime sellerPrice paymentMode dispatchByDate tracking { trackingId courierName logisticsPartner } } } } }',
+    variables: { input: { status: 'pendingToAccept', viewType: { groupedByFsn: true }, paginationInput: { pageNum: 1, pageSize: 50 }, shipmentParams: { seller_id: sellerId, location_id: '' } } }
   });
 
   // We need cookies from seller.flipkart.com
@@ -246,24 +246,17 @@ async function runFlipkartScrape() {
     const orders = [];
     for (const group of groups) {
       const specs = (group.groupDetails && group.groupDetails.shipmentGroupSpecs) || [];
-      if (group.shipments && group.shipments.length) {
-        for (const shipment of group.shipments) {
+      if (group.sellerInputAttributes && group.sellerInputAttributes.length) {
+        for (const attr of group.sellerInputAttributes) {
           orders.push({
             groupId: group.groupId,
-            orderId: shipment.orderId,
-            shippingId: shipment.shippingId,
-            internalId: shipment.internalId,
+            orderId: attr.orderId,
+            shippingId: attr.shippingId,
             channelOfSale: group.channelOfSale || 'FLIPKART',
-            sellerPrice: shipment.sellerPrice,
-            paymentMode: shipment.paymentMode,
-            creationTime: shipment.creationTime,
-            dispatchByDate: shipment.dispatchByDate,
-            tracking: shipment.tracking || {},
+            sellerPrice: group.priceRange ? group.priceRange.maxPrice : null,
             items: specs.map(s => ({
-              title: (s.listing && s.listing.product && (s.listing.product.displayTitle || s.listing.product.title)) || 'Unknown',
-              brand: (s.listing && s.listing.product && s.listing.product.brand) || '',
+              title: (s.listing && s.listing.product && (s.listing.product.title)) || 'Unknown',
               sku: (s.listing && s.listing.product && s.listing.product.sku) || '',
-              size: (s.listing && s.listing.product && s.listing.product.size) || '',
               image: (s.listing && s.listing.product && s.listing.product.primaryImageUrl) || null,
               quantity: s.quantity || 1,
             })),
