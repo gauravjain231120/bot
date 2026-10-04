@@ -49,7 +49,7 @@ async function fetchWithRetry(url, maxTries = 4) {
   let lastErr;
   for (let i = 0; i < maxTries; i++) {
     
-    const statuses = ['pendingToAccept', 'pendingToPack', 'pendingLabel', 'pendingRTD', 'pendingToDispatch', 'upcoming'];
+    const statuses = ['pendingToAccept'];
     let allOrders = [];
     
     for (const stat of statuses) {
