@@ -49,6 +49,12 @@ export default function OverviewPage() {
           <div className="stat-value">{status?.amazonOpenCount ?? '—'}</div>
           <div className="stat-sub">checked {timeAgo(status?.amazonLastCheck)}</div>
         </div>
+
+        <div className="stat-card">
+          <div className="stat-label">FLIPKART OPEN ORDERS</div>
+          <div className="stat-value">{status?.flipkartOpenCount ?? '—'}</div>
+          <div className="stat-sub">checked {timeAgo(status?.flipkartLastCheck)}</div>
+        </div>
         <div className="stat-card">
           <div className="stat-label">Amazon recently cancelled</div>
           <div className="stat-value">{status?.amazonCancelledCount ?? '—'}</div>
@@ -56,12 +62,11 @@ export default function OverviewPage() {
         </div>
         <div className="stat-card">
           <div className="stat-label">Sessions</div>
-          <div className="stat-value" style={{ fontSize: '0.95rem' }}>
-            M: {status?.sessionCapturedAt ? 'Active' : 'Not set'} · A: {status?.amazonSessionCapturedAt ? 'Active' : 'Not set'}
+          <div className="stat-value" style={{ fontSize: '0.95rem', lineHeight: '1.4' }}>
+            M: {status?.sessionCapturedAt ? 'Active' : 'Not set'} · A: {status?.amazonSessionCapturedAt ? 'Active' : 'Not set'}<br />F: {status?.flipkartSessionCapturedAt ? 'Active' : 'Not set'}
           </div>
           <div className="stat-sub">
-            {status?.sessionCapturedAt ? timeAgo(status.sessionCapturedAt) : '—'} /{' '}
-            {status?.amazonSessionCapturedAt ? timeAgo(status.amazonSessionCapturedAt) : '—'}
+            {status?.sessionCapturedAt ? timeAgo(status.sessionCapturedAt) : '—'} / {status?.amazonSessionCapturedAt ? timeAgo(status.amazonSessionCapturedAt) : '—'} / {status?.flipkartSessionCapturedAt ? timeAgo(status.flipkartSessionCapturedAt) : '—'}
           </div>
         </div>
         <div className="stat-card">

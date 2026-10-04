@@ -53,6 +53,33 @@ function myntraOrders(snapshot, itemsById, stockBySku) {
   }));
 }
 
+
+function flipkartOrders(snapshot, stockBySku) {
+  const orders = (snapshot && snapshot.orders) || [];
+  return orders.map((order) => {
+    const id = order.orderId || order.groupId;
+    const items = order.items || [];
+    return {
+      source: 'flipkart',
+      orderId: id,
+      quantity: items.reduce((sum, item) => sum + (item.quantity || 1), 0),
+      orderDateMs: order.creationTime ? new Date(order.creationTime).getTime() : null,
+      shipByMs: order.dispatchByDate ? new Date(order.dispatchByDate).getTime() : null,
+      items: items.map((item) => {
+        return {
+          sku: item.sku,
+          name: item.title,
+          size: item.size || null,
+          color: item.color || null,
+          qty: item.quantity || 1,
+          image: item.image || null,
+          stock: stockBySku.get(item.sku) ?? null,
+        };
+      }),
+    };
+  });
+}
+
 function amazonOrders(snapshot, stockBySku) {
   const orders = (snapshot && snapshot.orders) || [];
   return orders.map((order) => {
@@ -85,11 +112,12 @@ export async function GET() {
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   const db = await getDb();
-  const [{ myntra, amazon, myntraItems }, sessions] = await Promise.all([
+  const [{ myntra, amazon, flipkart, myntraItems }, sessions] = await Promise.all([
     loadSnapshots(),
     Promise.all([
       db.collection('settings').findOne({ _id: 'session' }, { projection: { _id: 1 } }),
       db.collection('settings').findOne({ _id: 'session_amazon' }, { projection: { _id: 1 } }),
+      db.collection('settings').findOne({ _id: 'session_flipkart' }, { projection: { _id: 1 } }),
     ]),
   ]);
   // Every SKU on the grid's stock in ONE read (was one full-collection scan
@@ -97,14 +125,16 @@ export async function GET() {
   const skus = [
     ...((myntra && myntra.orders) || []).flatMap((o) => (myntraItems.get(String(o.orderId)) || []).map((i) => i.sellerSkuCode || i.skuCode)),
     ...((amazon && amazon.orders) || []).flatMap((o) => (o.orderItems || []).map((i) => i.sellerSku)),
+    ...((flipkart && flipkart.orders) || []).flatMap((o) => (o.items || []).map((i) => i.sku)),
   ];
   const stockBySku = await lookupStockMany(skus);
   const myntraList = myntraOrders(myntra, myntraItems, stockBySku);
   const amazonList = amazonOrders(amazon, stockBySku);
+  const flipkartList = flipkartOrders(flipkart, stockBySku);
 
-  const orders = [...myntraList, ...amazonList].sort((a, b) => (b.orderDateMs || 0) - (a.orderDateMs || 0));
+  const orders = [...myntraList, ...amazonList, ...flipkartList].sort((a, b) => (b.orderDateMs || 0) - (a.orderDateMs || 0));
   // A marketplace with no session at all isn't set up — say nothing about it.
-  const errors = [sessions[0] && staleNote('Myntra', myntra), sessions[1] && staleNote('Amazon', amazon)].filter(Boolean);
+  const errors = [sessions[0] && staleNote('Myntra', myntra), sessions[1] && staleNote('Amazon', amazon), sessions[2] && staleNote('Flipkart', flipkart)].filter(Boolean);
 
   return NextResponse.json({ orders, error: errors.length ? errors.join(' · ') : null });
 }

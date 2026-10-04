@@ -1276,3 +1276,16 @@ details[open] > summary {
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
+
+.source-tag.flipkart {
+  background: #2874f0;
+  color: #ffffff;
+}
+:root[data-theme='dark'] .source-tag.flipkart {
+  background: #0056b3;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .source-tag.flipkart {
+    background: #0056b3;
+  }
+}

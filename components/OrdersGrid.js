@@ -38,6 +38,7 @@ export function OrdersGrid() {
             <option value="all">All platforms</option>
             <option value="myntra">Myntra</option>
             <option value="amazon">Amazon</option>
+            <option value="flipkart">Flipkart</option>
           </select>
           <span className="muted">
             {orders ? `${visibleOrders.length} order${visibleOrders.length === 1 ? '' : 's'}` : ''}
@@ -74,7 +75,7 @@ export function OrdersGrid() {
                 ))}
                 <div className="order-card-body">
                   <div className="order-card-toprow">
-                    <span className={`source-tag ${order.source}`}>{order.source === 'amazon' ? 'Amazon' : 'Myntra'}</span>
+                    <span className={`source-tag ${order.source}`}>{order.source === 'amazon' ? 'Amazon' : order.source === 'flipkart' ? 'Flipkart' : 'Myntra'}</span>
                     {isMulti && <span className="multi-badge">Multi order</span>}
                   </div>
 
