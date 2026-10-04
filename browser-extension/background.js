@@ -238,7 +238,7 @@ async function runFlipkartScrape() {
       return;
     }
     if (!data || !data.data || !data.data.filteredShipmentGroups) {
-      console.error('Flipkart local scrape: unexpected response');
+      console.error('Flipkart local scrape: unexpected response', JSON.stringify(data).substring(0, 1000));
       return;
     }
 
