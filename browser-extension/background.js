@@ -175,6 +175,8 @@ async function runFlipkartScrape() {
   const { appUrl, syncSecret } = await getConfig();
   if (!appUrl || !syncSecret) return;
   const healthObj = (await chrome.storage.local.get(['health'])).health || {};
+  const isMasterFk = (await chrome.storage.local.get(['masterFlipkart'])).masterFlipkart;
+  if (isMasterFk === false) return;
   if (healthObj.flipkart && healthObj.flipkart.state === 'missing') return;
 
   const fkUrl = 'https://seller.flipkart.com/orchestrator/graphql?';
@@ -604,6 +606,8 @@ const autoInFlight = new Set();
 
 // Syncs only the given marketplace names (defaults to all of them).
 async function syncSome(names = MARKETPLACE_NAMES, trigger = 'auto', scheduled = false) {
+  const mFk = await chrome.storage.local.get(['masterFlipkart']);
+  if (mFk.masterFlipkart === false) names = names.filter(n => n !== 'flipkart');
   const { appUrl, syncSecret } = await getConfig();
   if (!appUrl || !syncSecret) {
     const results = [{ marketplace: 'all', ok: false, error: 'Not configured yet — open the extension options.', at: new Date().toISOString() }];
@@ -754,6 +758,8 @@ async function updateBadge() {
 // A sync triggered by a timer (periodic alarm or backoff retry). On failure
 // each marketplace arms its own short backoff retry.
 async function runAutoSync(names = MARKETPLACE_NAMES, scheduled = false) {
+  const mFk = await chrome.storage.local.get(['masterFlipkart']);
+  if (mFk.masterFlipkart === false) names = names.filter(n => n !== 'flipkart');
   const results = await syncSome(names, 'auto', scheduled);
   const isUnconfigured = results.length === 1 && results[0].marketplace === 'all';
   if (isUnconfigured) {
@@ -981,12 +987,14 @@ async function stopAutoSync() {
 // next sync moves earlier if it was further away than the new period); a
 // longer one keeps the current countdown and applies from the next cycle.
 async function setPeriods(input) {
+  const mFk = await chrome.storage.local.get(['masterFlipkart']);
+  const activeNames = mFk.masterFlipkart === false ? MARKETPLACE_NAMES.filter(n => n !== 'flipkart') : MARKETPLACE_NAMES;
   const current = await getPeriods();
   const next = {};
   for (const m of MARKETPLACE_NAMES) next[m] = input && input[m] != null ? clampPeriod(input[m]) : current[m];
   await chrome.storage.local.set(Object.fromEntries(MARKETPLACE_NAMES.map((m) => [`syncPeriod_${m}`, next[m]])));
   if (await isEnabled()) {
-    for (const m of MARKETPLACE_NAMES) {
+    for (const m of activeNames) {
       if (next[m] === current[m]) continue;
       const existing = await chrome.alarms.get(syncAlarmName(m));
       const fullPeriod = Date.now() + next[m] * 60000;
@@ -1105,7 +1113,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     ensureProxyAlarms().then(() => { if (sendResponse) sendResponse({ok: true}); });
     return true;
   }
-  if (msg.type === 'manual-mode-switch') {
+  if (msg.type === 'flipkart-master-toggle') {
+      if (!msg.enabled) {
+        chrome.alarms.clear('session-sync-market-flipkart');
+        chrome.alarms.clear('session-sync-retry-flipkart');
+        chrome.alarms.clear('proxy-scrape-flipkart');
+      } else {
+        ensureAlarms();
+        ensureProxyAlarms();
+      }
+      return;
+    }
+    if (msg.type === 'manual-mode-switch') {
     if (msg.mode === 'local') {
       getConfig().then(({appUrl, syncSecret}) => {
         if (!appUrl || !syncSecret) return;

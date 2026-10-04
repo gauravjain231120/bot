@@ -301,6 +301,7 @@ document.getElementById('openOptions').addEventListener('click', (e) => {
 
 
 
+const masterFlipkartEl = document.getElementById('masterFlipkart');
 const localFlipkartEl = document.getElementById('localFlipkart');
 const localMyntraEl = document.getElementById('localMyntra');
 const localAmazonEl = document.getElementById('localAmazon');
@@ -310,7 +311,11 @@ const proxyPeriodFkEl = document.getElementById('proxyPeriodFk');
 const localCheckStatus = document.getElementById('localCheckStatus');
 
 async function loadLocalCheck() {
-  const stored = await chrome.storage.local.get(['localMyntra', 'localAmazon', 'localFlipkart', 'proxyPeriodAmazon', 'proxyPeriodMyntra', 'proxyPeriodFlipkart']);
+  const stored = await chrome.storage.local.get(['masterFlipkart', 'localMyntra', 'localAmazon', 'localFlipkart', 'proxyPeriodAmazon', 'proxyPeriodMyntra', 'proxyPeriodFlipkart']);
+  if (masterFlipkartEl) {
+    masterFlipkartEl.checked = stored.masterFlipkart !== false;
+    toggleFkVisibility(masterFlipkartEl.checked);
+  }
   if (localMyntraEl) localMyntraEl.checked = !!stored.localMyntra;
   if (localAmazonEl) localAmazonEl.checked = !!stored.localAmazon;
   if (proxyPeriodAmzEl) proxyPeriodAmzEl.value = stored.proxyPeriodAmazon || 5;
@@ -319,6 +324,20 @@ async function loadLocalCheck() {
   if (proxyPeriodFkEl) proxyPeriodFkEl.value = stored.proxyPeriodFlipkart || 5;
 }
 loadLocalCheck();
+
+
+function toggleFkVisibility(show) {
+  const rPeriod = document.getElementById('row-period-fk');
+  const rEngine = document.getElementById('row-engine-fk');
+  if (rPeriod) rPeriod.style.display = show ? 'flex' : 'none';
+  if (rEngine) rEngine.style.display = show ? 'flex' : 'none';
+  if (show && !NAMES.includes('flipkart')) {
+    NAMES.push('flipkart');
+  } else if (!show && NAMES.includes('flipkart')) {
+    NAMES.splice(NAMES.indexOf('flipkart'), 1);
+  }
+  render();
+}
 
 function handleLocalCheckChange(e) {
   const pAmz = Math.max(1, parseInt(proxyPeriodAmzEl.value) || 5);
@@ -353,6 +372,13 @@ function handleLocalCheckChange(e) {
   localCheckStatus.textContent = 'Saved. Check Engine updated.';
   setTimeout(() => { localCheckStatus.textContent = ''; }, 2000);
 }
+
+if (masterFlipkartEl) masterFlipkartEl.addEventListener('change', (e) => {
+  const isMasterFk = e.target.checked;
+  chrome.storage.local.set({ masterFlipkart: isMasterFk });
+  toggleFkVisibility(isMasterFk);
+  chrome.runtime.sendMessage({ type: 'flipkart-master-toggle', enabled: isMasterFk });
+});
 
 if (localFlipkartEl) localFlipkartEl.addEventListener('change', handleLocalCheckChange);
 if (localMyntraEl) localMyntraEl.addEventListener('change', handleLocalCheckChange);
