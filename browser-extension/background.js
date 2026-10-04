@@ -260,7 +260,7 @@ async function runFlipkartScrape() {
             items: specs.map(s => ({
               title: (s.listing && s.listing.product && (s.listing.product.title)) || 'Unknown',
               sku: (s.listing && s.listing.product && s.listing.product.sku) || '',
-              image: (s.listing && s.listing.product && s.listing.product.primaryImageUrl) || null,
+              image: (s.listing && s.listing.product && s.listing.product.primaryImageUrl ? s.listing.product.primaryImageUrl.replace(/^http:\/\//, 'https://') : null),
               quantity: s.quantity || 1,
             })),
           });
@@ -276,7 +276,7 @@ async function runFlipkartScrape() {
             brand: (s.listing && s.listing.product && s.listing.product.brand) || '',
             sku: (s.listing && s.listing.product && s.listing.product.sku) || '',
             size: (s.listing && s.listing.product && s.listing.product.size) || '',
-            image: (s.listing && s.listing.product && s.listing.product.primaryImageUrl) || null,
+            image: (s.listing && s.listing.product && s.listing.product.primaryImageUrl ? s.listing.product.primaryImageUrl.replace(/^http:\/\//, 'https://') : null),
             quantity: s.quantity || 1,
           })),
         });
