@@ -184,7 +184,7 @@ async function scrapeFlipkartData() {
   const sellerIdCookie = cookies.find(c => c.name === 'sellerId');
   const sellerId = sellerIdCookie ? sellerIdCookie.value : '';
 
-  const correctQuery = "query GetShipmentGroups($input: ShipmentGroupFilterRequestInput!) { filteredShipmentGroups(input: $input) { shipmentGroups { groupId subGroupIndex logisticsPartnerCounts { partner count } groupDetails { shipmentGroupSpecs { listing { listingId status product { productId title fsn sku primaryImageUrl productUrl } } quantity } packages { packageId dimensions { length breadth height weight } } } sellerInputAttributes { shippingId orderId } shipmentCount subShipmentCount priceRange { minPrice maxPrice } missingDimensions isMps packagingPolicy channelOfSale } pageInfo { hasMore total } timestamp } }";
+  const correctQuery = "query GetShipmentGroups($input: ShipmentGroupFilterRequestInput!) { filteredShipmentGroups(input: $input) { shipmentGroups { groupId subGroupIndex logisticsPartnerCounts { partner count } groupDetails { shipmentGroupSpecs { listing { listingId status product { productId title fsn sku primaryImageUrl productUrl } } quantity } packages { packageId dimensions { length breadth height weight } } } sellerInputAttributes { shippingId orderId } shipments { orderId shippingId internalId creationTime dispatchByDate sellerPrice paymentMode channelOfSale } shipmentCount subShipmentCount priceRange { minPrice maxPrice } missingDimensions isMps packagingPolicy channelOfSale } pageInfo { hasMore total } timestamp } }";
   const fkBody = JSON.stringify({
     query: correctQuery,
     variables: { input: { status: 'pendingToAccept', viewType: { groupedByFsn: true }, paginationInput: { pageNum: 1, pageSize: 50 }, shipmentParams: { seller_id: sellerId, location_id: '' } } }
@@ -223,31 +223,49 @@ async function scrapeFlipkartData() {
     const orders = [];
     for (const group of groups) {
       const specs = (group.groupDetails && group.groupDetails.shipmentGroupSpecs) || [];
-      if (group.sellerInputAttributes && group.sellerInputAttributes.length) {
+      const shipments = group.shipments || [];
+      const buildItems = (sp) => sp.map(s => ({
+        title: (s.listing && s.listing.product && (s.listing.product.displayTitle || s.listing.product.title)) || 'Unknown',
+        brand: (s.listing && s.listing.product && s.listing.product.brand) || '',
+        sku: (s.listing && s.listing.product && s.listing.product.sku) || '',
+        size: (s.listing && s.listing.product && s.listing.product.size) || '',
+        image: (s.listing && s.listing.product && s.listing.product.primaryImageUrl ? s.listing.product.primaryImageUrl.replace(/^http:\/\//, 'https://') : null),
+        quantity: s.quantity || 1,
+      }));
+
+      if (shipments.length) {
+        // Use shipments array — has real orderId, creationTime, dispatchByDate
+        for (const ship of shipments) {
+          orders.push({
+            groupId: group.groupId,
+            orderId: ship.orderId || null,
+            shippingId: ship.shippingId || null,
+            channelOfSale: ship.channelOfSale || group.channelOfSale || 'FLIPKART',
+            sellerPrice: ship.sellerPrice || (group.priceRange ? group.priceRange.maxPrice : null),
+            paymentMode: ship.paymentMode || null,
+            creationTime: ship.creationTime || null,
+            dispatchByDate: ship.dispatchByDate || null,
+            items: buildItems(specs),
+          });
+        }
+      } else if (group.sellerInputAttributes && group.sellerInputAttributes.length) {
         for (const attr of group.sellerInputAttributes) {
           orders.push({
-            groupId: group.groupId, orderId: attr.orderId, shippingId: attr.shippingId, channelOfSale: group.channelOfSale || 'FLIPKART',
+            groupId: group.groupId,
+            orderId: attr.orderId || null,
+            shippingId: attr.shippingId || null,
+            channelOfSale: group.channelOfSale || 'FLIPKART',
             sellerPrice: group.priceRange ? group.priceRange.maxPrice : null,
-            items: specs.map(s => ({
-              title: (s.listing && s.listing.product && (s.listing.product.title)) || 'Unknown',
-              sku: (s.listing && s.listing.product && s.listing.product.sku) || '',
-              image: (s.listing && s.listing.product && s.listing.product.primaryImageUrl ? s.listing.product.primaryImageUrl.replace(/^http:\/\//, 'https://') : null),
-              quantity: s.quantity || 1,
-            })),
+            items: buildItems(specs),
           });
         }
       } else {
         orders.push({
-          groupId: group.groupId, orderId: null, channelOfSale: group.channelOfSale || 'FLIPKART',
+          groupId: group.groupId,
+          orderId: null,
+          channelOfSale: group.channelOfSale || 'FLIPKART',
           sellerPrice: group.priceRange ? group.priceRange.maxPrice : null,
-          items: specs.map(s => ({
-            title: (s.listing && s.listing.product && (s.listing.product.displayTitle || s.listing.product.title)) || 'Unknown',
-            brand: (s.listing && s.listing.product && s.listing.product.brand) || '',
-            sku: (s.listing && s.listing.product && s.listing.product.sku) || '',
-            size: (s.listing && s.listing.product && s.listing.product.size) || '',
-            image: (s.listing && s.listing.product && s.listing.product.primaryImageUrl ? s.listing.product.primaryImageUrl.replace(/^http:\/\//, 'https://') : null),
-            quantity: s.quantity || 1,
-          })),
+          items: buildItems(specs),
         });
       }
     }
