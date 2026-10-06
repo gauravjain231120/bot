@@ -2366,3 +2366,15 @@ Following the new Local Hybrid scraping engine, several deep architecture upgrad
    - The browser extension now fetches Amazon/Myntra cancellations locally (to avoid WAF blocks) and submits them via `/api/proxy-submit`.
    - Vercel persists them in `proxy_canceled_amazon` and `proxy_canceled_myntra`.
    - The server cron jobs for `checkCancellations` bypass their own network requests and read from this DB cache instead when running in Local Mode.
+
+## 52. Flipkart Timezone and Order ID Fix (2026-10-06)
+
+1. **Missing `creationTime` and `dispatchByDate`**: The browser extension's GraphQL query for Flipkart orders omitted shipment-level fields. The `checkFlipkartOrders.js` logic was falling back to `Date.now()`, sending incorrect timestamps to the stock manager.
+2. **Wrong Order ID**: The `order.orderId` was missing from `sellerInputAttributes` for some summary-level orders, forcing a fallback to `groupId`.
+
+**Fixes**:
+- Added `shipments { orderId, creationTime, dispatchByDate }` to the GraphQL query in both the extension and Vercel server.
+- The order-building logic now explicitly parses dates out of `shipments[]`.
+- Flipkart dates are strictly returned in IST without a timezone. We now inject `+05:30` before passing them to `new Date()` so Vercel parses them accurately into UTC milliseconds.
+- Stock manager now gets accurate `Placed at` and `Ship by` dates and the real `OD...` Order ID.
+
