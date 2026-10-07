@@ -1,3 +1,4 @@
+
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { sendOwnerAlert } from '../../../lib/telegram';
@@ -8,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request) {
   try {
     const data = await request.json();
-    const { date, type, device, received, notes } = data;
+    const { date, type, hasPickup, hasReturn, pDevice, pHandover, rApp, rReceived, notes } = data;
 
     if (!date) {
       return NextResponse.json({ error: 'Date is required' }, { status: 400 });
@@ -22,10 +23,18 @@ export async function POST(request) {
     // Set fields for the specific type
     const prefix = type.toLowerCase();
     const updateFields = {
-      [`${prefix}Device`]: device,
-      [`${prefix}Received`]: received,
       [`${prefix}Notes`]: notes,
+      [`${prefix}HasPickup`]: hasPickup,
+      [`${prefix}HasReturn`]: hasReturn,
     };
+    if (hasPickup) {
+      updateFields[`${prefix}PDevice`] = pDevice;
+      updateFields[`${prefix}PHandover`] = pHandover;
+    }
+    if (hasReturn) {
+      updateFields[`${prefix}RApp`] = rApp;
+      updateFields[`${prefix}RReceived`] = rReceived;
+    }
 
     // Save to database
     await db.collection('handover_logs').updateOne(
@@ -52,37 +61,51 @@ export async function POST(request) {
       expectMys = Boolean(otcStatus.values.pickupMys || otcStatus.values.returnMys);
       expectMye = Boolean(otcStatus.values.pickupMye || otcStatus.values.returnMye);
     } else {
-      // Fallback: If we don't have OTC status for this exact date, 
-      // just expect whatever they just submitted to be the only thing.
       expectMys = type === 'MYS';
       expectMye = type === 'MYE';
     }
 
-    const mysFilled = log.mysDevice != null && log.mysReceived != null;
-    const myeFilled = log.myeDevice != null && log.myeReceived != null;
+    const checkFilled = (prefix) => {
+      const pFilled = !log[`${prefix}HasPickup`] || (log[`${prefix}PDevice`] != null && log[`${prefix}PHandover`] != null);
+      const rFilled = !log[`${prefix}HasReturn`] || (log[`${prefix}RApp`] != null && log[`${prefix}RReceived`] != null);
+      // It's filled if they have submitted the form (which sets HasPickup/HasReturn) AND the required fields are filled.
+      // If HasPickup is undefined in DB, it means they haven't submitted this type yet.
+      if (log[`${prefix}HasPickup`] === undefined && log[`${prefix}HasReturn`] === undefined) return false;
+      return pFilled && rFilled;
+    };
 
-    // Wait until all expected fields are filled before sending the summary
+    const mysFilled = checkFilled('mys');
+    const myeFilled = checkFilled('mye');
+
     if (expectMys && !mysFilled) return NextResponse.json({ success: true, pending: true });
     if (expectMye && !myeFilled) return NextResponse.json({ success: true, pending: true });
 
-    // Send combined telegram message
     let msg = `📦 <b>Courier Handover Logged</b> (${date})\n\n`;
     let hasDiscrepancy = false;
     const notesArr = [];
     
-    const flag = (dev, rec) => (dev !== rec ? ' ❌' : ' ✅');
+    const flag = (a, b) => (a !== b ? ' ❌' : ' ✅');
 
-    if (expectMys && mysFilled) {
-      msg += `<b>MYS:</b> ${log.mysReceived}/${log.mysDevice}${flag(log.mysDevice, log.mysReceived)}\n`;
-      if (log.mysDevice !== log.mysReceived) hasDiscrepancy = true;
-      if (log.mysNotes) notesArr.push(`MYS: ${log.mysNotes}`);
-    }
+    const appendLog = (prefix, label) => {
+      let block = '';
+      if (log[`${prefix}HasPickup`]) {
+        const pd = log[`${prefix}PDevice`];
+        const ph = log[`${prefix}PHandover`];
+        block += `<b>${label} Pickup:</b> ${ph}/${pd}${flag(pd, ph)}\n`;
+        if (pd !== ph) hasDiscrepancy = true;
+      }
+      if (log[`${prefix}HasReturn`]) {
+        const ra = log[`${prefix}RApp`];
+        const rr = log[`${prefix}RReceived`];
+        block += `<b>${label} Return:</b> ${rr}/${ra}${flag(ra, rr)}\n`;
+        if (ra !== rr) hasDiscrepancy = true;
+      }
+      if (block) msg += block;
+      if (log[`${prefix}Notes`]) notesArr.push(`${label}: ${log[`${prefix}Notes`]}`);
+    };
 
-    if (expectMye && myeFilled) {
-      msg += `<b>MYE:</b> ${log.myeReceived}/${log.myeDevice}${flag(log.myeDevice, log.myeReceived)}\n`;
-      if (log.myeDevice !== log.myeReceived) hasDiscrepancy = true;
-      if (log.myeNotes) notesArr.push(`MYE: ${log.myeNotes}`);
-    }
+    if (expectMys && mysFilled) appendLog('mys', 'MYS');
+    if (expectMye && myeFilled) appendLog('mye', 'MYE');
 
     if (notesArr.length > 0) {
       msg += `\n<i>Notes: ${notesArr.join(' | ')}</i>`;
@@ -93,7 +116,6 @@ export async function POST(request) {
     }
 
     await sendOwnerAlert(msg);
-
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Handover log error:', err);

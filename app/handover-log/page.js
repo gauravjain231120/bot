@@ -4,9 +4,14 @@ import { useState, useEffect, Suspense } from 'react';
 import Script from 'next/script';
 import { useSearchParams } from 'next/navigation';
 
+
 function HandoverForm() {
   const searchParams = useSearchParams();
   const type = searchParams.get('type') || 'MYS';
+  
+  // By default, if no params are passed, we just show Pickup to be safe and backwards compatible
+  const hasPickup = searchParams.get('p') !== '0';
+  const hasReturn = searchParams.get('r') === '1';
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -17,8 +22,14 @@ function HandoverForm() {
     return d.toISOString().split('T')[0];
   });
   
-  const [device, setDevice] = useState('');
-  const [received, setReceived] = useState('');
+  // Pickup fields
+  const [pDevice, setPDevice] = useState('');
+  const [pHandover, setPHandover] = useState('');
+  
+  // Return fields
+  const [rApp, setRApp] = useState('');
+  const [rReceived, setRReceived] = useState('');
+  
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
@@ -40,8 +51,12 @@ function HandoverForm() {
         body: JSON.stringify({
           date,
           type,
-          device: Number(device) || 0,
-          received: Number(received) || 0,
+          hasPickup,
+          hasReturn,
+          pDevice: pDevice ? Number(pDevice) : null,
+          pHandover: pHandover ? Number(pHandover) : null,
+          rApp: rApp ? Number(rApp) : null,
+          rReceived: rReceived ? Number(rReceived) : null,
           notes
         })
       });
@@ -90,16 +105,37 @@ function HandoverForm() {
         <label style={{ display: 'block', fontWeight: 600, marginBottom: 5 }}>Date</label>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required style={inputStyle} />
 
-        <div style={{ display: 'flex', gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: 5 }}>{type} Device</label>
-            <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={device} onChange={(e) => setDevice(e.target.value)} placeholder="0" style={inputStyle} required />
+        {hasPickup && (
+          <div style={{ marginBottom: 10 }}>
+            <h3 style={{ margin: '0 0 10px 0', fontSize: '1rem', borderBottom: '1px solid #ddd', paddingBottom: 5 }}>📤 Pickup (Handing to Courier)</h3>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem' }}>Courier Scanner</label>
+                <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={pDevice} onChange={(e) => setPDevice(e.target.value)} placeholder="0" style={inputStyle} required />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem', color: pDevice && pHandover !== pDevice ? '#b91c1c' : 'inherit' }}>Actual Handover</label>
+                <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={pHandover} onChange={(e) => setPHandover(e.target.value)} placeholder="0" style={inputStyle} required />
+              </div>
+            </div>
           </div>
-          <div style={{ flex: 1 }}>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, color: device && received !== device ? '#b91c1c' : 'inherit' }}>{type} Received</label>
-            <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={received} onChange={(e) => setReceived(e.target.value)} placeholder="0" style={inputStyle} required />
+        )}
+
+        {hasReturn && (
+          <div style={{ marginBottom: 10 }}>
+            <h3 style={{ margin: '0 0 10px 0', fontSize: '1rem', borderBottom: '1px solid #ddd', paddingBottom: 5 }}>📥 Returns (Taking from Courier)</h3>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem' }}>App Expected</label>
+                <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={rApp} onChange={(e) => setRApp(e.target.value)} placeholder="0" style={inputStyle} required />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem', color: rApp && rReceived !== rApp ? '#b91c1c' : 'inherit' }}>Actual Received</label>
+                <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={rReceived} onChange={(e) => setRReceived(e.target.value)} placeholder="0" style={inputStyle} required />
+              </div>
+            </div>
           </div>
-        </div>
+        )}
 
         <label style={{ display: 'block', fontWeight: 600, marginBottom: 5 }}>Notes (Optional)</label>
         <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Any issues?" style={inputStyle} />
@@ -111,7 +147,7 @@ function HandoverForm() {
             width: '100%', padding: '14px', background: '#3b82f6', 
             color: 'white', border: 'none', borderRadius: '8px', 
             fontSize: '16px', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.7 : 1
+            opacity: loading ? 0.7 : 1, marginTop: 10
           }}
         >
           {loading ? 'Saving...' : 'Save Log'}
