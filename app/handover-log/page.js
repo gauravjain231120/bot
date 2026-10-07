@@ -103,7 +103,7 @@ function HandoverForm() {
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <div style={{ flex: 1 }}>
-              <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem' }}>App Expected</label>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem' }}>Courier Device Shows</label>
               <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={rApp} onChange={(e) => setRApp(e.target.value)} placeholder="0" style={inputStyle} required />
             </div>
             <div style={{ flex: 1 }}>
