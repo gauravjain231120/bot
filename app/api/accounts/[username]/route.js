@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireOwner } from '../../../../lib/adminAuth';
-import { ROLES, deleteAccount, setAccountRole, setAccountSections } from '../../../../lib/accounts';
+import { ROLES, deleteAccount, setAccountRole, setAccountSections, verifyPassword } from '../../../../lib/accounts';
 import { secretMatches } from '../../../../lib/secrets';
 import { cleanSections } from '../../../../lib/sections';
 
