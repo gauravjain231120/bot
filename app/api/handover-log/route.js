@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request) {
   try {
     const data = await request.json();
-    const { date, type, hasPickup, hasReturn, pDevice, pHandover, rApp, rReceived, notes } = data;
+    const { date, type, rApp, rReceived, notes } = data;
 
     if (!date) {
       return NextResponse.json({ error: 'Date is required' }, { status: 400 });
@@ -24,17 +24,10 @@ export async function POST(request) {
     const prefix = type.toLowerCase();
     const updateFields = {
       [`${prefix}Notes`]: notes,
-      [`${prefix}HasPickup`]: hasPickup,
-      [`${prefix}HasReturn`]: hasReturn,
+      [`${prefix}RApp`]: rApp,
+      [`${prefix}RReceived`]: rReceived,
+      [`${prefix}HasReturn`]: true,
     };
-    if (hasPickup) {
-      updateFields[`${prefix}PDevice`] = pDevice;
-      updateFields[`${prefix}PHandover`] = pHandover;
-    }
-    if (hasReturn) {
-      updateFields[`${prefix}RApp`] = rApp;
-      updateFields[`${prefix}RReceived`] = rReceived;
-    }
 
     // Save to database
     await db.collection('handover_logs').updateOne(
@@ -58,20 +51,17 @@ export async function POST(request) {
     let expectMye = false;
     
     if (otcStatus && otcStatus.alertedDate === date && otcStatus.values) {
-      expectMys = Boolean(otcStatus.values.pickupMys || otcStatus.values.returnMys);
-      expectMye = Boolean(otcStatus.values.pickupMye || otcStatus.values.returnMye);
+      expectMys = Boolean(otcStatus.values.returnMys);
+      expectMye = Boolean(otcStatus.values.returnMye);
     } else {
       expectMys = type === 'MYS';
       expectMye = type === 'MYE';
     }
 
     const checkFilled = (prefix) => {
-      const pFilled = !log[`${prefix}HasPickup`] || (log[`${prefix}PDevice`] != null && log[`${prefix}PHandover`] != null);
-      const rFilled = !log[`${prefix}HasReturn`] || (log[`${prefix}RApp`] != null && log[`${prefix}RReceived`] != null);
-      // It's filled if they have submitted the form (which sets HasPickup/HasReturn) AND the required fields are filled.
-      // If HasPickup is undefined in DB, it means they haven't submitted this type yet.
-      if (log[`${prefix}HasPickup`] === undefined && log[`${prefix}HasReturn`] === undefined) return false;
-      return pFilled && rFilled;
+      // It's filled if they have submitted the form (which sets HasReturn) AND the required fields are filled.
+      if (log[`${prefix}HasReturn`] === undefined) return false;
+      return log[`${prefix}RApp`] != null && log[`${prefix}RReceived`] != null;
     };
 
     const mysFilled = checkFilled('mys');
@@ -80,27 +70,19 @@ export async function POST(request) {
     if (expectMys && !mysFilled) return NextResponse.json({ success: true, pending: true });
     if (expectMye && !myeFilled) return NextResponse.json({ success: true, pending: true });
 
-    let msg = `📦 <b>Courier Handover Logged</b> (${date})\n\n`;
+    let msg = `📦 <b>Courier Return Logged</b> (${date})\n\n`;
     let hasDiscrepancy = false;
     const notesArr = [];
     
     const flag = (a, b) => (a !== b ? ' ❌' : ' ✅');
 
     const appendLog = (prefix, label) => {
-      let block = '';
-      if (log[`${prefix}HasPickup`]) {
-        const pd = log[`${prefix}PDevice`];
-        const ph = log[`${prefix}PHandover`];
-        block += `<b>${label} Pickup:</b> ${ph}/${pd}${flag(pd, ph)}\n`;
-        if (pd !== ph) hasDiscrepancy = true;
-      }
       if (log[`${prefix}HasReturn`]) {
         const ra = log[`${prefix}RApp`];
         const rr = log[`${prefix}RReceived`];
-        block += `<b>${label} Return:</b> ${rr}/${ra}${flag(ra, rr)}\n`;
+        msg += `<b>${label} Return:</b> ${rr}/${ra}${flag(ra, rr)}\n`;
         if (ra !== rr) hasDiscrepancy = true;
       }
-      if (block) msg += block;
       if (log[`${prefix}Notes`]) notesArr.push(`${label}: ${log[`${prefix}Notes`]}`);
     };
 

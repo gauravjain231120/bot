@@ -5,15 +5,11 @@ import Script from 'next/script';
 import { useSearchParams } from 'next/navigation';
 
 
+
 function HandoverForm() {
   const searchParams = useSearchParams();
   const type = searchParams.get('type') || 'MYS';
   
-  // By default, if no params are passed, we just show Pickup to be safe and backwards compatible
-  const hasPickup = searchParams.get('p') !== '0';
-  const hasReturn = searchParams.get('r') === '1';
-  
-  const pickupOtc = searchParams.get('po') || '';
   const returnOtc = searchParams.get('ro') || '';
 
   const [loading, setLoading] = useState(false);
@@ -25,11 +21,7 @@ function HandoverForm() {
     return d.toISOString().split('T')[0];
   });
   
-  // Pickup fields
-  const [pDevice, setPDevice] = useState('');
-  const [pHandover, setPHandover] = useState('');
-  
-  // Return fields
+  // Return fields only
   const [rApp, setRApp] = useState('');
   const [rReceived, setRReceived] = useState('');
   
@@ -54,10 +46,6 @@ function HandoverForm() {
         body: JSON.stringify({
           date,
           type,
-          hasPickup,
-          hasReturn,
-          pDevice: pDevice ? Number(pDevice) : null,
-          pHandover: pHandover ? Number(pHandover) : null,
           rApp: rApp ? Number(rApp) : null,
           rReceived: rReceived ? Number(rReceived) : null,
           notes
@@ -100,7 +88,7 @@ function HandoverForm() {
     <div style={{ padding: '20px', fontFamily: 'system-ui, sans-serif', maxWidth: 400, margin: '0 auto', background: 'var(--bg)', color: 'var(--text)' }}>
       <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
       
-      <h2 style={{ margin: '0 0 20px 0', fontSize: '1.2rem' }}>📝 {type} Courier Handover</h2>
+      <h2 style={{ margin: '0 0 20px 0', fontSize: '1.2rem' }}>📝 {type} Return Log</h2>
       
       {error && <div style={{ padding: 10, background: '#fee2e2', color: '#b91c1c', borderRadius: 8, marginBottom: 15 }}>{error}</div>}
       
@@ -108,43 +96,22 @@ function HandoverForm() {
         <label style={{ display: 'block', fontWeight: 600, marginBottom: 5 }}>Date</label>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required style={inputStyle} />
 
-        {hasPickup && (
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd', paddingBottom: 5, marginBottom: 10 }}>
-              <h3 style={{ margin: 0, fontSize: '1rem' }}>📤 Pickup</h3>
-              {pickupOtc && <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontSize: '0.9rem' }}>OTC: {pickupOtc}</span>}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd', paddingBottom: 5, marginBottom: 10 }}>
+            <h3 style={{ margin: 0, fontSize: '1rem' }}>📥 Returns</h3>
+            {returnOtc && <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontSize: '0.9rem' }}>OTC: {returnOtc}</span>}
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem' }}>App Expected</label>
+              <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={rApp} onChange={(e) => setRApp(e.target.value)} placeholder="0" style={inputStyle} required />
             </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem' }}>Courier Scanner</label>
-                <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={pDevice} onChange={(e) => setPDevice(e.target.value)} placeholder="0" style={inputStyle} required />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem', color: pDevice && pHandover !== pDevice ? '#b91c1c' : 'inherit' }}>Actual Handover</label>
-                <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={pHandover} onChange={(e) => setPHandover(e.target.value)} placeholder="0" style={inputStyle} required />
-              </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem', color: rApp && rReceived !== rApp ? '#b91c1c' : 'inherit' }}>Actual Received</label>
+              <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={rReceived} onChange={(e) => setRReceived(e.target.value)} placeholder="0" style={inputStyle} required />
             </div>
           </div>
-        )}
-
-        {hasReturn && (
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd', paddingBottom: 5, marginBottom: 10 }}>
-              <h3 style={{ margin: 0, fontSize: '1rem' }}>📥 Returns</h3>
-              {returnOtc && <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontSize: '0.9rem' }}>OTC: {returnOtc}</span>}
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem' }}>App Expected</label>
-                <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={rApp} onChange={(e) => setRApp(e.target.value)} placeholder="0" style={inputStyle} required />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem', color: rApp && rReceived !== rApp ? '#b91c1c' : 'inherit' }}>Actual Received</label>
-                <input type="number" inputMode="numeric" pattern="[0-9]*" min="0" value={rReceived} onChange={(e) => setRReceived(e.target.value)} placeholder="0" style={inputStyle} required />
-              </div>
-            </div>
-          </div>
-        )}
+        </div>
 
         <label style={{ display: 'block', fontWeight: 600, marginBottom: 5 }}>Notes (Optional)</label>
         <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Any issues?" style={inputStyle} />
