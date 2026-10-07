@@ -12,6 +12,9 @@ function HandoverForm() {
   // By default, if no params are passed, we just show Pickup to be safe and backwards compatible
   const hasPickup = searchParams.get('p') !== '0';
   const hasReturn = searchParams.get('r') === '1';
+  
+  const pickupOtc = searchParams.get('po') || '';
+  const returnOtc = searchParams.get('ro') || '';
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -107,7 +110,10 @@ function HandoverForm() {
 
         {hasPickup && (
           <div style={{ marginBottom: 10 }}>
-            <h3 style={{ margin: '0 0 10px 0', fontSize: '1rem', borderBottom: '1px solid #ddd', paddingBottom: 5 }}>📤 Pickup (Handing to Courier)</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd', paddingBottom: 5, marginBottom: 10 }}>
+              <h3 style={{ margin: 0, fontSize: '1rem' }}>📤 Pickup</h3>
+              {pickupOtc && <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontSize: '0.9rem' }}>OTC: {pickupOtc}</span>}
+            </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem' }}>Courier Scanner</label>
@@ -123,7 +129,10 @@ function HandoverForm() {
 
         {hasReturn && (
           <div style={{ marginBottom: 10 }}>
-            <h3 style={{ margin: '0 0 10px 0', fontSize: '1rem', borderBottom: '1px solid #ddd', paddingBottom: 5 }}>📥 Returns (Taking from Courier)</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd', paddingBottom: 5, marginBottom: 10 }}>
+              <h3 style={{ margin: 0, fontSize: '1rem' }}>📥 Returns</h3>
+              {returnOtc && <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontSize: '0.9rem' }}>OTC: {returnOtc}</span>}
+            </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontWeight: 600, marginBottom: 5, fontSize: '0.9rem' }}>App Expected</label>
