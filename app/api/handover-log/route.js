@@ -24,8 +24,8 @@ export async function POST(request) {
     const prefix = type.toLowerCase();
     const updateFields = {
       [`${prefix}Notes`]: notes,
-      [`${prefix}RApp`]: rApp,
-      [`${prefix}RReceived`]: rReceived,
+      [`${prefix}Device`]: rApp,
+      [`${prefix}Received`]: rReceived,
       [`${prefix}HasReturn`]: true,
     };
 
@@ -61,7 +61,7 @@ export async function POST(request) {
     const checkFilled = (prefix) => {
       // It's filled if they have submitted the form (which sets HasReturn) AND the required fields are filled.
       if (log[`${prefix}HasReturn`] === undefined) return false;
-      return log[`${prefix}RApp`] != null && log[`${prefix}RReceived`] != null;
+      return log[`${prefix}Device`] != null && log[`${prefix}Received`] != null;
     };
 
     const mysFilled = checkFilled('mys');
@@ -78,8 +78,8 @@ export async function POST(request) {
 
     const appendLog = (prefix, label) => {
       if (log[`${prefix}HasReturn`]) {
-        const ra = log[`${prefix}RApp`];
-        const rr = log[`${prefix}RReceived`];
+        const ra = log[`${prefix}Device`];
+        const rr = log[`${prefix}Received`];
         msg += `<b>${label} Return:</b> ${rr}/${ra}${flag(ra, rr)}\n`;
         if (ra !== rr) hasDiscrepancy = true;
       }
