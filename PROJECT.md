@@ -1301,8 +1301,8 @@ Lookups live in `lib/amazonScan.js` (read-only, saved `session_amazon` headers).
   shipped / returning-since / returned dates from `easyship-api/v1/track` events) with the same
   condition picker + Add to Return, logged under the original tracking. The RTO parcel's own
   return-label number (e.g. 515230465036) isn't linked to the order anywhere Amazon lets us
-  search, so scanning just that gives a clear "switch to Order ID" message. Delivered orders
-  with no return get "has no customer return and isn't an RTO".
+  search, so scanning just that gives a clear "switch to Order ID" message. If Amazon order status has not yet updated to `ReturnedToSeller`/`ReturningToSeller` (e.g. still `Shipped`),
+  it falls back to treating the matched order as an RTO so the returned parcel can still be inspected and logged.
 - **Myntra, for comparison (checked 2026-09-23, no code change)**: Myntra has both kinds too, and
   Myntra Return already resolves both — a customer return by its return label (MYSR…/MYER…), an
   RTO by its original outbound label (MYSC…/MYSP…/MYEC…/MYEP…): `fetchNewClaim` accepts the
