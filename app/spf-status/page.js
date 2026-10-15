@@ -4,18 +4,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { useDashboard } from '../../lib/DashboardContext';
 
 // Label + display order for every status the getTickets endpoint can return
-// (see lib/myntra.js's SPF_TICKET_STATUSES) — kept in the same order there so
-// the two stay easy to compare if Myntra ever adds a new one.
+// (see lib/myntra.js's SPF_TICKET_STATUSES). ACCEPT is Myntra's initial claim
+// acceptance step before moving through invoicing and payment.
 const STATUS_LABELS = [
   ['OPEN', 'Open'],
   ['IN_REVIEW', 'In review'],
-  ['ACCEPT', 'Approved'],
-  ['REJECT', 'Rejected'],
-  ['MANUAL', 'Manual'],
-  ['INVOICE_CREATED', 'Invoice created'],
+  ['ACCEPT', 'Claim accepted (awaiting invoice)'],
   ['INVOICE_INITIATED', 'Invoice initiated'],
+  ['INVOICE_CREATED', 'Invoice created'],
   ['PAYMENT_INITIATED', 'Payment initiated'],
   ['PAYMENT_COMPLETED', 'Paid'],
+  ['REJECT', 'Rejected'],
+  ['MANUAL', 'Manual'],
   ['AWAITING_SELLER_RESPONSE', 'Awaiting your response'],
   ['AWAITING_AGENT_RESPONSE', "Awaiting Myntra's response"],
   ['CLOSED', 'Closed'],
@@ -224,10 +224,28 @@ export default function SpfStatusPage() {
     ? STATUS_LABELS.map(([key, label]) => [label, counts.byStatus[key] || 0]).filter(([, n]) => n > 0)
     : [];
 
+  const approvedPipeline = counts
+    ? (counts.byStatus.ACCEPT || 0) +
+      (counts.byStatus.INVOICE_INITIATED || 0) +
+      (counts.byStatus.INVOICE_CREATED || 0) +
+      (counts.byStatus.PAYMENT_INITIATED || 0)
+    : 0;
+
+  const totalApproved = counts
+    ? approvedPipeline + (counts.byStatus.PAYMENT_COMPLETED || 0)
+    : 0;
+
+  const pendingReview = counts
+    ? (counts.byStatus.OPEN || 0) +
+      (counts.byStatus.AWAITING_AGENT_RESPONSE || 0) +
+      (counts.byStatus.AWAITING_SELLER_RESPONSE || 0) +
+      (counts.byStatus.IN_REVIEW || 0)
+    : 0;
+
   const statNumbers = counts
     ? {
         total: counts.total,
-        approved: counts.byStatus.ACCEPT || 0,
+        approved: totalApproved,
         paid: counts.byStatus.PAYMENT_COMPLETED || 0,
         rejected: counts.byStatus.REJECT || 0,
       }
@@ -270,6 +288,14 @@ export default function SpfStatusPage() {
               >
                 <div className="stat-label">{label}</div>
                 <div className="stat-value">{statNumbers[key]}</div>
+                {key === 'total' && counts && pendingReview > 0 && (
+                  <div className="stat-sub">{pendingReview} pending review</div>
+                )}
+                {key === 'approved' && counts && (
+                  <div className="stat-sub">
+                    {approvedPipeline} in payout · {counts.byStatus.PAYMENT_COMPLETED || 0} paid
+                  </div>
+                )}
                 {key === 'paid' && revealed.paid && paidInfo && <PaidSummary info={paidInfo} />}
               </button>
             ))}
@@ -281,7 +307,12 @@ export default function SpfStatusPage() {
 
           {breakdown.length > 0 && (
             <div className="card">
-              <h2>Full breakdown</h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                <h2 style={{ margin: 0 }}>Full breakdown</h2>
+                <div className="muted" style={{ fontSize: '0.82rem' }}>
+                  <strong style={{ color: 'var(--text)' }}>{totalApproved}</strong> total approved ({approvedPipeline} in payout · {counts.byStatus.PAYMENT_COMPLETED || 0} paid)
+                </div>
+              </div>
               <div>
                 {breakdown.map(([label, n]) => (
                   <div
