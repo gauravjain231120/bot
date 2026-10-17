@@ -434,8 +434,8 @@ iterations worth knowing about, because the reasoning matters if it needs to cha
   a bare `.toLocaleString()`/`new Date().toString()` anywhere alerts or the dashboard render
   dates, or it'll silently show UTC.
 - **Myntra ship-by date**: Myntra's own `packByTime` field is not a real deadline (sometimes
-  only minutes after order placement). The actual seller rule: an order placed before 11am IST
-  ships same-day; at/after 11am IST ships next-day. `myntraShipByDateMs()` in `lib/dates.js`
+  only minutes after order placement). The actual seller rule: an order placed before the Myntra RTD cutoff (by default 1pm IST,
+  configurable dynamically via Ready to Ship UI in stock-manager) ships same-day; at/after cutoff ships next-day. `myntraShipByDateMs()` in `lib/dates.js`
   implements exactly this, returning the **end** of the deadline day (23:59:59.999 IST) — using
   the start of the day here previously caused every dashboard's "hide past ship-by orders"
   filter to hide same-day orders instantly at midnight-IST-as-UTC-conversion, which looked like
