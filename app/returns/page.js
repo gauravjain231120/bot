@@ -90,6 +90,7 @@ export default function ReturnsPage() {
         return {
           ...c,
           packTrackingId: c.packTrackingId || data.packTrackingId || null,
+          returnTrackingId: c.returnTrackingId || data.trackingId || id,
           condition: addedCondition || 'GOOD',
           adding: false,
           added: !!addedCondition,
@@ -109,6 +110,7 @@ export default function ReturnsPage() {
           size: c.size,
           productName: c.productName || c.resolvedName || '',
           packTrackingId: c.packTrackingId,
+          returnTrackingId: c.returnTrackingId,
           // A rescan keeps what was already added from this tracking id.
           addedCondition: (previous && (previous.items.find((it) => it.unitKey === c.unitKey) || {}).addedCondition) || null,
         }));
@@ -183,7 +185,6 @@ export default function ReturnsPage() {
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
             {/* One candidate = one physical piece (lib/returnUnits.js). */}
             <ItemCountBanner count={myntraCandidates.length} noun="return" verb="Check" />
-            <div style={{ fontFamily: 'monospace', fontWeight: 700 }}>{resolvedId}</div>
             {repeatScan && (
               <div className="muted" style={{ fontSize: '0.8rem' }}>You already scanned this one earlier in this session.</div>
             )}
@@ -225,7 +226,7 @@ export default function ReturnsPage() {
                       <button
                         type="button"
                         className="secondary"
-                        onClick={() => copyText(c.packTrackingId, `cand-${i}`)}
+                        onClick={() => copyText(c.packTrackingId, `cand-pack-${i}`)}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -236,13 +237,51 @@ export default function ReturnsPage() {
                           cursor: 'pointer',
                           borderRadius: 4,
                           border: '1px solid',
-                          borderColor: copiedKey === `cand-${i}` ? 'var(--good)' : 'var(--border)',
-                          color: copiedKey === `cand-${i}` ? 'var(--good)' : 'inherit',
-                          background: copiedKey === `cand-${i}` ? 'var(--good-soft)' : 'var(--surface-2)',
+                          borderColor: copiedKey === `cand-pack-${i}` ? 'var(--good)' : 'var(--border)',
+                          color: copiedKey === `cand-pack-${i}` ? 'var(--good)' : 'inherit',
+                          background: copiedKey === `cand-pack-${i}` ? 'var(--good-soft)' : 'var(--surface-2)',
                         }}
                         title="Copy Pack Tracking ID"
                       >
-                        {copiedKey === `cand-${i}` ? (
+                        {copiedKey === `cand-pack-${i}` ? (
+                          <>
+                            <CheckIcon size={12} />
+                            <span>Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <CopyIcon size={12} />
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                  {(c.returnTrackingId || resolvedId) && (
+                    <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span className="muted">Return Tracking ID:</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)' }}>{c.returnTrackingId || resolvedId}</span>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => copyText(c.returnTrackingId || resolvedId, `cand-ret-${i}`)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: '2px 7px',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          borderRadius: 4,
+                          border: '1px solid',
+                          borderColor: copiedKey === `cand-ret-${i}` ? 'var(--good)' : 'var(--border)',
+                          color: copiedKey === `cand-ret-${i}` ? 'var(--good)' : 'inherit',
+                          background: copiedKey === `cand-ret-${i}` ? 'var(--good-soft)' : 'var(--surface-2)',
+                        }}
+                        title="Copy Return Tracking ID"
+                      >
+                        {copiedKey === `cand-ret-${i}` ? (
                           <>
                             <CheckIcon size={12} />
                             <span>Copied!</span>
