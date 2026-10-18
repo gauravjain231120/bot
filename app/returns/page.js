@@ -164,8 +164,6 @@ export default function ReturnsPage() {
     }
   }
 
-  const currentPackTrackingId = myntraCandidates.find((c) => c.packTrackingId)?.packTrackingId || null;
-
   return (
     <>
       <div className="page-header">
@@ -185,104 +183,7 @@ export default function ReturnsPage() {
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
             {/* One candidate = one physical piece (lib/returnUnits.js). */}
             <ItemCountBanner count={myntraCandidates.length} noun="return" verb="Check" />
-            
-            <div
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                padding: '10px 14px',
-                background: 'var(--surface-2)',
-                borderRadius: 'var(--radius, 10px)',
-                border: '1px solid var(--border)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span className="muted" style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
-                  Return:
-                </span>
-                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.02rem' }}>{resolvedId}</span>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => copyText(resolvedId, 'return-header')}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '3px 8px',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    borderRadius: 5,
-                    border: '1px solid',
-                    borderColor: copiedKey === 'return-header' ? 'var(--good)' : 'var(--border)',
-                    color: copiedKey === 'return-header' ? 'var(--good)' : 'inherit',
-                    background: copiedKey === 'return-header' ? 'var(--good-soft)' : 'var(--surface)',
-                  }}
-                  title="Copy Return Tracking ID"
-                >
-                  {copiedKey === 'return-header' ? (
-                    <>
-                      <CheckIcon size={12} />
-                      <span>Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <CopyIcon size={12} />
-                      <span>Copy</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {currentPackTrackingId && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span className="muted" style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
-                    Pack Tracking ID:
-                  </span>
-                  <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.05rem', color: 'var(--accent)' }}>
-                    {currentPackTrackingId}
-                  </span>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => copyText(currentPackTrackingId, 'pack-header')}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 5,
-                      padding: '4px 10px',
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      borderRadius: 6,
-                      border: '1px solid',
-                      borderColor: copiedKey === 'pack-header' ? 'var(--good)' : 'var(--border)',
-                      color: copiedKey === 'pack-header' ? 'var(--good)' : 'inherit',
-                      background: copiedKey === 'pack-header' ? 'var(--good-soft)' : 'var(--surface)',
-                      transition: 'all 0.15s ease',
-                    }}
-                    title="Copy Pack Tracking ID"
-                  >
-                    {copiedKey === 'pack-header' ? (
-                      <>
-                        <CheckIcon size={13} />
-                        <span>Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <CopyIcon size={13} />
-                        <span>Copy</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
-            </div>
-
+            <div style={{ fontFamily: 'monospace', fontWeight: 700 }}>{resolvedId}</div>
             {repeatScan && (
               <div className="muted" style={{ fontSize: '0.8rem' }}>You already scanned this one earlier in this session.</div>
             )}
