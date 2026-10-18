@@ -9,6 +9,7 @@ import {
 } from '../../../lib/amazon';
 import { lookupStockMany } from '../../../lib/stock';
 import { myntraShipByDateMs } from '../../../lib/dates';
+import { getMyntraRtdCutoff, getMyntraHolidays } from '../../../lib/rtdConfig';
 import { loadSnapshots } from '../../../lib/ordersSnapshot';
 import { requireSection } from '../../../lib/access';
 
@@ -30,14 +31,14 @@ function staleNote(label, snapshot) {
   return `${label}: showing orders from ${mins} min ago (checks are paused or failing)`;
 }
 
-function myntraOrders(snapshot, itemsById, stockBySku) {
+function myntraOrders(snapshot, itemsById, stockBySku, cutoffTime = '13:00', holidays = []) {
   const orders = (snapshot && snapshot.orders) || [];
   return orders.map((order) => ({
     source: 'myntra',
     orderId: order.orderId,
     quantity: order.quantity,
     orderDateMs: order.orderDate,
-    shipByMs: myntraShipByDateMs(order.orderDate),
+    shipByMs: myntraShipByDateMs(order.orderDate, cutoffTime, holidays),
     items: (itemsById.get(String(order.orderId)) || []).map((item) => {
       const sku = item.sellerSkuCode || item.skuCode;
       return {
@@ -112,14 +113,16 @@ export async function GET() {
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   const db = await getDb();
-  const [{ myntra, amazon, flipkart, myntraItems }, sessions] = await Promise.all([
+  const [{ myntra, amazon, flipkart, myntraItems }, sessions, [cutoffTime, holidays]] = await Promise.all([
     loadSnapshots(),
     Promise.all([
       db.collection('settings').findOne({ _id: 'session' }, { projection: { _id: 1 } }),
       db.collection('settings').findOne({ _id: 'session_amazon' }, { projection: { _id: 1 } }),
       db.collection('settings').findOne({ _id: 'session_flipkart' }, { projection: { _id: 1 } }),
     ]),
+    Promise.all([getMyntraRtdCutoff(), getMyntraHolidays()]),
   ]);
+
   // Every SKU on the grid's stock in ONE read (was one full-collection scan
   // per item, every refresh).
   const skus = [
@@ -128,7 +131,7 @@ export async function GET() {
     ...((flipkart && flipkart.orders) || []).flatMap((o) => (o.items || []).map((i) => i.sku)),
   ];
   const stockBySku = await lookupStockMany(skus);
-  const myntraList = myntraOrders(myntra, myntraItems, stockBySku);
+  const myntraList = myntraOrders(myntra, myntraItems, stockBySku, cutoffTime, holidays);
   const amazonList = amazonOrders(amazon, stockBySku);
   const flipkartList = flipkartOrders(flipkart, stockBySku);
 
