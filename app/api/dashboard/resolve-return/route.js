@@ -60,6 +60,9 @@ export async function GET(request) {
           returnCreatedDate: item.returnCreatedDate,
           returnType: item.returnType || 'UNKNOWN',
           orderId: item.orderId || null,
+          packTrackingId: item.packTrackingId || item.originalTrackingId || null,
+          originalTrackingId: item.originalTrackingId || item.packTrackingId || null,
+          returnTrackingId: item.returnTrackingId || trackingId,
           size: item.size,
           color: item.color,
           matchError: !item.sku
@@ -72,7 +75,9 @@ export async function GET(request) {
     // "Add to Return" reuses this answer instead of calling Myntra again.
     await rememberReturnLookup('myntra', [trackingId], items.map((i) => ({ sku: i.sku || null, returnType: i.returnType || 'UNKNOWN' })));
 
-    return NextResponse.json({ candidates });
+    const packTrackingId = candidates.find((c) => c.packTrackingId)?.packTrackingId || items.find((i) => i.packTrackingId)?.packTrackingId || null;
+
+    return NextResponse.json({ candidates, packTrackingId, trackingId });
   } catch (err) {
     const status = err.response && err.response.status;
     return NextResponse.json({ error: err.message }, { status: status === 401 || status === 403 ? 401 : 500 });

@@ -8,6 +8,7 @@ import { ReturnTypeTag } from '../../components/ReturnTypeTag';
 import { useDashboard } from '../../lib/DashboardContext';
 import { myntraUnits } from '../../lib/returnUnits';
 import { ItemCountBanner, NumberedImage } from '../../components/ItemCount';
+import { CopyIcon, CheckIcon } from '../../components/icons';
 
 const RECENT_LIMIT = 10;
 
@@ -25,6 +26,32 @@ export default function ReturnsPage() {
   // This tab's scans only, in memory — same as Scan Packed's list, gone on
   // refresh. Each entry tracks its items' added/condition state too.
   const [recent, setRecent] = useState([]);
+  const [copiedKey, setCopiedKey] = useState(null);
+
+  async function copyText(text, key) {
+    if (!text) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopiedKey(key || text);
+      setTimeout(() => {
+        setCopiedKey((curr) => (curr === (key || text) ? null : curr));
+      }, 2000);
+    } catch (err) {
+      console.error('Copy failed:', err);
+    }
+  }
 
   /**
    * Scan a Myntra return tracking id and resolve it — same underlying
@@ -60,7 +87,15 @@ export default function ReturnsPage() {
       const addedBefore = (key) => (earlier && (earlier.items.find((it) => it.unitKey === key) || {}).addedCondition) || null;
       const candidates = myntraUnits(data.candidates || []).map((c) => {
         const addedCondition = addedBefore(c.unitKey);
-        return { ...c, condition: addedCondition || 'GOOD', adding: false, added: !!addedCondition, addedCondition, addError: '' };
+        return {
+          ...c,
+          packTrackingId: c.packTrackingId || data.packTrackingId || null,
+          condition: addedCondition || 'GOOD',
+          adding: false,
+          added: !!addedCondition,
+          addedCondition,
+          addError: '',
+        };
       });
       setMyntraCandidates(candidates);
       setResolvedId(id);
@@ -73,10 +108,11 @@ export default function ReturnsPage() {
           sku: c.matchedSku ?? c.resolvedSku,
           size: c.size,
           productName: c.productName || c.resolvedName || '',
+          packTrackingId: c.packTrackingId,
           // A rescan keeps what was already added from this tracking id.
           addedCondition: (previous && (previous.items.find((it) => it.unitKey === c.unitKey) || {}).addedCondition) || null,
         }));
-        return [{ trackingId: id, items }, ...list.filter((r) => r.trackingId !== id)].slice(0, RECENT_LIMIT);
+        return [{ trackingId: id, packTrackingId: data.packTrackingId || candidates[0]?.packTrackingId || null, items }, ...list.filter((r) => r.trackingId !== id)].slice(0, RECENT_LIMIT);
       });
     } catch (err) {
       playScanError();
@@ -128,6 +164,8 @@ export default function ReturnsPage() {
     }
   }
 
+  const currentPackTrackingId = myntraCandidates.find((c) => c.packTrackingId)?.packTrackingId || null;
+
   return (
     <>
       <div className="page-header">
@@ -147,7 +185,104 @@ export default function ReturnsPage() {
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
             {/* One candidate = one physical piece (lib/returnUnits.js). */}
             <ItemCountBanner count={myntraCandidates.length} noun="return" verb="Check" />
-            <div style={{ fontFamily: 'monospace', fontWeight: 700 }}>{resolvedId}</div>
+            
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                padding: '10px 14px',
+                background: 'var(--surface-2)',
+                borderRadius: 'var(--radius, 10px)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span className="muted" style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
+                  Return:
+                </span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.02rem' }}>{resolvedId}</span>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => copyText(resolvedId, 'return-header')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '3px 8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    borderRadius: 5,
+                    border: '1px solid',
+                    borderColor: copiedKey === 'return-header' ? 'var(--good)' : 'var(--border)',
+                    color: copiedKey === 'return-header' ? 'var(--good)' : 'inherit',
+                    background: copiedKey === 'return-header' ? 'var(--good-soft)' : 'var(--surface)',
+                  }}
+                  title="Copy Return Tracking ID"
+                >
+                  {copiedKey === 'return-header' ? (
+                    <>
+                      <CheckIcon size={12} />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <CopyIcon size={12} />
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {currentPackTrackingId && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span className="muted" style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
+                    Pack Tracking ID:
+                  </span>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.05rem', color: 'var(--accent)' }}>
+                    {currentPackTrackingId}
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => copyText(currentPackTrackingId, 'pack-header')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      padding: '4px 10px',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      borderRadius: 6,
+                      border: '1px solid',
+                      borderColor: copiedKey === 'pack-header' ? 'var(--good)' : 'var(--border)',
+                      color: copiedKey === 'pack-header' ? 'var(--good)' : 'inherit',
+                      background: copiedKey === 'pack-header' ? 'var(--good-soft)' : 'var(--surface)',
+                      transition: 'all 0.15s ease',
+                    }}
+                    title="Copy Pack Tracking ID"
+                  >
+                    {copiedKey === 'pack-header' ? (
+                      <>
+                        <CheckIcon size={13} />
+                        <span>Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <CopyIcon size={13} />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+
             {repeatScan && (
               <div className="muted" style={{ fontSize: '0.8rem' }}>You already scanned this one earlier in this session.</div>
             )}
@@ -181,10 +316,48 @@ export default function ReturnsPage() {
                       Unit {c.unitN} of {c.unitsOfSku} of this product in the parcel — grade and add each one
                     </div>
                   )}
-                  {c.orderId && <div className="muted">Order: <span style={{ fontFamily: 'monospace' }}>{c.orderId}</span></div>}
-                  {c.returnReason && <div className="muted">Reason: {c.returnReason}</div>}
-                  {c.returnCreatedDate && <div className="muted">Return created: {c.returnCreatedDate}</div>}
-                  {c.matchError && <div style={{ color: 'var(--bad)' }}>{c.matchError}</div>}
+                  {c.orderId && <div className="muted" style={{ marginTop: 2 }}>Order: <span style={{ fontFamily: 'monospace' }}>{c.orderId}</span></div>}
+                  {c.packTrackingId && (
+                    <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span className="muted">Pack Tracking ID:</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)' }}>{c.packTrackingId}</span>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => copyText(c.packTrackingId, `cand-${i}`)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: '2px 7px',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          borderRadius: 4,
+                          border: '1px solid',
+                          borderColor: copiedKey === `cand-${i}` ? 'var(--good)' : 'var(--border)',
+                          color: copiedKey === `cand-${i}` ? 'var(--good)' : 'inherit',
+                          background: copiedKey === `cand-${i}` ? 'var(--good-soft)' : 'var(--surface-2)',
+                        }}
+                        title="Copy Pack Tracking ID"
+                      >
+                        {copiedKey === `cand-${i}` ? (
+                          <>
+                            <CheckIcon size={12} />
+                            <span>Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <CopyIcon size={12} />
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                  {c.returnReason && <div className="muted" style={{ marginTop: 2 }}>Reason: {c.returnReason}</div>}
+                  {c.returnCreatedDate && <div className="muted" style={{ marginTop: 2 }}>Return created: {c.returnCreatedDate}</div>}
+                  {c.matchError && <div style={{ color: 'var(--bad)', marginTop: 4 }}>{c.matchError}</div>}
 
                   {c.matchedSku && !c.added && (
                     <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
@@ -222,8 +395,34 @@ export default function ReturnsPage() {
           {recent.map((r) => (
             <div key={r.trackingId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.trackingId}</div>
-                <div className="muted" style={{ fontSize: '0.8rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.trackingId}</span>
+                  {r.packTrackingId && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <span className="muted" style={{ fontSize: '0.8rem' }}>Pack:</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)', fontSize: '0.85rem' }}>{r.packTrackingId}</span>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => copyText(r.packTrackingId, `recent-${r.trackingId}`)}
+                        style={{
+                          padding: '1px 6px',
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          borderColor: copiedKey === `recent-${r.trackingId}` ? 'var(--good)' : 'var(--border)',
+                          color: copiedKey === `recent-${r.trackingId}` ? 'var(--good)' : 'inherit',
+                          background: copiedKey === `recent-${r.trackingId}` ? 'var(--good-soft)' : 'transparent',
+                        }}
+                        title="Copy Pack Tracking ID"
+                      >
+                        {copiedKey === `recent-${r.trackingId}` ? '✓ Copied' : 'Copy'}
+                      </button>
+                    </span>
+                  )}
+                </div>
+                <div className="muted" style={{ fontSize: '0.8rem', marginTop: 2 }}>
                   {r.items.length
                     ? `${r.items[0].returnType === 'RTO' ? 'RTO' : r.items[0].returnType === 'CUSTOMER' ? 'Customer return' : 'Unknown'} · ` +
                       r.items.map((it) => `${it.productName ? it.productName + ' · ' : ''}${it.sku || '?'} · ${it.size || '?'}`).join(', ')
