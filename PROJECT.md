@@ -2378,3 +2378,21 @@ Following the new Local Hybrid scraping engine, several deep architecture upgrad
 - Flipkart dates are strictly returned in IST without a timezone. We now inject `+05:30` before passing them to `new Date()` so Vercel parses them accurately into UTC milliseconds.
 - Stock manager now gets accurate `Placed at` and `Ship by` dates and the real `OD...` Order ID.
 
+
+## 53. Myntra True Cutoff & Holiday Synchronization via `dispatchWarehouseEndTime` (2026-10-19)
+
+1. **Root Problem with Formulaic Dates**:
+   - Previously, Myntra order ship-by dates were calculated locally via `orderDate` + cut-off time (`13:00`) + manual holiday skip lists.
+   - However, Myntra's M-Direct SLA engine has internal order placement cutoffs and warehouse calendars. For example, morning orders placed on 19 Oct were given a dispatch cutoff of 21 Oct at 2:00 PM (skipping the 20 Oct holiday automatically). The local calculation erroneously assigned them to 19 Oct.
+
+2. **Source of Truth - `dispatchWarehouseEndTime`**:
+   - Investigated live endpoints on Myntra API. The order line items inside `GET /api/mdirect/orders/{orderId}/open-order-details/{warehouseId}` carry the definitive timestamp: `dispatchWarehouseEndTime`.
+   - Updated `lib/checkOrders.js`, `lib/myntra.js`, and `app/api/orders/route.js` to extract `dispatchWarehouseEndTime` directly from the order lines.
+   - Removed obsolete manual RTD cutoff lookups and database holiday arrays for Myntra orders. Myntra's portal is now the single authoritative source of truth.
+
+3. **Same-Day "TODAY SHIP" Indicator**:
+   - Added `🔴 TODAY SHIP` header tag for Myntra orders if the order's dispatch date falls on the same calendar day as the order placement date (matching Amazon's alert convention).
+   - Multi-item grouping and open order counts remain intact.
+
+4. **Stock Manager Synchronization**:
+   - `addToReadyToShip` passes the exact `dispatchWarehouseEndTime` (normalized to IST end-of-day) to Stock Manager, ensuring the Ready to Ship queue is 100% in sync with Myntra's portal dispatch batches.
