@@ -8,7 +8,7 @@ import {
   groupAmazonItemsBySku,
 } from '../../../lib/amazon';
 import { lookupStockMany } from '../../../lib/stock';
-import { myntraShipByDateMs, toIstEndOfDayMs } from '../../../lib/dates';
+import { toIstEndOfDayMs } from '../../../lib/dates';
 import { loadSnapshots } from '../../../lib/ordersSnapshot';
 import { requireSection } from '../../../lib/access';
 
@@ -119,14 +119,13 @@ export async function GET() {
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   const db = await getDb();
-  const [{ myntra, amazon, flipkart, myntraItems }, sessions, [cutoffTime, holidays]] = await Promise.all([
+  const [{ myntra, amazon, flipkart, myntraItems }, sessions] = await Promise.all([
     loadSnapshots(),
     Promise.all([
       db.collection('settings').findOne({ _id: 'session' }, { projection: { _id: 1 } }),
       db.collection('settings').findOne({ _id: 'session_amazon' }, { projection: { _id: 1 } }),
       db.collection('settings').findOne({ _id: 'session_flipkart' }, { projection: { _id: 1 } }),
     ]),
-    Promise.all([getMyntraRtdCutoff(), getMyntraHolidays()]),
   ]);
 
   // Every SKU on the grid's stock in ONE read (was one full-collection scan
