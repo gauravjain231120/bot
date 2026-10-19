@@ -29,6 +29,7 @@ export function MyntraScanInput({ pageKey, busy, onLookup, placeholder }) {
 
   function switchMode(next) {
     setMode(next);
+    setValue('');
     try {
       window.localStorage.setItem(MODE_KEY_PREFIX + pageKey, next);
     } catch {}

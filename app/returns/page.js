@@ -65,7 +65,7 @@ export default function ReturnsPage() {
    */
   async function resolveMyntraReturn(idOverride) {
     const id = (idOverride ?? '').trim().toUpperCase();
-    if (!id || myntraResolving) return;
+    if (!id || myntraResolving) return false;
     unlockScanSound();
     setMyntraResolving(true);
     setMyntraResolveError('');
@@ -78,7 +78,7 @@ export default function ReturnsPage() {
       if (!res.ok) {
         playScanError();
         setMyntraResolveError(data.error || `HTTP ${res.status}`);
-        return;
+        return false;
       }
       // A rescan of a parcel already added this session shows it as added
       // (same as Amazon Return) instead of offering "Add" again — a second
@@ -116,9 +116,11 @@ export default function ReturnsPage() {
         }));
         return [{ trackingId: id, packTrackingId: data.packTrackingId || candidates[0]?.packTrackingId || null, items }, ...list.filter((r) => r.trackingId !== id)].slice(0, RECENT_LIMIT);
       });
+      return true;
     } catch (err) {
       playScanError();
       setMyntraResolveError(err.message);
+      return false;
     } finally {
       setMyntraResolving(false);
     }

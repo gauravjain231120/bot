@@ -2396,3 +2396,17 @@ Following the new Local Hybrid scraping engine, several deep architecture upgrad
 
 4. **Stock Manager Synchronization**:
    - `addToReadyToShip` passes the exact `dispatchWarehouseEndTime` (normalized to IST end-of-day) to Stock Manager, ensuring the Ready to Ship queue is 100% in sync with Myntra's portal dispatch batches.
+
+
+## 54. Auto-Empty Input Field on Scan for Myntra Pack and Myntra Return (2026-10-19)
+
+1. **Continuous Scanning Alignment with Amazon Pack**:
+   - On the Amazon Pack and Amazon Return pages, scanning a barcode immediately empties the input field upon a successful lookup so the next item can be scanned without manually clearing the box.
+   - On Myntra Pack (`/packed`) and Myntra Return (`/returns`), the lookup functions previously returned `undefined` instead of boolean status. Consequently, `MyntraScanInput`'s `if (ok) setValue('')` never executed, leaving the previous tracking number in the field.
+   - When users scanned subsequent items using barcode guns, the new barcode would concatenate onto the previous one (e.g. `MYSP...MYSP...`).
+
+2. **Fixes Applied**:
+   - `app/packed/page.js`: `lookup()` returns `true` on successful resolution and `false` on error/not found.
+   - `app/returns/page.js`: `resolveMyntraReturn()` returns `true` on successful resolution and `false` on error.
+   - `components/MyntraScanInput.js`: Clears value upon switching modes and maintains autofocus on fine-pointer devices.
+   - When a scan succeeds, the input clears instantly and stays focused for the next scan. If a scan fails, the input value is retained for error inspection.

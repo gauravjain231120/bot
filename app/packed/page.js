@@ -50,7 +50,7 @@ export default function PackedScanPage() {
   // immediately instead of waiting a render for state to update.
   async function lookup(idOverride) {
     const id = (idOverride ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (!id || looking) return;
+    if (!id || looking) return false;
     unlockScanSound();
     setLooking(true);
     setError('');
@@ -62,7 +62,7 @@ export default function PackedScanPage() {
       if (!res.ok) {
         playScanError();
         setError(data.error || `HTTP ${res.status}`);
-        return;
+        return false;
       }
       // A cancelled packet sounds like a wrong scan — "don't pack" without looking.
       const p = data.packet;
@@ -73,9 +73,11 @@ export default function PackedScanPage() {
         data.packet,
         ...list.filter((r) => r.trackingNumber !== data.packet.trackingNumber),
       ].slice(0, RECENT_LIMIT));
+      return true;
     } catch (err) {
       playScanError();
       setError(err.message);
+      return false;
     } finally {
       setLooking(false);
     }
