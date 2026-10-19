@@ -2410,3 +2410,14 @@ Following the new Local Hybrid scraping engine, several deep architecture upgrad
    - `app/returns/page.js`: `resolveMyntraReturn()` returns `true` on successful resolution and `false` on error.
    - `components/MyntraScanInput.js`: Clears value upon switching modes and maintains autofocus on fine-pointer devices.
    - When a scan succeeds, the input clears instantly and stays focused for the next scan. If a scan fails, the input value is retained for error inspection.
+
+
+## 55. Fix 500 Error on `/api/orders` (2026-10-20)
+
+1. **Root Cause**:
+   - In `app/api/orders/route.js`, leftover calls to `getMyntraRtdCutoff()` and `getMyntraHolidays()` inside `Promise.all` threw a runtime `ReferenceError: getMyntraRtdCutoff is not defined`.
+   - Those helpers had been removed from imports when migrating to Myntra's true `dispatchWarehouseEndTime` cutoff timestamp.
+
+2. **Fix**:
+   - Removed the obsolete calls and destructuring from `GET()` in `app/api/orders/route.js`.
+   - Verified the endpoint returns clean responses with zero 500 errors.
