@@ -9,7 +9,6 @@ import {
 } from '../../../lib/amazon';
 import { lookupStockMany } from '../../../lib/stock';
 import { myntraShipByDateMs, toIstEndOfDayMs } from '../../../lib/dates';
-import { getMyntraRtdCutoff, getMyntraHolidays } from '../../../lib/rtdConfig';
 import { loadSnapshots } from '../../../lib/ordersSnapshot';
 import { requireSection } from '../../../lib/access';
 
@@ -31,14 +30,14 @@ function staleNote(label, snapshot) {
   return `${label}: showing orders from ${mins} min ago (checks are paused or failing)`;
 }
 
-function myntraOrders(snapshot, itemsById, stockBySku, cutoffTime = '13:00', holidays = []) {
+function myntraOrders(snapshot, itemsById, stockBySku) {
   const orders = (snapshot && snapshot.orders) || [];
   return orders.map((order) => {
     const items = itemsById.get(String(order.orderId)) || [];
     const dispatchEnd = items.find((i) => i.dispatchWarehouseEndTime)?.dispatchWarehouseEndTime;
     const shipByMs = dispatchEnd
       ? toIstEndOfDayMs(dispatchEnd)
-      : (order.dispatchWarehouseEndTime ? toIstEndOfDayMs(order.dispatchWarehouseEndTime) : myntraShipByDateMs(order.orderDate, cutoffTime, holidays));
+      : (order.dispatchWarehouseEndTime ? toIstEndOfDayMs(order.dispatchWarehouseEndTime) : toIstEndOfDayMs(order.orderDate));
     return {
       source: 'myntra',
       orderId: order.orderId,
@@ -138,7 +137,7 @@ export async function GET() {
     ...((flipkart && flipkart.orders) || []).flatMap((o) => (o.items || []).map((i) => i.sku)),
   ];
   const stockBySku = await lookupStockMany(skus);
-  const myntraList = myntraOrders(myntra, myntraItems, stockBySku, cutoffTime, holidays);
+  const myntraList = myntraOrders(myntra, myntraItems, stockBySku);
   const amazonList = amazonOrders(amazon, stockBySku);
   const flipkartList = flipkartOrders(flipkart, stockBySku);
 
