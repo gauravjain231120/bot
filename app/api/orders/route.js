@@ -8,7 +8,7 @@ import {
   groupAmazonItemsBySku,
 } from '../../../lib/amazon';
 import { lookupStockMany } from '../../../lib/stock';
-import { myntraShipByDateMs } from '../../../lib/dates';
+import { myntraShipByDateMs, toIstEndOfDayMs } from '../../../lib/dates';
 import { getMyntraRtdCutoff, getMyntraHolidays } from '../../../lib/rtdConfig';
 import { loadSnapshots } from '../../../lib/ordersSnapshot';
 import { requireSection } from '../../../lib/access';
@@ -33,13 +33,19 @@ function staleNote(label, snapshot) {
 
 function myntraOrders(snapshot, itemsById, stockBySku, cutoffTime = '13:00', holidays = []) {
   const orders = (snapshot && snapshot.orders) || [];
-  return orders.map((order) => ({
-    source: 'myntra',
-    orderId: order.orderId,
-    quantity: order.quantity,
-    orderDateMs: order.orderDate,
-    shipByMs: myntraShipByDateMs(order.orderDate, cutoffTime, holidays),
-    items: (itemsById.get(String(order.orderId)) || []).map((item) => {
+  return orders.map((order) => {
+    const items = itemsById.get(String(order.orderId)) || [];
+    const dispatchEnd = items.find((i) => i.dispatchWarehouseEndTime)?.dispatchWarehouseEndTime;
+    const shipByMs = dispatchEnd
+      ? toIstEndOfDayMs(dispatchEnd)
+      : (order.dispatchWarehouseEndTime ? toIstEndOfDayMs(order.dispatchWarehouseEndTime) : myntraShipByDateMs(order.orderDate, cutoffTime, holidays));
+    return {
+      source: 'myntra',
+      orderId: order.orderId,
+      quantity: order.quantity,
+      orderDateMs: order.orderDate,
+      shipByMs,
+      items: items.map((item) => {
       const sku = item.sellerSkuCode || item.skuCode;
       return {
         sku,
@@ -50,8 +56,9 @@ function myntraOrders(snapshot, itemsById, stockBySku, cutoffTime = '13:00', hol
         image: item.image,
         stock: stockBySku.get(sku) ?? null,
       };
-    }),
-  }));
+      }),
+    };
+  });
 }
 
 
