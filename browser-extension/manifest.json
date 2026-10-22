@@ -15,7 +15,8 @@
     "*://*.amazon.in/*",
     "*://amazon.in/*",
     "*://*.flipkart.com/*",
-    "*://flipkart.com/*"
+    "*://flipkart.com/*",
+    "https://*.vercel.app/*"
   ],
   "optional_host_permissions": [
     "https://*/*"

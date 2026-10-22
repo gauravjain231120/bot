@@ -2450,3 +2450,24 @@ Following the new Local Hybrid scraping engine, several deep architecture upgrad
    - **Verified Execution**:
      - Stranded Amazon order `403-5292881-3949167` was processed immediately: Telegram cancel alert with product details sent, removed from `pendingshipments` in Stock Manager, and recorded in `seenAmazonCancellations`.
      - Verified Myntra cancellation check also runs cleanly on 85 cancelled orders without errors.
+
+## 57. Automatic Dual-Server Failover for Bot and Stock Manager (2026-10-22)
+
+1. **Context & Motivation**:
+   - The user runs two paired Vercel accounts to stay within free-tier limits, alternating roughly every 10–15 days:
+     - Account 1: `bot-ruby-pi.vercel.app` & `stock-manager-niko.vercel.app`
+     - Account 2: `bot-seven-gules.vercel.app` & `stock-manager-self-nine.vercel.app`
+   - Previously, when an account was paused, the other server had hardcoded URLs causing `503 DEPLOYMENT_PAUSED` errors unless code was manually edited or extension options/Telegram webhooks were reconfigured by hand.
+
+2. **Automatic Self-Healing Implementation**:
+   - **Bot-to-Stock-Manager Failover (`lib/stockManagerUrl.js`)**:
+     - Created `withFailover` wrapper trying `stock-manager-niko.vercel.app` and `stock-manager-self-nine.vercel.app`.
+     - Automatically catches 503 (`DEPLOYMENT_PAUSED`), 502, 504, and network down errors, retrying on the alternate deployment and caching the active working URL.
+     - Wired into all Stock Manager integration points: `lib/pendingQueue.js`, `lib/readyToShip.js`, `lib/returns.js`, `lib/rtdConfig.js`, and `lib/telegramCommands.js`.
+   - **Dynamic Host Fallback in `lib/checkOtc.js`**:
+     - Swapped hardcoded `bot-seven-gules.vercel.app` with dynamic lookup using `process.env.APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL`.
+   - **Automatic Telegram Webhook Sync (`lib/telegram.js`)**:
+     - Added `syncTelegramWebhookIfNeeded(host)`. When active traffic (cron tick or extension health) lands on an unpaused bot, the server compares the Telegram webhook with itself and executes `setWebhook` automatically if out of date.
+   - **Chrome Extension Dual-Bot Failover (`browser-extension/background.js`)**:
+     - Implemented `fetchBot(url, options)` which catches 503 from a paused bot server and immediately falls over between `bot-ruby-pi.vercel.app` and `bot-seven-gules.vercel.app`, saving the working URL to `chrome.storage.local`.
+     - Added `https://*.vercel.app/*` to `manifest.json` `host_permissions`.

@@ -45,6 +45,63 @@ const RECOVERY_BACKOFF_MINUTES = [5, 10, 20, 30];
 // Don't "recover" a marketplace that was synced successfully this recently —
 // the bot's next 5-minute check just hasn't confirmed it yet.
 
+
+const KNOWN_BOT_URLS = [
+  'https://bot-ruby-pi.vercel.app',
+  'https://bot-seven-gules.vercel.app'
+];
+
+async function fetchBot(inputUrl, options = {}) {
+  const { appUrl } = await getConfig();
+  let base = appUrl || KNOWN_BOT_URLS[0];
+  let urlStr = String(inputUrl);
+
+  for (const known of KNOWN_BOT_URLS) {
+    if (urlStr.startsWith(known)) {
+      urlStr = urlStr.slice(known.length);
+      base = known;
+      break;
+    }
+  }
+  if (!urlStr.startsWith('/') && !urlStr.startsWith('http')) {
+    urlStr = '/' + urlStr;
+  }
+
+  const doFetch = (targetBase) => {
+    const fullUrl = urlStr.startsWith('http') ? urlStr : (targetBase + urlStr);
+    return fetch(fullUrl, options);
+  };
+
+  try {
+    const res = await doFetch(base);
+    if (res.status === 503) {
+      const alt = KNOWN_BOT_URLS.find((u) => u !== base);
+      if (alt) {
+        console.warn('[Failover] Bot server ' + base + ' returned 503. Retrying with alternate ' + alt + '...');
+        const altRes = await doFetch(alt);
+        if (altRes.status !== 503) {
+          chrome.storage.local.set({ appUrl: alt });
+          return altRes;
+        }
+      }
+    }
+    return res;
+  } catch (err) {
+    const alt = KNOWN_BOT_URLS.find((u) => u !== base);
+    if (alt) {
+      console.warn('[Failover] Bot server ' + base + ' failed (' + err.message + '). Retrying with alternate ' + alt + '...');
+      try {
+        const altRes = await doFetch(alt);
+        if (altRes.status !== 503) {
+          chrome.storage.local.set({ appUrl: alt });
+          return altRes;
+        }
+      } catch (altErr) {}
+    }
+    throw err;
+  }
+}
+
 async function fetchWithRetry(url, maxTries = 4) {
   let lastErr;
   for (let i = 0; i < maxTries; i++) {
@@ -102,7 +159,7 @@ async function runAmazonScrape() {
   if (data && data._error) {
      console.error('Amazon local scrape failed:', data._error);
      if (data._error.includes('login') || data._error.includes('Sign-In') || data._error.includes('Unauthorized')) {
-       await fetch(`${appUrl}/api/proxy-submit`, {
+       await fetchBot(`${appUrl}/api/proxy-submit`, {
          method: 'POST',
          headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
          body: JSON.stringify({ marketplace: 'amazon', stateChange: 'logout' })
@@ -119,7 +176,7 @@ async function runAmazonScrape() {
        payload.canceledOrders = cancelData.orders;
     }
 
-    await fetch(`${appUrl}/api/proxy-submit`, {
+    await fetchBot(`${appUrl}/api/proxy-submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
       body: JSON.stringify(payload)
@@ -151,7 +208,7 @@ async function runMyntraScrape() {
          if (canceledOrders) payload.canceledOrders = canceledOrders;
       }
 
-      await fetch(`${appUrl}/api/proxy-submit`, {
+      await fetchBot(`${appUrl}/api/proxy-submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
         body: JSON.stringify(payload)
@@ -161,7 +218,7 @@ async function runMyntraScrape() {
     console.error('Myntra local scrape failed:', data ? data._error : 'Unknown error');
     const errStr = data && data._error ? data._error : '';
     if (errStr.includes('login') || errStr.includes('Sign-In') || errStr.includes('Unauthorized')) {
-       await fetch(`${appUrl}/api/proxy-submit`, {
+       await fetchBot(`${appUrl}/api/proxy-submit`, {
          method: 'POST',
          headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
          body: JSON.stringify({ marketplace: 'myntra', stateChange: 'logout' })
@@ -283,7 +340,7 @@ async function runFlipkartScrape() {
 
   const res = await scrapeFlipkartData();
   if (res.authError) {
-    await fetch(appUrl + '/api/proxy-submit', {
+    await fetchBot(appUrl + '/api/proxy-submit', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
       body: JSON.stringify({ marketplace: 'flipkart', stateChange: 'logout' })
     }).catch(console.error);
@@ -295,7 +352,7 @@ async function runFlipkartScrape() {
   }
   
   const pFk = (await chrome.storage.local.get(['proxyPeriodFlipkart'])).proxyPeriodFlipkart || 5;
-  await fetch(appUrl + '/api/proxy-submit', {
+  await fetchBot(appUrl + '/api/proxy-submit', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
     body: JSON.stringify({ marketplace: 'flipkart', orders: res.orders, interval: pFk })
   }).catch(console.error);
@@ -596,7 +653,7 @@ async function syncOne(entry, appUrl, syncSecret, trigger, scheduled, periodMinu
       }
     }
     const headers = await buildHeaders(entry);
-    const res = await fetch(`${appUrl}/api/session/sync`, {
+    const res = await fetchBot(`${appUrl}/api/session/sync`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-sync-secret': syncSecret },
       body: JSON.stringify({ marketplace: entry.marketplace, headers, trigger, scheduled: !!scheduled, periodMinutes, extVersion: EXT_VERSION }),
@@ -909,7 +966,7 @@ async function fetchHealth(appUrl, syncSecret) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15000);
   try {
-    const res = await fetch(`${appUrl}/api/session/health`, { headers: { 'x-sync-secret': syncSecret, 'x-extension-version': EXT_VERSION }, signal: ctrl.signal });
+    const res = await fetchBot(`${appUrl}/api/session/health`, { headers: { 'x-sync-secret': syncSecret, 'x-extension-version': EXT_VERSION }, signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } finally {
@@ -1150,7 +1207,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.mode === 'local') {
       getConfig().then(({appUrl, syncSecret}) => {
         if (!appUrl || !syncSecret) return;
-        fetch(`${appUrl}/api/proxy-submit`, {
+        fetchBot(`${appUrl}/api/proxy-submit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
           body: JSON.stringify({ marketplace: msg.marketplace, stateChange: 'local' })
@@ -1162,7 +1219,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     } else {
       getConfig().then(({appUrl, syncSecret}) => {
         if (!appUrl || !syncSecret) return;
-        fetch(`${appUrl}/api/proxy-submit`, {
+        fetchBot(`${appUrl}/api/proxy-submit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
           body: JSON.stringify({ marketplace: msg.marketplace, stateChange: 'cloud' })
@@ -1198,7 +1255,7 @@ async function handleTestLocal(marketplace) {
       if (!orders) return { ok: false, error: 'Could not extract Myntra orders' };
     }
 
-    const res = await fetch(`${appUrl}/api/proxy-test`, {
+    const res = await fetchBot(`${appUrl}/api/proxy-test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
       body: JSON.stringify({ marketplace, type: 'local', orders })
@@ -1218,7 +1275,7 @@ async function handleTestLocal(marketplace) {
 async function handleTestCloud(marketplace) {
   try {
     const { appUrl, syncSecret } = await getConfig();
-    const res = await fetch(`${appUrl}/api/proxy-test`, {
+    const res = await fetchBot(`${appUrl}/api/proxy-test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
       body: JSON.stringify({ marketplace, type: 'cloud' })

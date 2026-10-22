@@ -6,6 +6,7 @@ import { getRunning } from '../../../lib/monitorState';
 import { runCheckOrders } from '../../../lib/checkOrders';
 import { checkStoppedWatchdog } from '../../../lib/watchdog';
 import { checkExtensionSyncWatchdog } from '../../../lib/sessionSyncWatchdog';
+import { syncTelegramWebhookIfNeeded } from '../../../lib/telegram';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,6 +15,8 @@ export const dynamic = 'force-dynamic';
 // while monitoring is stopped — new orders simply stay unseen until Start is pressed,
 // at which point they're picked up as "new" on the next check.
 export async function GET(request) {
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  syncTelegramWebhookIfNeeded(host).catch(() => {});
   if (!cronAuthorized(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }

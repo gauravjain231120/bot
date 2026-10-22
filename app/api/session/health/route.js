@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
 import { secretMatches } from '../../../../lib/secrets';
+import { syncTelegramWebhookIfNeeded } from '../../../../lib/telegram';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +28,8 @@ function stateFor(sessionDoc, lastError) {
 }
 
 export async function GET(request) {
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  syncTelegramWebhookIfNeeded(host).catch(() => {});
   if (!secretMatches(request.headers.get('x-sync-secret'), process.env.EXTENSION_SYNC_SECRET)) {
     return NextResponse.json({
     warehouseId: process.env.WAREHOUSE_ID || '89623', error: 'unauthorized' }, { status: 401 });
