@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { sendOwnerAlert } from '../../../lib/telegram';
 import { runCheckAmazonOrders } from '../../../lib/checkAmazonOrders';
+import { runCheckAmazonCancellations } from '../../../lib/checkAmazonCancellations';
 import { runCheckOrders } from '../../../lib/checkOrders';
+import { runCheckCancellations } from '../../../lib/checkCancellations';
 import { runCheckFlipkartOrders } from '../../../lib/checkFlipkartOrders';
 
 export const runtime = 'nodejs';
@@ -83,11 +85,10 @@ export async function POST(req) {
        return NextResponse.json({ ok: true, test: true });
     }
 
-    if (!marketplace || !Array.isArray(orders)) {
+    if (!marketplace || (!Array.isArray(orders) && !Array.isArray(canceledOrders))) {
       return NextResponse.json({ ok: false, error: 'Invalid payload' }, { status: 400 });
     }
 
-    
     if (marketplace && Array.isArray(orders)) {
       await db.collection('settings').updateOne(
         { _id: 'status' },
@@ -96,16 +97,36 @@ export async function POST(req) {
     }
 
     if (marketplace === 'amazon') {
-      await runCheckAmazonOrders({ proxyData: orders });
+      if (Array.isArray(orders)) {
+        await runCheckAmazonOrders({ proxyData: orders });
+      }
+      if (Array.isArray(canceledOrders)) {
+        try {
+          await runCheckAmazonCancellations({ proxyData: canceledOrders, noJitter: true });
+        } catch (cancelErr) {
+          console.error('Amazon cancel check failed in proxy-submit:', cancelErr);
+        }
+      }
     } else if (marketplace === 'myntra') {
-      await runCheckOrders({ proxyData: orders });
+      if (Array.isArray(orders)) {
+        await runCheckOrders({ proxyData: orders });
+      }
+      if (Array.isArray(canceledOrders)) {
+        try {
+          await runCheckCancellations({ proxyData: canceledOrders });
+        } catch (cancelErr) {
+          console.error('Myntra cancel check failed in proxy-submit:', cancelErr);
+        }
+      }
     } else if (marketplace === 'flipkart') {
-      await runCheckFlipkartOrders({ proxyData: orders });
+      if (Array.isArray(orders)) {
+        await runCheckFlipkartOrders({ proxyData: orders });
+      }
     } else {
       return NextResponse.json({ ok: false, error: 'Unknown marketplace' }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true, count: orders.length });
+    return NextResponse.json({ ok: true, count: Array.isArray(orders) ? orders.length : 0, canceledCount: Array.isArray(canceledOrders) ? canceledOrders.length : 0 });
   } catch (err) {
     console.error('Proxy submit failed:', err);
     return NextResponse.json({ ok: false, error: err.message }, { status: 500 });

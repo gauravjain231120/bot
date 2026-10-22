@@ -2421,3 +2421,32 @@ Following the new Local Hybrid scraping engine, several deep architecture upgrad
 2. **Fix**:
    - Removed the obsolete calls and destructuring from `GET()` in `app/api/orders/route.js`.
    - Verified the endpoint returns clean responses with zero 500 errors.
+
+
+## 56. Immediate Cancellation Processing in Local Mode & Active Stock Manager URL (2026-10-22)
+
+1. **The Problem with Cancellations in Local Mode (Order `403-5292881-3949167` Case)**:
+   - When running in Local Mode via Chrome Extension, the extension was scraping cancelled orders and uploading them to `/api/proxy-submit`.
+   - However, `/api/proxy-submit` only saved the raw cancellation array into MongoDB (`proxy_canceled_amazon` and `proxy_canceled_myntra`) and only triggered new-order checks (`runCheckAmazonOrders` / `runCheckOrders`).
+   - It assumed external cron jobs would poll `/api/check-amazon-cancellations` and `/api/check-cancellations`. When external crons paused or failed (e.g. Vercel deployment pause on secondary server), cancellations sat stranded in MongoDB indefinitely.
+   - Additionally, `STOCK_MANAGER_URL` defaulted to `https://stock-manager-self-nine.vercel.app`, which was paused on Vercel with `503 DEPLOYMENT_PAUSED`. Any attempt to query or delete queue rows failed with a 503 error.
+
+2. **Fixes Applied**:
+   - **Immediate Cancellation Dispatch in `/api/proxy-submit`**:
+     - Imported `runCheckAmazonCancellations` and `runCheckCancellations`.
+     - Whenever `canceledOrders` is received in the payload, `/api/proxy-submit` immediately triggers the respective cancellation runner (`runCheckAmazonCancellations({ proxyData: canceledOrders, noJitter: true })` and `runCheckCancellations({ proxyData: canceledOrders })`).
+   - **Accept Direct Proxy Data & Bypass Jitter**:
+     - Updated `lib/checkAmazonCancellations.js` and `lib/checkCancellations.js` to accept `options.proxyData` and `options.noJitter`.
+     - Jitter (1–12s delay) is bypassed for local proxy submissions to keep request times fast.
+     - Does not throw missing session header errors if proxy data is supplied.
+   - **Updated Active Stock Manager URL**:
+     - Updated `STOCK_MANAGER_URL` default from the paused `stock-manager-self-nine.vercel.app` to the live, responsive `https://stock-manager-niko.vercel.app` across:
+       - `lib/pendingQueue.js`
+       - `lib/readyToShip.js`
+       - `lib/returns.js`
+       - `lib/rtdConfig.js`
+       - `lib/telegramCommands.js`
+       - `.env.local` and `.env.example`
+   - **Verified Execution**:
+     - Stranded Amazon order `403-5292881-3949167` was processed immediately: Telegram cancel alert with product details sent, removed from `pendingshipments` in Stock Manager, and recorded in `seenAmazonCancellations`.
+     - Verified Myntra cancellation check also runs cleanly on 85 cancelled orders without errors.
