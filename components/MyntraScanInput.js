@@ -67,7 +67,7 @@ export function MyntraScanInput({ pageKey, busy, onLookup, placeholder }) {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
-          placeholder={placeholder || 'MYSR… / MYER… / MYEC…'}
+          placeholder={placeholder || 'Tracking ID (MYSP… / 596…) or packet ID'}
           autoComplete="off"
           style={{ flex: 1, fontFamily: 'monospace', textTransform: 'uppercase' }}
         />

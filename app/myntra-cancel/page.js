@@ -258,7 +258,7 @@ export default function MyntraCancelPage() {
       </div>
 
       <div className="card">
-        <MyntraScanInput pageKey="myntraCancel" busy={looking || marking} onLookup={lookup} placeholder="MYSP… / MYSC… / MYEC… / SF…" />
+        <MyntraScanInput pageKey="myntraCancel" busy={looking || marking} onLookup={lookup} placeholder="MYSP… / 596… / MYEC… / SF…" />
         {looking && <p className="muted" style={{ marginTop: 10 }}>Looking it up on Myntra and finding its order…</p>}
         {error && <div className="banner bad" style={{ marginTop: 12, marginBottom: 0 }}>{error}</div>}
 

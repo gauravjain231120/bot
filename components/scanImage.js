@@ -162,11 +162,19 @@ export function estimateSkew(img, { maxDeg = 12, stepDeg = 1, sampleWidth = 480 
 //   - anything else needs the same text a second time within a few seconds
 //     (another frame, or the phone's own reader).
 const PLAUSIBLE_ID = /^[A-Z0-9][A-Z0-9-]{4,38}[A-Z0-9]$/i;
-const MYNTRA_BARCODE = /^MY[A-Z]{2}\d{8,}$/;
+// Myntra parcel tracking IDs / packet IDs:
+// - Traditional Myntra Logistics: MYSP…, MYSC…, MYEC…, MYEP…, MYSR…, MYER… (MY + 2 letters + 8+ digits)
+// - 3PL courier tracking IDs (e.g. Delhivery 5965826773804, Ekart, etc.) or packet ID (1000219843130): 10–18 digits
+// - Shadowfax courier: SF… (SF + 8+ alphanumeric chars)
+const MYNTRA_BARCODE = /^(MY[A-Z]{2}\d{8,}|\d{10,18}|SF[A-Z0-9]{8,})$/i;
 const CODE_128 = new Set(['CODE_128', 'code_128']);
 
 export function looksLikeId(text) {
   return PLAUSIBLE_ID.test(String(text || '').trim());
+}
+
+export function isMyntraBarcode(text) {
+  return MYNTRA_BARCODE.test(String(text || '').trim());
 }
 
 export function createBarcodeConfirmer({ windowMs = 4000, now = () => Date.now() } = {}) {
@@ -261,11 +269,18 @@ export function readOrderId(text) {
 // letters (5→S, 8→R, H misread for M, V/W for Y), the tail is digits
 // (O/D/Q→0, I/L→1, Z→2, S→5, G→6, B→8).
 const MYNTRA_ID_RE = /([MH][YVW]) ?([A-Z0-9]{2}) ?([A-Z0-9]{10})(?![A-Z0-9])/g;
+const LABELED_TRACKING_RE = /(?:AWB|TRACKING|TRACK|TRK|WAYBILL|PACKET|PKG|ID)[\s:#-]*(\d{10,16})(?![0-9])/i;
+const NUMERIC_TRACKING_RE = /(?:^|[^0-9])(\d{11,16})(?![0-9])/;
+const SF_TRACKING_RE = /(?:^|[^A-Z0-9])(SF[A-Z0-9]{8,14})(?![A-Z0-9])/;
 const TAIL_DIGIT = { O: '0', D: '0', Q: '0', I: '1', L: '1', Z: '2', S: '5', G: '6', B: '8' };
 const PREFIX_LETTER = { 5: 'S', 8: 'R' };
 
 export function readMyntraId(text) {
-  for (const line of String(text || '').split(/\r?\n/)) {
+  if (!text) return null;
+  const lines = String(text).split(/\r?\n/);
+
+  // 1. Traditional MY... format
+  for (const line of lines) {
     const cleaned = line.toUpperCase().replace(/[\-–—_.|]/g, '').replace(/\s+/g, ' ');
     for (const m of cleaned.matchAll(MYNTRA_ID_RE)) {
       const prefix = 'MY' + [...m[2]].map((c) => PREFIX_LETTER[c] || c).join('');
@@ -274,5 +289,40 @@ export function readMyntraId(text) {
       if (/^MY[SE][A-Z]\d{10}$/.test(id)) return id;
     }
   }
+
+  // 2. Shadowfax format (SF...)
+  for (const line of lines) {
+    const cleaned = line.toUpperCase().replace(/[\-–—_.|]/g, '').replace(/\s+/g, ' ');
+    const m = cleaned.match(SF_TRACKING_RE);
+    if (m) return m[1];
+  }
+
+  // 3. Explicitly labeled tracking ID (e.g. 'AWB: 5965826773804')
+  for (const line of lines) {
+    const cleaned = line
+      .replace(/[OoQqDd]/g, '0')
+      .replace(/[Il|]/g, '1')
+      .replace(/[Zz]/g, '2')
+      .replace(/[Ss]/g, '5')
+      .replace(/[Gg]/g, '6')
+      .replace(/[Bb]/g, '8');
+    const m = cleaned.match(LABELED_TRACKING_RE);
+    if (m) return m[1];
+  }
+
+  // 4. Standalone numeric tracking / packet ID (11–16 digits, e.g. 5965826773804)
+  for (const line of lines) {
+    const cleaned = line
+      .replace(/[OoQqDd]/g, '0')
+      .replace(/[Il|]/g, '1')
+      .replace(/[Zz]/g, '2')
+      .replace(/[Ss]/g, '5')
+      .replace(/[Gg]/g, '6')
+      .replace(/[Bb]/g, '8')
+      .replace(/[ \t\-–—_.]/g, '');
+    const m = cleaned.match(NUMERIC_TRACKING_RE);
+    if (m) return m[1];
+  }
+
   return null;
 }

@@ -55,7 +55,7 @@ export default function PackedScanPage() {
     setLooking(true);
     setError('');
     setPacket(null);
-    setRepeatScan(recent.some((r) => r.searchedId === id || r.trackingNumber === id));
+    setRepeatScan(recent.some((r) => r.searchedId === id || r.trackingNumber === id || (r.storePacketId && r.storePacketId === id)));
     try {
       const res = await fetch(`/api/dashboard/packed-lookup?id=${encodeURIComponent(id)}`);
       const data = await res.json().catch(() => ({}));
@@ -100,7 +100,7 @@ export default function PackedScanPage() {
           pageKey="packed"
           busy={looking}
           onLookup={lookup}
-          placeholder="MYSP… / MYSC… / packet ID"
+          placeholder="Tracking ID (MYSP… / 596…) or packet ID"
         />
 
         {error && <div className="banner bad" style={{ marginTop: 12, marginBottom: 0 }}>{error}</div>}
