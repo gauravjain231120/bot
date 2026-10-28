@@ -102,27 +102,50 @@ async function fetchBot(inputUrl, options = {}) {
   }
 }
 
-async function fetchWithRetry(url, maxTries = 4) {
+async function fetchWithRetry(url, options = {}, maxTries = 4) {
+  if (typeof options === 'number') {
+    maxTries = options;
+    options = {};
+  }
   let lastErr;
   for (let i = 0; i < maxTries; i++) {
     try {
+      const reqHeaders = {
+        'Accept': 'application/json, text/plain, */*',
+        'X-Requested-With': 'XMLHttpRequest',
+        ...(options.headers || {})
+      };
       const res = await fetch(url, { 
+        method: options.method || 'GET',
         credentials: 'include',
-        headers: {
-          'Accept': 'application/json, text/javascript, */*; q=0.01',
-          'X-Requested-With': 'XMLHttpRequest'
-        }
+        headers: reqHeaders,
+        body: options.body,
       });
-      if (res.status === 401 || res.status === 403) return { _error: `HTTP ${res.status} Unauthorized (Check login)` };
+
+      if (res.status === 401) {
+        return { _error: 'HTTP 401 Unauthorized', _authError: true };
+      }
       
       const text = await res.text();
       try {
-        return JSON.parse(text);
-      } catch (e) {
-        if (text.toLowerCase().includes('sign in') || text.toLowerCase().includes('login')) {
-           return { _error: 'Received a Sign-In page. Please log in to this marketplace in Chrome.' };
+        const json = JSON.parse(text);
+        if (res.status === 403 && json && json.reason === 'sign_in') {
+          return { _error: 'Amazon session expired (sign_in)', _authError: true, _isSignInPage: true };
         }
-        return { _error: 'Received HTML instead of JSON. Marketplace might be showing a Captcha/Bot page.' };
+        if (res.status === 403) {
+          return { _error: `HTTP 403 Forbidden (Temporary request block)` };
+        }
+        return json;
+      } catch (e) {
+        const isSignIn = /<form[^>]*name=["']signIn["']|id=["']ap_(email|password)["']/i.test(text) ||
+                         (/\/ap\/signin/i.test(text) && !/captcha|robot check|validateCaptcha/i.test(text));
+        if (isSignIn) {
+          return { _error: 'Received a Sign-In page. Please log in to this marketplace in Chrome.', _authError: true, _isSignInPage: true };
+        }
+        if (/captcha|robot check/i.test(text)) {
+          return { _error: 'Marketplace is showing a Captcha/Bot verification page.' };
+        }
+        return { _error: `Received HTML (${res.status}) instead of JSON data.` };
       }
     } catch (e) {
       lastErr = e;
@@ -148,40 +171,75 @@ function extractMyntraOrders(json) {
   return orders;
 }
 
+async function scrapeAmazonData() {
+  const amzEntry = MARKETPLACES.find((m) => m.marketplace === 'amazon');
+  const login = amzEntry ? await loginState(amzEntry) : { loggedIn: false };
+  if (!login.loggedIn) {
+    return { ok: false, error: 'Logged out of Amazon Seller Central in Chrome. Please log in.', isLoggedOut: true };
+  }
+
+  let headers = {};
+  try {
+    headers = await buildHeaders(amzEntry);
+  } catch (err) {
+    return { ok: false, error: err.message, isLoggedOut: true };
+  }
+
+  // Canonical Amazon Seller Central unshipped orders URL
+  const amzUrl = 'https://sellercentral.amazon.in/orders-api/search?limit=100&offset=0&sort=ship_by_asc&date-range=last-90&fulfillmentType=mfn&orderStatus=unshipped&program=easyship&shipByDate=all&forceOrdersTableRefreshTrigger=false';
+  headers['referer'] = 'https://sellercentral.amazon.in/orders-v3/mfn/unshipped';
+
+  const data = await fetchWithRetry(amzUrl, { headers });
+  if (data && data._error) {
+    const checkAgain = await loginState(amzEntry);
+    const isRealLogout = !checkAgain.loggedIn || (data._authError && data._isSignInPage);
+    return { ok: false, error: data._error, isLoggedOut: isRealLogout };
+  }
+
+  if (data && Array.isArray(data.orders)) {
+    return { ok: true, orders: data.orders, headers };
+  }
+
+  return { ok: false, error: 'Could not parse Amazon orders array' };
+}
+
 async function runAmazonScrape() {
   const { appUrl, syncSecret } = await getConfig();
   if (!appUrl || !syncSecret) return;
   const healthObj = (await chrome.storage.local.get(['health'])).health || {};
   if (healthObj.amazon && healthObj.amazon.state === 'missing') return;
 
-  const amzUrl = 'https://sellercentral.amazon.in/orders-api/search?limit=100&offset=0&sort=status_desc&date-range=last-7&fulfillmentType=mfn&orderStatus=unshipped&forceOrdersTableRefreshTrigger=false&isSearchQuery=true&programs=easyship';
-  const data = await fetchWithRetry(amzUrl);
-  if (data && data._error) {
-     console.error('Amazon local scrape failed:', data._error);
-     if (data._error.includes('login') || data._error.includes('Sign-In') || data._error.includes('Unauthorized')) {
+  const res = await scrapeAmazonData();
+  if (!res.ok) {
+     console.error('Amazon local scrape failed:', res.error);
+     if (res.isLoggedOut) {
        await fetchBot(`${appUrl}/api/proxy-submit`, {
          method: 'POST',
          headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
          body: JSON.stringify({ marketplace: 'amazon', stateChange: 'logout' })
        }).catch(console.error);
      }
-  } else if (data && Array.isArray(data.orders)) {
-    // Also fetch Amazon cancellations locally!
-    const amzCancelUrl = 'https://sellercentral.amazon.in/orders-api/search?limit=100&offset=0&sort=ship_by_desc&date-range=last-90&fulfillmentType=mfn&orderStatus=canceled&program=easyship&forceOrdersTableRefreshTrigger=false';
-    const cancelData = await fetchWithRetry(amzCancelUrl);
-    
-    const pAmz = (await chrome.storage.local.get(['proxyPeriodAmazon'])).proxyPeriodAmazon || 5;
-    const payload = { marketplace: 'amazon', orders: data.orders, interval: pAmz };
-    if (cancelData && !cancelData._error && Array.isArray(cancelData.orders)) {
-       payload.canceledOrders = cancelData.orders;
-    }
-
-    await fetchBot(`${appUrl}/api/proxy-submit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
-      body: JSON.stringify(payload)
-    }).catch(console.error);
+     return;
   }
+
+  const orders = res.orders || [];
+
+  // Also fetch Amazon cancellations locally!
+  const amzCancelUrl = 'https://sellercentral.amazon.in/orders-api/search?limit=100&offset=0&sort=ship_by_desc&date-range=last-90&fulfillmentType=mfn&orderStatus=canceled&program=easyship&forceOrdersTableRefreshTrigger=false';
+  const cancelHeaders = { ...(res.headers || {}), referer: 'https://sellercentral.amazon.in/orders-v3/mfn/canceled' };
+  const cancelData = await fetchWithRetry(amzCancelUrl, { headers: cancelHeaders });
+  
+  const pAmz = (await chrome.storage.local.get(['proxyPeriodAmazon'])).proxyPeriodAmazon || 5;
+  const payload = { marketplace: 'amazon', orders, interval: pAmz };
+  if (cancelData && !cancelData._error && Array.isArray(cancelData.orders)) {
+     payload.canceledOrders = cancelData.orders;
+  }
+
+  await fetchBot(`${appUrl}/api/proxy-submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
+    body: JSON.stringify(payload)
+  }).catch(console.error);
 }
 
 async function runMyntraScrape() {
@@ -190,16 +248,20 @@ async function runMyntraScrape() {
   const healthObj = (await chrome.storage.local.get(['health'])).health || {};
   if (healthObj.myntra && healthObj.myntra.state === 'missing') return;
 
+  const mynEntry = MARKETPLACES.find((m) => m.marketplace === 'myntra');
+  let mynHeaders = {};
+  try { mynHeaders = await buildHeaders(mynEntry); } catch (e) {}
+
   const warehouseId = healthObj.warehouseId || '89623';
   const mynUrl = `https://partnersapi.myntrainfo.com/api/mdirect/orders/v2/open?status=CREATED&fetchSize=100&start=0&sortBy=id&sortOrder=ASC&warehouseId=${warehouseId}`;
-  const data = await fetchWithRetry(mynUrl);
+  const data = await fetchWithRetry(mynUrl, { headers: mynHeaders });
   
   if (data && !data._error) {
     const orders = extractMyntraOrders(data);
     if (orders && orders.length >= 0) {
       // Also fetch Myntra cancellations locally!
       const mynCancelUrl = `https://partnersapi.myntrainfo.com/api/mdirect/orders/cancel?fetchSize=100&start=0&sortBy=lastModifiedOn&sortOrder=DESC&warehouseId=${warehouseId}`;
-      const cancelData = await fetchWithRetry(mynCancelUrl);
+      const cancelData = await fetchWithRetry(mynCancelUrl, { headers: mynHeaders });
       
       const pMyn = (await chrome.storage.local.get(['proxyPeriodMyntra'])).proxyPeriodMyntra || 2;
       const payload = { marketplace: 'myntra', orders, interval: pMyn };
@@ -216,8 +278,8 @@ async function runMyntraScrape() {
     }
   } else {
     console.error('Myntra local scrape failed:', data ? data._error : 'Unknown error');
-    const errStr = data && data._error ? data._error : '';
-    if (errStr.includes('login') || errStr.includes('Sign-In') || errStr.includes('Unauthorized')) {
+    const checkAgain = mynEntry ? await loginState(mynEntry) : { loggedIn: false };
+    if (!checkAgain.loggedIn || (data && data._authError)) {
        await fetchBot(`${appUrl}/api/proxy-submit`, {
          method: 'POST',
          headers: { 'Content-Type': 'application/json', 'x-sync-secret': syncSecret },
@@ -1236,11 +1298,9 @@ async function handleTestLocal(marketplace) {
     let orders = [];
     
     if (marketplace === 'amazon') {
-      const amzUrl = 'https://sellercentral.amazon.in/orders-api/search?limit=100&offset=0&sort=status_desc&date-range=last-7&fulfillmentType=mfn&orderStatus=unshipped&forceOrdersTableRefreshTrigger=false&isSearchQuery=true&programs=easyship';
-      const data = await fetchWithRetry(amzUrl);
-      if (data && data._error) return { ok: false, error: data._error };
-      if (data && Array.isArray(data.orders)) orders = data.orders;
-      else return { ok: false, error: 'Could not parse Amazon orders array' };
+      const res = await scrapeAmazonData();
+      if (!res.ok) return { ok: false, error: res.error };
+      orders = res.orders;
     } else if (marketplace === 'flipkart') {
       const res = await scrapeFlipkartData();
       if (res.error) return { ok: false, error: res.error };

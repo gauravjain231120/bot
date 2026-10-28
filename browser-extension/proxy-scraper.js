@@ -16,7 +16,7 @@ async function fetchWithRetry(url, maxTries = 2) {
 async function runProxyScraper(health, appUrl, syncSecret, localAmazon, localMyntra) {
   if (localAmazon && health.amazon && health.amazon.state !== 'missing') {
     // Fetch Amazon Unshipped
-    const amzUrl = 'https://sellercentral.amazon.in/orders-api/search?limit=100&offset=0&sort=status_desc&date-range=last-7&fulfillmentType=mfn&orderStatus=unshipped&forceOrdersTableRefreshTrigger=false&isSearchQuery=true&programs=easyship';
+    const amzUrl = 'https://sellercentral.amazon.in/orders-api/search?limit=100&offset=0&sort=ship_by_asc&date-range=last-90&fulfillmentType=mfn&orderStatus=unshipped&program=easyship&shipByDate=all&forceOrdersTableRefreshTrigger=false';
     const data = await fetchWithRetry(amzUrl);
     if (data && Array.isArray(data.orders)) {
       await fetch(`${appUrl}/api/proxy-submit`, {
