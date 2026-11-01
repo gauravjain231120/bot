@@ -1,7 +1,8 @@
 
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
-import { sendOwnerAlert } from '../../../lib/telegram';
+import { sendOwnerAlert, sendTelegramMessage } from '../../../lib/telegram';
+import { getOtcRecipientScope } from '../../../lib/otcConfig';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -97,7 +98,12 @@ export async function POST(request) {
       msg += `\n\n⚠️ <b>Discrepancy detected!</b> Check with the courier or raise a dispute.`;
     }
 
-    await sendOwnerAlert(msg);
+    const scope = await getOtcRecipientScope(db);
+    if (scope === 'BROADCAST') {
+      await sendTelegramMessage(msg);
+    } else {
+      await sendOwnerAlert(msg);
+    }
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Handover log error:', err);
