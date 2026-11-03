@@ -4,7 +4,7 @@ import { replyToChat, sendTelegramMessage, getBotUsername } from '../../../lib/t
 import { secretMatches } from '../../../lib/secrets';
 import { recordSeen } from '../../../lib/recipients';
 import { escapeHtml } from '../../../lib/html';
-import { fetchPackedCount, fetchOtc } from '../../../lib/myntra';
+import { fetchPackedCount, fetchPackedPackets, fetchOtc } from '../../../lib/myntra';
 import {
   fetchQueueSummary,
   formatShipList,
@@ -19,6 +19,8 @@ import {
   toDMY,
   todayIst,
 } from '../../../lib/telegramCommands';
+import { pickupPackets } from '../../../lib/checkOtc';
+import { cancelledTrackingIds } from '../../../lib/manualCancels';
 
 // Same saved Myntra session the cron checks use — read fresh per command
 // rather than cached, so a just-refreshed session takes effect immediately.
@@ -249,14 +251,26 @@ export async function POST(request) {
         const headers = await getMyntraHeaders();
         const [pickup, ret] = await Promise.all([fetchOtc('PICKUP', headers), fetchOtc('RETURN', headers)]);
         const values = { pickupMys: pickup.MYS || null, pickupMye: pickup.MYE || null, returnMys: ret.MYS || null, returnMye: ret.MYE || null };
-        await sendTelegramMessage(formatOtcStatus(values));
+        let packed;
+        try {
+          const { packets, capped } = await fetchPackedPackets(headers);
+          const cancelled = await cancelledTrackingIds().catch(() => new Set());
+          packed = { ...pickupPackets(packets, todayIst(), cancelled), capped };
+        } catch (e) { packed = { error: true }; }
+        await sendTelegramMessage(formatOtcStatus(values, packed));
         break;
       }
       case '/otc': {
         const headers = await getMyntraHeaders();
         const [pickup, ret] = await Promise.all([fetchOtc('PICKUP', headers), fetchOtc('RETURN', headers)]);
         const values = { pickupMys: pickup.MYS || null, pickupMye: pickup.MYE || null, returnMys: ret.MYS || null, returnMye: ret.MYE || null };
-        await replyToChat(chatId, formatOtcStatus(values));
+        let packed;
+        try {
+          const { packets, capped } = await fetchPackedPackets(headers);
+          const cancelled = await cancelledTrackingIds().catch(() => new Set());
+          packed = { ...pickupPackets(packets, todayIst(), cancelled), capped };
+        } catch (e) { packed = { error: true }; }
+        await replyToChat(chatId, formatOtcStatus(values, packed));
         break;
       }
       case '/makeall': {
