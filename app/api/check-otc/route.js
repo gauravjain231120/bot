@@ -27,7 +27,8 @@ export async function GET(request) {
   }
 
   try {
-    const result = await runCheckOtc();
+    const force = request.nextUrl.searchParams.get('force') === 'true';
+    const result = await runCheckOtc(force);
     return NextResponse.json(result);
   } catch (err) {
     return cronFailure(err);
